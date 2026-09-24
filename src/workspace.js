@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
 export const MANIFESTS = {
@@ -39,9 +40,17 @@ function projectEvidence(names) {
   ].some((name) => names.includes(name)) || names.some((name) => name.endsWith(".sln") || name.endsWith(".csproj"));
 }
 
-function nearestProjectRoot(start) {
-  let current = path.resolve(start);
+function nearestProjectRoot(start, home = os.homedir()) {
+  const resolvedStart = path.resolve(start);
+  const resolvedHome = path.resolve(home);
+  const startsBelowHome = resolvedStart !== resolvedHome && resolvedStart.startsWith(`${resolvedHome}${path.sep}`);
+  let current = resolvedStart;
   while (true) {
+    // A manifest in the user's home describes commands run from home itself. It
+    // must not absorb unrelated workspaces below home that have no root marker.
+    if (startsBelowHome && current === resolvedHome) {
+      return { root: resolvedStart, names: directoryNames(resolvedStart) };
+    }
     const names = directoryNames(current);
     if (projectEvidence(names)) return { root: current, names };
     if (names.includes(".git")) return { root: current, names };
@@ -62,8 +71,8 @@ function packageManagerFromManifest(file) {
   }
 }
 
-export function detectStack(cwd = process.cwd()) {
-  const located = nearestProjectRoot(cwd);
+export function detectStack(cwd = process.cwd(), { home = os.homedir() } = {}) {
+  const located = nearestProjectRoot(cwd, home);
   const root = safeRealpath(located.root);
   const { names } = located;
   const present = new Set(names);
