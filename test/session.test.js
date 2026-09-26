@@ -74,6 +74,41 @@ test("session planning has no side effects and session-only prepares only extern
   assert.equal(fs.existsSync(path.join(item.project, ".clean-development.json")), false);
 });
 
+test("home detection preserves workspace and session-only storage boundaries", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "clean-development-home-boundary-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const home = path.join(root, "home");
+  const workspace = path.join(home, "Projects", "manifestless-workspace");
+  fs.mkdirSync(workspace, { recursive: true });
+  fs.writeFileSync(path.join(home, "package.json"), "{}\n");
+
+  const detected = detectStack(workspace, { home });
+
+  assert.equal(detected.root, fs.realpathSync(workspace));
+  assert.deepEqual(detected.tools, []);
+
+  const managed = path.join(home, "Library", "Caches", "clean-development");
+  const env = {
+    ...isolatedEnvironment(root),
+    CLEAN_DEVELOPMENT_HOME: home,
+    CLEAN_DEVELOPMENT_ROOT: managed
+  };
+  const workspaceConfig = resolveConfig({ cwd: workspace, env });
+  const workspacePlan = planSession({ cwd: workspace, env, config: workspaceConfig });
+  assert.equal(workspacePlan.projectRoot, detected.root);
+  assert.deepEqual(workspacePlan.detected.tools, []);
+  assert.equal(workspacePlan.projectConfig.path, path.join(detected.root, ".clean-development.json"));
+  assert.deepEqual(workspacePlan.managed.environment, {});
+
+  const config = resolveConfig({ cwd: home, env });
+  const plan = planSession({ cwd: home, env, config });
+
+  assert.equal(plan.projectRoot, fs.realpathSync.native(home));
+  assert.deepEqual(plan.managed.repositoryPaths, []);
+  assert.equal(plan.choices[0].mode, "session-only");
+  assert.equal(plan.choices[0].available, true);
+});
+
 test("session-only refuses every managed path inside the project", (t) => {
   const item = fixture();
   t.after(() => fs.rmSync(item.root, { recursive: true, force: true }));

@@ -51,6 +51,10 @@ function inspectProjectConfig(file) {
 
 function repositoryManagedPaths(projectRoot, managed) {
   const root = canonicalizePotentialPath(projectRoot);
+  const home = managed.locations?.home
+    ? canonicalizePotentialPath(managed.locations.home)
+    : null;
+  if (root === home) return [];
   return [...new Set([managed.root, managed.cacheRoot, managed.buildRoot, managed.scratchRoot]
     .map((value) => canonicalizePotentialPath(value))
     .filter((value) => value === root || isPathInside(root, value)))];
@@ -102,7 +106,7 @@ function mergePreview(detection, config, env) {
 
 export function planSession({ cwd = process.cwd(), env = process.env, config } = {}) {
   if (!config) throw new Error("planSession requires resolved configuration");
-  const detection = detectStack(cwd);
+  const detection = detectStack(canonicalizePotentialPath(cwd), { home: config.locations.home });
   const projectConfig = inspectProjectConfig(path.join(detection.root, CONFIG_FILE));
   const proposed = proposedProjectConfig(detection, config);
   const routing = mergePreview(detection, config, env);
