@@ -5,7 +5,7 @@ labels: [bug]
 body:
   - type: markdown
     attributes:
-      value: Do not report security vulnerabilities here. Use the private route in SECURITY.md.
+      value: Do not post vulnerability details here. Read https://github.com/magrathean-uk/clean-development/blob/main/SECURITY.md for the reporting policy.
   - type: input
     id: version
     attributes:
@@ -30,11 +30,11 @@ body:
     id: actual
     attributes:
       label: Actual behavior and reproduction
-      description: Remove secrets and private paths. Include the smallest command sequence.
+      description: Remove secrets, prompts, account data, and private paths. Include the smallest command sequence and the selected session mode.
     validations:
       required: true
   - type: textarea
     id: diagnostics
     attributes:
-      label: Sanitized status and doctor output
+      label: Sanitized status and doctor output, including exit codes
       render: shell

@@ -46,7 +46,7 @@ Shared-cache variables are applied at session start. Cargo output remains under 
 - OpenCode's additive `shell.env` contract cannot delete parent variables. Its launcher therefore defers static cache routing to command shims. If an older or external OpenCode parent still carries session-injected cache variables, entry into a disabled project fails before the shell command runs instead of leaking that routing.
 - Plugin lifecycle entry points remain dormant until explicit setup has installed a runtime receipt. The receipt enables native exposure only; default `skip` still prevents routing. The management skill is user-invoked only in Claude and Codex metadata.
 - Direct child executables are spawned without a shell, so argv is not joined or reparsed. Windows `.cmd` and `.bat` tools use `ComSpec` with metacharacter escaping, multiline and NUL rejection, and verbatim arguments.
-- State contains paths, IDs, timestamps, tool names, and PIDs—not command bodies or prompts.
+- State contains paths, IDs, timestamps, tool names, and PIDs, not command bodies or prompts.
 - npm installation has no lifecycle mutation.
 - GitHub Actions use least-privilege permissions and commit-pinned actions.
 

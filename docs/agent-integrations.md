@@ -1,6 +1,8 @@
 # Agent integrations
 
-Clean Development follows Superpowers' 13-family, 14-surface repository shape but not its prompt-bootstrap strategy. Coverage in this document means that a distribution or launch route is present. It does not mean that every host has passed end-to-end acceptance.
+Clean Development includes launch or package routes for 13 agent families and 14 surfaces. Coverage in this document means that a distribution or launch route is present. It does not mean that every host has passed end-to-end acceptance.
+
+Named host observations below are dated repository records. Their results apply to the recorded revisions and host versions. See [verification](verification.md) for dates and limits.
 
 ## Support levels
 
@@ -45,6 +47,7 @@ Codex's own sandbox permissions remain separate. The recorded Rust acceptance us
 ## Setup behavior
 
 ```sh
+clean-development setup --dry-run --agents claude,codex,grok
 clean-development setup --agents claude,codex,grok
 ```
 
@@ -77,26 +80,11 @@ The Codex plugin manifest must include a `defaultPrompt` field for the host sche
 
 The npm CLI path uses no skill at all. For the advertised token-neutral plugin routes, install Claude and Grok through their included marketplace manifests. Do not point `claude --plugin-dir` or `grok --plugin-dir` at the repository or npm package root: direct-root loading bypasses the marketplace's selected skill/plugin root and may discover the root Codex management skill. Other plugin hosts may catalogue bundle metadata according to their own rules; if even catalogue metadata is unacceptable, use only the npm CLI and launcher.
 
-### Codex desktop access errors
+### Host installation limits
 
-If the Codex desktop plugin browser reports `access_programs` is not enabled for the organization, the failure is in the signed-in workspace's plugin entitlement, not in this package. OpenAI documents plugin availability as a workspace control for desktop surfaces, while Codex CLI has its own local marketplace browser. There is no package-side switch that can bypass the organization gate.
+A package manifest does not establish that a host account can install or activate it. Diagnose host entitlement and marketplace errors in the host's own configuration. Do not change package code to bypass an account restriction.
 
-Use the npm/launcher route while that entitlement is unavailable. From this checkout:
-
-```sh
-node ./bin/clean-development.js setup --root /absolute/path/to/managed-artifacts --agents codex
-```
-
-After the package is published, the equivalent is `npx clean-development setup --root /absolute/path/to/managed-artifacts --agents codex`.
-
-For a checkout, the Codex CLI route is independent of the desktop browser:
-
-```sh
-codex plugin marketplace add /absolute/path/to/clean-development
-codex plugin add clean-development@clean-development-dev
-```
-
-The second route installs the local plugin without adding prompt text or making model calls. A workspace owner/admin must enable plugin access if the desktop marketplace is required.
+For a checkout, the local CLI remains available as `node ./bin/clean-development.js`; review `session --dry-run --json` before choosing routing. The CLI launcher starts Codex CLI, not the Codex App. Host settings and sandbox access require separate review.
 
 ## Acceptance status
 

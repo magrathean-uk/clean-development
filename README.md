@@ -1,238 +1,141 @@
 # clean-development
 
-Keep new development caches and supported build output in one managed place.
+`clean-development` routes new development caches and supported build output to a managed root. It is a local Node.js CLI for developers and coding agents. Routing is explicit and preserves existing environment values unless force mode is selected.
 
-`clean-development` is a local, open-source storage router for developers and coding agents. It gives supported tools a predictable cache or build directory after an explicit session choice, without asking the model to remember cleanup rules on every turn. Installed native integrations expose the stable CLI and shims in `skip` pass-through mode until that choice is made.
-
-```text
-your agent or terminal
-        |
- clean-development shims
-        |
-  ordinary cargo/go/npm/... commands
-        |
-  ~/Developer/.artifacts/
-    caches/       shared downloads and compiler caches
-    builds/       one directory per Cargo workspace or manifest root
-    scratch/      reserved scratch space; not pruned in 0.2.1
-```
-
-The current source version is `0.2.1` and should be treated as an early release. It is not yet published to npm or listed in the official Codex or Claude directories. Use the source checkout below until a public release is available.
+The current source version is `0.2.1` and requires Node.js `20.12` or newer. The repository is MIT licensed. It has not been published to npm or listed in the official Codex or Claude directories; use this source checkout until a public release is available.
 
 [Support](SUPPORT.md) · [Privacy](PRIVACY.md) · [Software terms](TERMS.md) · [License](LICENSE)
 
-## Install
+Directory review is separate from public availability. The Claude directory submission passed its automated security scan and is in manual policy review because the bundle contains executable files. The [Codex community submission](https://github.com/openai/community-plugins/pull/21) is open but not live. The global OpenAI directory listing is a draft and has not been submitted because its MCP form blocks the submission.
 
-After the package is published:
+## What it manages
+
+When a routed session is active, the CLI provides adapters for:
+
+| Tool | Managed value |
+| --- | --- |
+| Cargo | Per-workspace `CARGO_TARGET_DIR` |
+| Go | `GOCACHE` and `GOMODCACHE` |
+| npm and npx | npm cache |
+| pnpm | npm cache and pnpm store |
+| Yarn | Yarn cache |
+| Bun | Bun install cache |
+| uv | uv cache |
+| pip and pip3 | pip cache |
+| dotnet | NuGet packages |
+| Composer | Composer cache |
+| ccache and sccache | Native compiler cache |
+
+It does not move `node_modules`, virtual environments, final Go binaries, release archives, Xcode archives, Rust toolchains, credentials, or arbitrary framework output. `CARGO_HOME` is not relocated because it can contain configuration, credentials, installed binaries, and caches together.
+
+The default managed layout is one root with `caches/`, `builds/`, and `scratch/` children. Routed Cargo build workspaces receive ownership records and active-build leases. Scratch storage is reserved; automatic scratch registration and cleanup are not implemented. Pruning is limited to registered direct children of the managed build root and is a dry run unless `--apply` is supplied.
+
+## Install and develop from this checkout
+
+The source checkout uses the standard npm scripts:
 
 ```sh
-npm install --global clean-development
-clean-development setup --root "$HOME/Developer/.artifacts" --agents all
-clean-development doctor
-```
-
-After npm publication, you can also run setup once with `npx`; setup copies the runtime to a durable application-data directory, so no hook points into npm's temporary `_npx` cache:
-
-```sh
-npx clean-development@0.2.1 setup --root "$HOME/Developer/.artifacts" --agents all
-```
-
-An `npx` process has a temporary, project-influenced `PATH`. Clean Development refuses to save that PATH into Codex's global configuration and reports its stable launcher instead. Claude's absolute hook and the durable runtime are still installed. To install Codex's native pass-through policy, run the globally installed command from a fresh shell; routing still requires an explicit launcher/session choice. Grok setup writes an owned `toolset.bash.cmd_prefix` that sources the durable runtime's environment helper in default-skip mode; it does not persist the temporary npm PATH.
-
-For this source checkout:
-
-```sh
-npm install
+npm run check
 npm test
-node ./bin/clean-development.js setup --dry-run --root "$HOME/Developer/.artifacts"
+npm run test:package
 ```
 
-`setup` is explicit. Installing the npm package does not edit agent settings, install hooks, or move existing files. If a host discovers the bundled Claude, OpenCode, or Pi integration before setup, activation stays dormant. A later runtime receipt permits the native entry point to expose the stable command path, but it remains in `skip` pass-through mode until an explicit choice.
+The package has no runtime or development dependency declaration, so a clean checkout does not need `npm install` for these scripts. `package.json` declares Node.js `>=20.12`. `npm run check` validates repository-facing files, `npm test` runs the Node test suite, and `npm run test:package` packs and installs temporary tarballs, including the preceding-release tag named in `scripts/verify-package.mjs`. Run it only with that tag available. A quick check should not use `npm pack --dry-run`: the package's `prepack` hook runs the check and test suite. The fixture lab is a separate offline integration exercise described in [`test/lab/README.md`](test/lab/README.md).
 
-After setup, native integrations start each repository in consent-pending pass-through mode. They expose the durable `clean-development` command and shims, set `CLEAN_DEVELOPMENT_SESSION_MODE=skip`, and leave ordinary tool storage unchanged. In an already-open native session, review the plan and use an explicit `clean-development run --session session-only|persist -- ...`; the inherited `skip` intentionally suppresses a second launcher prompt. An effective project setting of `enabled: false` remains inert.
-
-## Pick where managed files go
-
-Set one root and get separate cache, build, and scratch areas:
+The CLI can be run directly without installing a global command:
 
 ```sh
-clean-development setup --root /Volumes/DevCache/clean-development --agents all
+node ./bin/clean-development.js --help
+node ./bin/clean-development.js status --json
 ```
+
+For an installed package, the executable is `clean-development`. Setup is explicit and does not run as an npm install side effect. Review a proposed session first when deciding whether to use routing in another repository:
+
+```sh
+clean-development session --dry-run --json
+```
+
+## Configuration and storage
+
+`setup` resolves a root and selected agent integrations. It creates the managed directories, durable runtime, and user configuration only when run without `--dry-run`:
+
+```sh
+clean-development setup --dry-run --root /path/to/artifacts --agents claude,codex
+clean-development setup --root /path/to/artifacts --agents claude,codex
+```
+
+The project configuration file is `.clean-development.json`. `init` writes a project file, while `prepare` creates or checks the effective cache, build, and scratch directories:
+
+```sh
+clean-development init --root /path/to/artifacts
+clean-development prepare --dry-run --json
+clean-development prepare
+```
+
+Paths must be absolute. The parent of an external destination must already exist, so an unavailable mount fails instead of being silently created elsewhere. Resolution precedence is command-line option, environment variable, project configuration, user configuration, then platform default. Supported environment overrides include `CLEAN_DEVELOPMENT_ROOT`, `CLEAN_DEVELOPMENT_CACHE_ROOT`, `CLEAN_DEVELOPMENT_BUILD_ROOT`, and `CLEAN_DEVELOPMENT_SCRATCH_ROOT`.
+
+## Session modes and routing
+
+The session command can inspect or apply one of three modes:
+
+```sh
+clean-development session --dry-run --json
+clean-development session --session session-only --json
+clean-development session --session persist --json
+clean-development session --session skip --json
+```
+
+The standalone `session` command applies or prepares its choice for that invocation and then exits. It cannot change the environment of its parent shell. Use `run` or `agent` to route a child command. `session-only` routes that child without creating project settings. `persist` may create the reviewed `.clean-development.json`. `skip` leaves ordinary tool storage unchanged. When no explicit mode is supplied, selection first considers inherited `CLEAN_DEVELOPMENT_SESSION_MODE`; noninteractive `agent` and `run` invocations otherwise default to `session-only`, while direct native integrations default to `skip` until an explicit choice is made.
+
+Route a child command with the public wrapper:
+
+```sh
+clean-development run --session session-only -- npm test
+clean-development run --session skip -- cargo test --offline
+```
+
+Cargo should run through the wrapper or Cargo shim because its per-workspace output needs ownership and lease tracking. Shared cache adapters can also be inspected with:
+
+```sh
+clean-development env --tool npm --format sh
+clean-development env --format json
+```
+
+Explicit environment variables win by default. `CLEAN_DEVELOPMENT_FORCE=1` is required to override them. The runtime does not inject prompts, bootstrap text, telemetry, or model calls.
+
+## CLI reference
+
+The executable exposes these commands:
 
 ```text
-/Volumes/DevCache/clean-development/
-  caches/
-    go/build/
-    go/modules/
-    node/npm/
-    python/uv/
-    ...
-  builds/
-    my-app-a81f44c901/
-      cargo/target/
-  scratch/
+setup [--root PATH] [--agents LIST] [--dry-run] [--json]
+update [--root PATH] [--agents LIST] [--dry-run] [--json]
+prepare [--dry-run] [--json]
+session [--session session-only|persist|skip] [--dry-run] [--json]
+init [--root PATH] [--force]
+agent AGENT [--session session-only|persist|skip] [-- ARGS...]
+run [--session session-only|persist|skip] -- COMMAND [ARGS...]
+env [--tool TOOL] [--format json|sh|fish|powershell]
+status [--sizes] [--json]
+doctor [--json]
+prune [--older-than DAYS] [--apply] [--json]
+pin WORKSPACE_ID
+unpin WORKSPACE_ID
+uninstall [--dry-run] [--json]
 ```
 
-You can split them when a fast or large volume should hold only build output:
+Use `clean-development COMMAND --help` to display CLI usage. Child command options belong after `--`.
 
-```json
-{
-  "$schema": "https://raw.githubusercontent.com/magrathean-uk/clean-development/main/schemas/project-config.schema.json",
-  "schemaVersion": 1,
-  "root": "/Volumes/DevCache/clean-development",
-  "buildRoot": "/Volumes/FastSSD/builds/my-app"
-}
-```
+`status` reports configured paths and workspace records. `doctor` checks managed directories and owned runtime files without repairing them. `update` refreshes the durable runtime and configured integrations. `uninstall` removes owned integrations and launchers while retaining configuration and managed data. Use `prune --json` first; add `--apply` only when the listed registered workspaces are intended for removal.
 
-Save that as `.clean-development.json` in the project, or generate the basic file:
+## Safety boundaries
 
-```sh
-clean-development init --root /Volumes/DevCache/clean-development
-clean-development prepare
-```
+The router is not a filesystem sandbox. A tool can still write an absolute path outside the managed root. Managed paths must be real directories and are checked against the configured root. Existing explicit environment values are preserved. Unregistered paths are outside automatic prune ownership. The CLI refuses a managed root inside the detected project for routed sessions.
 
-`prepare` creates the effective project's cache/build/scratch base directories without changing user configuration. The direct parent of every external destination must already exist, which makes a missing mount fail instead of silently creating the path on another disk. Precedence is: command-line option, environment variable, project config, user config, platform default.
+The test suite covers configuration precedence, routing, ownership, leases, pruning, integration edits, and safety regressions. The fixture lab provides separate baseline and routed projects for Rust, Node, and Go. Neither source tests nor package metadata establish ordinary-user acceptance for every listed host integration.
 
-## Use it with an agent
+## Project documentation
 
-For management-skill invocation in Codex, Claude, AGY, and Grok, see the [four-host skill guide](docs/skill-compatibility.md). Routing itself does not require a skill.
+The detailed documents in `docs/` cover [architecture](docs/architecture.md), [configuration](docs/configuration.md), [agent integrations](docs/agent-integrations.md), [safety](docs/safety-model.md), and [verification](docs/verification.md). Read the verification document before treating an integration manifest or launcher as host acceptance evidence.
 
-Review the project and storage plan before launching:
-
-```sh
-clean-development session --dry-run --json
-# From an ordinary terminal with no inherited native session mode:
-clean-development agent codex
-```
-
-An interactive launcher shows detected tools, cache/build destinations, and the exact project configuration it could create. Choose **session only** to route this process and its children, **save project settings** to also create the reviewed `.clean-development.json`, or **skip** to launch without Clean Development routing. Session only is the Enter default. Existing project configuration is retained rather than overwritten.
-
-For scripts or an explicit choice, use `--session` before the agent's argument separator:
-
-```sh
-clean-development agent codex --session session-only -- exec "Run the tests"
-clean-development agent grok --session persist
-clean-development run --session skip -- cargo test
-```
-
-Noninteractive `agent`, `run`, and stable `clean-development-AGENT` launcher calls default to `session-only`: they prepare managed storage and route supported tools without saving project settings. Direct native host entry points default to `skip`. Routed session choices refuse any managed root inside the detected project. `skip` bypasses new runtime creation and managed routing. `session --dry-run` is read-only; `session --session persist` can save the reviewed settings without launching anything. The standalone `session` command does not change the parent shell's environment; an already-running agent must use `clean-development run --session ... -- COMMAND` for routed child commands or relaunch through `clean-development agent`.
-
-Native hooks do not silently choose that noninteractive default. A directly opened Codex, Claude, Grok, OpenCode, or Pi session starts with the installed shims in pass-through mode until the user or the explicitly invoked management skill chooses a mode. The skill first shows the read-only plan and asks before any project file is created. Native Codex launcher runs pass the selected mode as a command-line configuration override so its installed `skip` default cannot supersede the explicit choice.
-
-Inside such a native session, make the approved transition explicit:
-
-```sh
-clean-development run --session session-only -- cargo test
-# or start a child agent explicitly
-clean-development agent codex --session session-only -- exec "Run the tests"
-```
-
-Detection checks nearby manifests and lockfiles without running project code, installing dependencies, or recursively scanning source. Detected shared-cache variables are applied to the child environment once; Cargo's target remains dynamic so its shim can select and protect the workspace used by each command. See [session choices](docs/configuration.md#session-choices) for precedence and persistence details.
-
-The runtime activators and launchers do not add bootstrap instructions, MCP schemas, `AGENTS.md` text, or model calls. The optional management skill is explicit-only for Codex and for Claude when installed through the included marketplace manifest; it is not part of command routing. Do not load this repository or npm package root directly with `claude --plugin-dir` or `grok --plugin-dir`: direct-root loading bypasses the marketplace's selected skill/plugin root. Use the marketplace route or `clean-development setup`/the launchers instead.
-
-```sh
-clean-development agent codex
-clean-development agent claude
-clean-development agent grok
-
-# Any other command works too
-clean-development run -- my-agent --flag
-```
-
-The repository targets the same 13 agent families and 14 named surfaces documented by Superpowers 6.3.0. That describes packaging breadth, not 14 verified native integrations:
-
-| Agent surface | Route included | Current status |
-|---|---|---|
-| Claude Code | `SessionStart`/`CwdChanged` pass-through integration and `clean-development-claude` launcher | Management skill and explicitly wrapped child commands passed with 2.1.283 / Sonnet 5; full native-hook/lifecycle acceptance pending |
-| Antigravity | `clean-development-antigravity` launcher; portable metadata | Routing and short model workflow passed with `agy` 1.2.7; long print-mode commands are canceled by an upstream lifecycle bug; explicit-only native skill discovery unverified |
-| Codex App | Default-skip `shell_environment_policy`; Codex plugin and marketplace metadata | Implemented; app restart/sandbox acceptance pending |
-| Codex CLI | Non-login-shell `clean-development-codex` launcher and native environment policy | Model-backed Rust workflow passed with 0.154.0, Terra high, managed Cargo output, and no local `target` |
-| Cursor | Cursor manifest and `clean-development-cursor` launcher | Launcher/package route only; acceptance pending |
-| Devin CLI | Devin manifest and `clean-development-devin` launcher | Launcher/package route only; acceptance pending |
-| Factory Droid | `clean-development-droid` launcher; Claude-compatible metadata | Launcher/package route only; acceptance pending |
-| Gemini CLI | Context-free extension manifest and `clean-development-gemini` launcher | Launcher smoke passed with 0.54.4; model workflow pending |
-| GitHub Copilot CLI | `clean-development-copilot` launcher; Claude-compatible metadata | Launcher smoke passed with 1.0.80; model workflow pending |
-| Grok Build CLI | Owned `toolset.bash.cmd_prefix`, `clean-development-grok` launcher, and package metadata | Model-shell routing passed with 1.0.34 after the command prefix repaired Grok's login-PATH replacement |
-| Kimi Code | Kimi manifest and `clean-development-kimi` launcher | Launcher/package route only; acceptance pending |
-| OpenCode | Default-skip `shell.env` plugin and deferred-cache `clean-development-opencode` launcher | Additive host environment contract is regression-tested; real model workflow pending |
-| Pi | Default-skip Bash `spawnHook` extension and `clean-development-pi` launcher | Implemented; package acceptance pending |
-| Hermes Agent | Hermes manifest and `clean-development-hermes` launcher | Launcher/package route only; acceptance pending |
-
-Here, a zero-context launcher means a small local executable that offers the terminal session choice, then starts the CLI with the selected environment. The terminal question injects no model prompt text. Claude, Codex, Grok, OpenCode, and Pi native entries default to `skip`; setup alone does not authorize routing. A manifest is distribution metadata only; it does not prove that a host installed the package or passed the environment to its shell. The host observations above predate the v0.2.0 consent flow and required a routed mode; final acceptance is tracked in [verification](docs/verification.md). See [agent integrations](docs/agent-integrations.md) for exact routes and release gates.
-
-## Supported tools
-
-When an explicit routed session mode is active, the shims change only native cache/output settings that have a clear ownership boundary. Existing explicit environment values win unless `CLEAN_DEVELOPMENT_FORCE=1` is deliberately set.
-
-| Command | Routed storage |
-|---|---|
-| `cargo` | Per-checkout `CARGO_TARGET_DIR` |
-| `go` | Shared `GOCACHE` and `GOMODCACHE` |
-| `npm`, `npx` | Shared npm cache |
-| `pnpm` | Shared npm cache and pnpm store |
-| `yarn` | Shared Yarn cache |
-| `bun` | Shared Bun install cache |
-| `uv` | Shared uv cache |
-| `pip`, `pip3` | Shared pip cache |
-| `dotnet` | Shared NuGet packages |
-| `composer` | Shared Composer cache |
-| `ccache`, `sccache` | Shared native compiler cache |
-
-`node_modules`, Python virtual environments, final Go binaries, release archives, Xcode archives, installed Rust toolchains, credentials, and arbitrary framework output are not moved. Those paths can be semantically important. More adapters should be added only with compatibility tests.
-
-## Commands
-
-```sh
-clean-development setup --dry-run --root /path/to/artifacts
-clean-development setup --root /path/to/artifacts --agents claude,codex,grok
-clean-development update --json
-clean-development prepare --dry-run
-clean-development prepare
-clean-development session --dry-run --json
-clean-development session --session persist --json
-clean-development run --session session-only -- npm test
-clean-development status --json
-clean-development status --sizes
-clean-development doctor --json
-clean-development env --tool npm --format sh
-clean-development prune --older-than 30d --json
-clean-development prune --older-than 30d --apply
-clean-development pin my-app-a81f44c901
-clean-development uninstall --dry-run
-clean-development uninstall
-```
-
-`prune` is a dry run unless `--apply` is present. It considers only registered, direct children of a recorded managed build root, and skips active or pinned workspaces. Uninstall removes owned integrations and launchers but retains configuration and managed data. Run uninstall with the same `CLEAN_DEVELOPMENT_DATA_HOME`/XDG data location and the same `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, and `GROK_HOME` choices used by setup. A mismatch fails visibly before editing agent files instead of following a receipt to a different path or claiming that anything was removed.
-
-`update` refreshes the durable runtime and re-applies the currently configured agent integrations. Without `--agents`, it preserves the agent selection recorded by setup; use `--agents` explicitly to change that selection.
-
-An explicit `--agents` selection also deactivates previously owned native integrations for omitted agents, while preserving unrelated configuration. Shared runtime launchers remain available for later selection.
-
-`env --tool` is for shared cache-only adapters. Cargo must run through the shim or `clean-development run -- cargo …` so its per-workspace directory has an ownership receipt and an active-build lease.
-
-Use `clean-development COMMAND --help` to see command usage and session defaults. Child options belong after `--`, for example `clean-development run --session skip -- cargo --help`.
-
-`doctor` is read-only and exits unsuccessfully when a managed storage directory is missing or inaccessible, or installed runtime files are missing, modified, or unusable. Mount the configured volume before repairing missing storage with `prepare`; use `update` to refresh an outdated runtime. Modified owned files are preserved for inspection.
-
-## What it does not promise
-
-- It does not clean or adopt existing clutter during installation.
-- It is routing, not a filesystem sandbox. An application can still write an absolute path elsewhere.
-- It does not relocate mixed state such as `CARGO_HOME`, which may contain credentials, config, installed binaries, and caches together.
-- It does not claim that every language or framework can move every build file safely.
-- It does not promise zero total billed tokens without host-level measurement. The measurable contract is zero product-injected prompt content and zero extra model/tool calls in normal CLI mode.
-
-Read [the master plan](docs/master-plan.md), [the architecture](docs/architecture.md), [storage and configuration](docs/configuration.md), [the safety model](docs/safety-model.md), and [current verification status](docs/verification.md) before extending or relying on an adapter.
-
-## Contributing and security
-
-This repository is MIT licensed. Contributions are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md), [GOVERNANCE.md](GOVERNANCE.md), and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
-
-Please do not report deletion, path traversal, command injection, configuration corruption, or release-chain vulnerabilities in a public issue. Follow [SECURITY.md](SECURITY.md).
-
-## Prior art and source material
-
-The packaging approach was informed by [Superpowers](https://github.com/obra/superpowers), while deliberately avoiding its prompt-bootstrap design. Related tools include [xdg-ninja](https://github.com/b3nj5m1n/xdg-ninja), [antidot](https://github.com/doron-cohen/antidot), and [kondo](https://github.com/tbillington/kondo). Clean Development focuses on preventing new managed output from scattering, not scanning and deleting arbitrary existing directories.
-
-Agent and tool behavior is based on primary documentation linked in [docs/research.md](docs/research.md).
+Contributions and security reports are covered by [`CONTRIBUTING.md`](CONTRIBUTING.md) and [`SECURITY.md`](SECURITY.md). Licensing terms are the complete [`MIT License`](LICENSE), with project guidance in [`docs/licensing.md`](docs/licensing.md). The project also includes [`SUPPORT.md`](SUPPORT.md), [`GOVERNANCE.md`](GOVERNANCE.md), and [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md).

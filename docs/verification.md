@@ -1,101 +1,65 @@
 # Verification status
 
-Updated for the source review on 26 September 2026. The v0.2.0 release and host observations below are historical evidence from 19 September 2026.
+This ledger separates recorded checks from current acceptance. The source version is `0.2.1`, but it is not an npm publication or release tag. The observations below are dated repository records. They do not establish acceptance for a later source revision, package, or host version.
 
-## 0.2.1 local rollout — 26 September 2026
+## Recorded evidence
 
-The reviewed fixes now have a distinct patch version so installed 0.2.0 runtimes can upgrade without replacing the contents of an existing version. Package and host manifests are synchronized at 0.2.1; this local rollout does not publish an npm package or create a release tag.
+| Snapshot | Recorded result | Limit |
+| --- | --- | --- |
+| 19 September 2026, v0.2.0 candidate | 148 tests: 147 passed, one native-Windows test skipped; package lifecycle and upgrade checks; Cargo, Go, npm, and uv smoke; six baseline/routed fixture cases | Historical candidate evidence; does not certify later source changes |
+| 19 September, macOS arm64 benchmark | 100 paired samples, 57.96 ms added median and 67.28 ms added p95 | One machine and Node version; no general speedup or supported-platform performance claim |
+| 19 September, Debian 13 ARM64 | Source and installed-package checks on Node 20.12.2 and 20.19.2 | Go and uv were unavailable in that environment |
+| 26 September, 0.2.1 local rollout | `npm run check`; 159 test successes with one platform-specific skip; 58-file installed-package gate covering exports, session choices, setup/status/uninstall, and upgrade from `v0.2.0` | Local source and isolated-package evidence; not npm publication, release-tag, or public-directory acceptance |
+| 26 September source review | 159 tests: 158 passed, one native-Windows test skipped; syntax/version, package, smoke, and offline fixture checks recorded | Isolated source/process checks, not new live-host acceptance |
+| Later 26 September skill review | Repository record reports 159 passing tests plus one platform skip and a 58-file package; earlier review reports a 57-file package | Separate checkpoints; do not combine counts or attribute them to an unrecorded revision |
 
-- `npm run check` passed; `npm test` passed with 159 successes, one platform-specific skip, and no failures.
-- `npm run test:package` passed with 58 packaged files, both exports, all session choices, fresh install/uninstall, and upgrade from the preceding `v0.2.0` release. The package gate now derives its upgrade assertions from that preceding version.
-- The management-skill bodies and runtime behaviour are unchanged from the reviewed fixes and live Claude acceptance documented below; the new version provides the upgrade boundary.
+The self-contained Claude directory bundle at `d0bd0a488dd1ed6d705423b43b8725ee36552fe5` also passed live Claude Code 2.1.283 / Sonnet 5 checks for ordinary non-invocation, explicit read-only diagnosis, and approved session-only child routing. That source checkpoint passed the 62-file package gate. This is direct local bundle evidence, not directory-installed acceptance; see the [marketplace submission record](https://github.com/magrathean-uk/clean-development/blob/d0bd0a488dd1ed6d705423b43b8725ee36552fe5/docs/marketplace-submission.md).
 
-## Unreleased review fixes — 26 September 2026
+The historical release artifact digests remain in `.release/v0.2.0-package.sha256` and `.release/v0.2.0-source-manifest.sha256`. They describe that artifact, not the current working tree. See [the source review](https://github.com/magrathean-uk/clean-development/blob/main/docs/review-2026-09-26.md), [the earlier audit](https://github.com/magrathean-uk/clean-development/blob/main/docs/audit-2026-09-18.md), and [benchmark history](https://github.com/magrathean-uk/clean-development/blob/main/docs/benchmarks/m3-pro-2026-09-18.md).
 
-The [code, design, and general inspection](review-2026-09-26.md) covered the CLI, session/configuration API, runtime, adapters, storage, integrations, packaging, and documentation. The final source checks ran on macOS 27.2.0 arm64 with Node 26.9.0:
+## Recorded host observations
 
-- `npm run check` passed: 21 JavaScript files and 14 synchronized version files.
-- `npm test` passed: 159 tests, 158 passed, zero failed, and one native-Windows execution test skipped. New regressions cover diagnostics, CLI help and validation, exclusive initialization, disabled/skip API behaviour, conservative corrupt-state handling, environment casing, and Claude fork activation.
-- `npm run test:package` passed with 57 packaged files, including install/export checks, all three session choices, fresh setup/status/uninstall, and upgrade from v0.1.0.
-- `npm run smoke:tools` passed Cargo, Go, npm, and uv. The offline fixture lab passed all six baseline/routed Rust, Node, and Go cases.
-- `npm audit --omit=dev --audit-level=low` found zero vulnerabilities. `git diff --check` passed.
-- An independent review of the combined fixes found no remaining blocker in the changed paths.
+| Host | Observation in repository records | Still outside that evidence |
+| --- | --- | --- |
+| Codex CLI 0.154.0 | Managed Cargo and uv routing in isolated model workflows, with clean fixture checkouts | Codex App, restart/resume, subagents, newer host versions, and billed-token neutrality |
+| Grok Build 1.0.34 | Marketplace/parser checks and model-shell routing after the owned command prefix restores the managed path | Broader lifecycle coverage and newer versions |
+| Antigravity 1.2.7 | Short routed model workflow | Long print-mode commands encountered cancellation; later authentication-limited runs were not counted as model acceptance |
+| Claude Code 2.1.283 / Sonnet 5 | Ordinary development, read-only diagnosis, and explicit session-only child-command routing | Full native-hook, resume/fork/subagent, and cwd-change acceptance; billed-token neutrality |
+| Gemini 0.54.4 and Copilot CLI 1.0.80 | Launcher version/argument smoke | Model workflows and native routing |
+| Codex 0.155.1, Grok 1.0.41, and AGY 1.2.10 | Loader, package, or discovery observations in the skill review | Live model routing for those exact versions |
 
-These are source and isolated-process results. No new real-agent acceptance, native Windows run, or performance benchmark is claimed. The immutable v0.2.0 package hashes below remain tied to that earlier release; these changes are unreleased.
+The [skill compatibility record](https://github.com/magrathean-uk/clean-development/blob/main/docs/skill-compatibility.md) keeps the tested Claude revisions and the distinction between request capture and inference. Neither metadata discovery nor a successful fixture proves that an ordinary host session used the managed shell.
 
-The later [skill compatibility checks](skill-compatibility.md) include a real Claude Code 2.1.283 marketplace installation, launcher version check, and ordinary/explicit skill request capture against a localhost fixture. After login, `claude-sonnet-5` also passed three live scenarios: ordinary development without management invocation, explicit read-only diagnosis, and session-only routing of a child `npm test`. The routed fixture asserted the active mode, external managed npm cache, and absence of a saved project configuration. User settings and fixture files stayed unchanged. Full native-hook and lifecycle acceptance remains open; these tests do not certify billed-token neutrality.
+## Reproduce the relevant checks
 
-## v0.2.0 acceptance
-
-The release candidate passed the session, package, host, and review gates on 19 September 2026:
-
-- `npm run check` validated 21 JavaScript files, 14 synchronized version files, and the bug-report version prompt.
-- The automated suite ran 148 tests: 147 passed, zero failed, and the native-Windows execution test was skipped on macOS/Linux. It covers read-only planning, every session choice, exact project-file persistence, disabled-project transitions, owner-bound Claude environment files, OpenCode's additive host merge, runtime ownership, lock-release races, and package lifecycle behavior.
-- Coverage on macOS arm64/Node 26.8.2 was 87.89% lines, 79.26% branches, and 91.88% functions. The final 100-pair no-op benchmark measured 57.96 ms added median and 67.28 ms added p95, below the provisional 75 ms p95 gate.
-- Real-tool smoke passed Cargo, Go, npm, and uv. The independent fixture lab passed 6/6 baseline/routed Rust, Node, and Go cases. `npm audit --omit=dev --audit-level=low` reported zero vulnerabilities.
-- The installed-tarball gate checks both exports, dry-run, fresh skip with no writes, session-only, persist, retained project settings after skip, fresh v0.2.0 setup/status/uninstall, and upgrade from the tagged v0.1.0 runtime. The package contains 56 files. The release tarball SHA-256 is stored in `.release/v0.2.0-package.sha256`; its unpacked source-file manifest is `.release/v0.2.0-source-manifest.sha256` because embedding a tarball hash inside a packaged document would change that hash.
-- macOS 26.6.2 arm64 with Node 24.20.0 passed check, the 147/0/1 suite, installed-package gate, all four real-tool smokes, the 6/6 fixture lab, and the dependency audit. Evidence is retained in `/Users/admin/clean-development-v020-acceptance-20260919-r6/evidence/` in the `clean-development-macos26` VM.
-- Debian GNU/Linux 13 ARM64 passed check, the 147/0/1 suite, and the installed-package gate on exact Node 20.12.2 and 20.19.2. Cargo/npm smoke and four applicable fixture cases also passed; Go and uv were unavailable in that VM, so the complete four-tool smoke result comes from macOS. Evidence is retained in `~/clean-development-v020-acceptance-20260919-r6/evidence/` in the `debian13-arm64` Lima VM.
-- A fresh, isolated `CODEX_HOME` on the separate macOS `test` account contained only its copied login and the setup-owned v0.2.0 configuration at launch. Codex CLI 0.154.0 with `gpt-5.6-terra` at high reasoning inherited `session-only`, resolved the managed uv shim and cache, completed all 914 Auditex tests offline, left the checkout clean, and created neither `.venv` nor `.pytest_cache`. Evidence for the corrected candidate is retained in `/Users/Shared/clean-development-v020-model-20260919-r6/evidence/`; the active Codex desktop session was not used or closed.
-- Grok Build 1.0.34 repeated the same corrected-candidate acceptance in `clean-development-macos26`: all 914 Auditex tests passed offline through the managed uv shim/cache, the checkout remained clean, and no local virtual environment or pytest cache appeared. Evidence is retained in `/Users/admin/clean-development-v020-model-20260919-r6/evidence/`. AGY 1.2.7 remained installed and its launcher/version smoke passed, but the SSH test process did not inherit the GUI account's authentication, so it is not counted as a current model-backed acceptance.
-- Independent final review found no remaining release blockers after fixes for disabled-project environment cleanup, Claude owner binding, OpenCode additive environment behavior, and complete installed-package lifecycle coverage.
-- The first hosted matrix run exposed the transient setup-lock release race on macOS/Node 22. The corrected lock wait path and its deterministic async/sync regression tests passed the repeated local stress run and the replacement hosted matrix recorded for the final commit.
-
-The fixture runner proves artifact placement independently. Model-backed acceptance is recorded separately below because a green fixture does not prove that a host model used the routed shell.
-
-## Earlier local evidence
-
-- Before the session feature, the automated Node suite passed 122 tests with one native-Windows execution test skipped on non-Windows hosts. Coverage included config precedence, workspace identity, explicit overrides, all 14 declared adapter destinations, modern Yarn cache modes, dormant pre-setup plugins, durable runtime setup/update, bounded executable probing, Windows batch argv construction, Codex non-login-shell argument routing, PATH persistence safety, state/runtime symlink containment, stale-lock timeouts, receipt validation and path binding, hashed native TOML ownership, Grok command-prefix ownership and conflicts, syntax-aware and byte-preserving TOML edits, concurrent setup/builds/preparation, nested Cargo target ownership and leases, prune containment, top-level run routing, real executable resolution, arguments, and exit status.
-- A generated baseline/routed fixture lab passed all 21 checks across six small Rust, Node.js, and Go projects. Routed Rust produced no local `target`, npm used the managed content cache while retaining project-local `node_modules`, and Go used the managed build and module caches.
-- Real no-network tool smoke fixtures:
-  - Cargo 1.98.1: `cargo check` wrote no project-local `target` and used the managed checkout target.
-  - Go 1.27.1: `go test ./...` used the managed build cache.
-  - npm 11.19.1: a package script ran and `npm config get cache` resolved to the managed cache.
-  - uv 0.12.12: `uv cache dir` resolved to the managed cache.
-- `npm pack` file-list inspection, install into an empty prefix, packaged executable version check, and import checks for both package exports.
-- Generated Codex TOML parsed successfully with Codex CLI 0.154.0 (`config.load=ok`). Generated Grok command-prefix TOML parsed with Grok 1.0.34 and then passed a model-backed workflow.
-- The repo-local Codex marketplace passed an isolated Codex CLI 0.154.0 add/install/list flow with the current `source: local` / `path: ./` marketplace schema. This does not prove desktop plugin-browser entitlement or model-backed workflow acceptance.
-- The packed Grok marketplace route passed an isolated Grok 1.0.34 add/install/list/details flow; its installed plugin reported zero skill, command, and agent directories.
-- Version/argv/exit launcher smoke passed against installed Antigravity (`agy` 1.2.7), Codex 0.154.0, Gemini 0.54.4, Copilot 1.0.80, and Grok 1.0.34. OpenCode exited 137 both directly and through the launcher, so it is not counted as accepted.
-- A model-backed Rust workflow passed through the Antigravity launcher with managed Cargo output. AGY 1.2.7 automatically backgrounds commands after its 10-second synchronous window and print-mode shutdown cancels those jobs despite `--print-timeout 1800s`; long-command completion is therefore an upstream lifecycle gap. Codex CLI 0.154.0 initially replaced the managed PATH through its default macOS login shell and created a local `target`. The non-login-shell launcher fix was then verified with Terra high: model commands resolved the managed Cargo shim, metadata pointed to the managed build root, two offline tests passed, and no local `target` remained. Both the application data/state root and managed artifact root were writable sandbox additions.
-- A fresh `magrathean-uk/auditex` checkout at `246c819923e115f521535cc1b7f47739bf317c67` passed a second Terra-high Codex launcher workflow: the model resolved the managed uv shim and cache, `compileall` passed, all 914 pytest tests passed, and `git status --short` remained empty.
-- The earlier Codex runs used macOS account `test` and disposable Clean Development paths, but their raw transcripts also show account-level skills loading and a Cloudflare MCP authentication attempt. The v0.2.0 rerun above replaced that evidence with a fresh `CODEX_HOME`, a copied login, setup-owned configuration, and no copied skills or plugins. It proves the recorded routing result, not host-level billed-token neutrality.
-- Grok 1.0.34 initially restored native Cargo after its captured login PATH, defeating native-policy and ordinary-launcher variants. The owned `toolset.bash.cmd_prefix` now sources the runtime helper inside the final model shell. A live Rust workflow resolved the managed Cargo shim, completed offline tests in the managed target, and left no local `target`.
-- An isolated Debian 13 ARM64 Lima VM passed the suite, syntax checks, offline package/install/export/setup/status/uninstall lifecycle, and post-uninstall assertions on Node 20.12.2 and Node 20.19.2.
-- Plugin Creator validation of `.codex-plugin/plugin.json` and Skill Creator validation of the explicit-only management skill.
-- No npm runtime dependencies and `npm audit` reported zero vulnerabilities for the lockfile.
-
-Run the core automated repository checks with:
+Use Node 20.12 or newer. The core repository checks are:
 
 ```sh
 npm run check
 npm test
-npm run smoke:tools
-npm run test:package
-node scripts/run-fixture-lab.mjs
-npm run benchmark:overhead
 ```
 
-The plugin/skill validators and dependency audit are separate checks:
+Additional checks have different prerequisites and side effects:
 
-```sh
-python3 /path/to/plugin-creator/scripts/validate_plugin.py .
-python3 /path/to/skill-creator/scripts/quick_validate.py skills/clean-development
-npm audit --omit=dev --audit-level=low
-```
+| Command | Purpose and prerequisites |
+| --- | --- |
+| `npm run test:package` | Builds and installs temporary packages, tests exports and lifecycle, and needs the preceding-release tag named in `scripts/verify-package.mjs` for upgrade coverage |
+| `npm run smoke:tools` | Offline smoke for locally available tools; review missing-tool results |
+| `node scripts/run-fixture-lab.mjs` | Rust, Node, and Go baseline/routed artifacts; retains evidence in a new disposable directory |
+| `npm run benchmark:overhead` | Paired shim dispatch measurements; record platform and sample count |
+| `npm audit --omit=dev --audit-level=low` | Registry advisory check; a clean result is not a security audit |
 
-The named agent parser and launcher observations above are host-specific manual smoke checks, not part of the npm scripts.
+See [contributing](https://github.com/magrathean-uk/clean-development/blob/main/CONTRIBUTING.md), [the fixture lab](https://github.com/magrathean-uk/clean-development/blob/main/test/lab/README.md), and [releasing](https://github.com/magrathean-uk/clean-development/blob/main/RELEASING.md). External plugin validators are optional, separately installed tooling; they are not npm scripts in this repository.
 
-## Not yet proven
+## Remaining acceptance
 
-- A real process acceptance run for every advertised agent surface.
-- Codex App restart/shell snapshot behavior and sandbox writable-root interaction.
-- Claude subagents, resume, fork, and CwdChanged behavior outside isolated hook fixtures.
-- Grok resume, subagent, and future-version acceptance beyond the verified 1.0.34 single-turn workflow.
-- OpenCode variants that currently do not apply `shell.env` to their development Bash tool.
-- Pi package installation against a released npm tarball.
-- Cursor, Devin, Droid, Kimi, OpenCode, Pi, and Hermes launcher/package smoke runs. Claude's loader, skip-mode version smoke, management skill, and explicitly wrapped model child command passed on 26 September; full native-hook routing remains unverified.
-- Native Windows behavior, concurrent real worktrees, external-volume loss, symlink races, and disk-full conditions.
-- Host-level model request captures needed to certify billed-token neutrality.
+- Native Windows execution and real concurrent worktrees.
+- Codex App shell snapshots, restart behavior, and sandbox writable roots.
+- Complete native-hook and lifecycle acceptance for Claude, Grok, OpenCode, and Pi.
+- Real host workflows for launcher-only or metadata-only integrations.
+- External-volume loss, disk-full interruption, and hostile filesystem races.
+- Supported-Node performance measurements, cold/warm cache reuse, and system-load variance.
+- Public-registry installation and publication evidence when a release is actually available.
+- Comparable model-facing request captures and billing evidence before claiming billed-token neutrality.
 
-These gaps limit the corresponding native-support claims and remain follow-up work after the CLI-focused v0.2.0 release. The launcher and package files exist for the full Superpowers-sized matrix; native behavior is advertised separately.
+Record each new result against its source revision or package hash, exact host version, environment, command, and outcome. Keep private account details and raw local paths outside public documentation.

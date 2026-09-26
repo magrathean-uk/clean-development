@@ -1,39 +1,33 @@
-# Clean Development master plan
+# Implementation and acceptance ledger
 
-Status reviewed 19 September 2026. `[x]` means implemented and evidenced, `[~]` means partially evidenced or still a release gate, and `[ ]` means deferred or incomplete.
+This ledger describes the code and the remaining acceptance work. Historical results belong in [verification](verification.md); the package version alone does not identify every later source change.
 
-## Core product
+## Implemented in source
 
-- [x] Route new supported caches and mutable Cargo output into explicit managed roots.
-- [x] Keep shared caches reusable and Cargo builds separate by canonical workspace.
-- [x] Leave existing clutter, credentials, toolchains, release evidence, and unregistered output alone.
-- [x] Keep routing outside MCP, prompts, model calls, and ordinary agent context.
+- A local CLI for planning, setup, update, routing, diagnosis, pinning, pruning, and uninstall.
+- Read-only manifest detection and session-only, persist, and skip choices. Native integrations default to pass-through skip.
+- Shared cache adapters and dynamic per-workspace Cargo output. See [the README](../README.md) for the tool list.
+- Versioned runtime files, stable launchers, exact ownership receipts, locks, leases, and conservative removal.
+- Explicit pruning limited to registered Cargo build roots. Source, credentials, toolchains, and unregistered output stay outside that ownership.
+- Launcher and package routes for the agent names in `src/constants.js`; native adapters for selected hosts.
+- Isolated test and package harnesses, offline fixture projects, and a paired dispatch benchmark.
 
-## CLI and safety
+## Acceptance work
 
-- [x] `setup`, `update`, `prepare`, `init`, `run`, `agent`, `env`, `status`, `doctor`, `prune`, `pin`, `unpin`, and uninstall flows.
-- [x] v0.2.0 session planning is implemented and source-verified: read-only `session --dry-run`, bounded manifest detection, interactive session-only/persist/skip choices, a noninteractive session-only default for `agent`/`run`/stable launchers, native default-skip pass-through, reviewed project-file persistence, static cache overlay, and dynamic Cargo routing.
-- [x] Versioned runtime, stable launchers, atomic integration edits, receipts, locks, leases, symlink checks, and fail-closed uninstall.
-- [x] Cargo, Go, npm/npx, pnpm, Yarn, Bun, uv, pip, .NET, Composer, ccache, and sccache adapters.
-- [x] Prune only registered Cargo build directories; dry-run by default; active and pinned workspaces retained.
+| Area | Status |
+| --- | --- |
+| Source and package tests | Historical passing checkpoints are recorded; repeat for a proposed release |
+| Codex CLI and Grok | Named historical model workflows passed; newer versions and broader lifecycle behavior need separate evidence |
+| Claude | Management skill and explicit child-command routing have recorded live acceptance; full native lifecycle remains open |
+| Antigravity | Short workflow recorded; long-command cancellation remains a recorded host limitation |
+| Codex App, OpenCode, Pi, and other host surfaces | Implementations or package routes exist; complete host acceptance remains open |
+| Performance | One historical candidate met the provisional 75 ms p95 ceiling; broader Node/platform coverage and the 50 ms target remain open |
+| Windows and failure conditions | Native execution, volume loss, disk-full, races, and real concurrency need broader testing |
+| Publication | Repository and npm settings describe intent; verify actual public artifacts and remote settings separately |
+| Prompt and token behavior | Runtime adds no authored prompt text; billed-token neutrality is not established |
 
-## Agent coverage
+## Deferred scope
 
-- [~] Claude remains fixture-tested. Codex CLI 0.154.0 passed isolated Terra-high Rust and 914-test Auditex workflows when its sandbox could write both the application data/state root and managed artifacts; subagent, resume, and desktop acceptance remain.
-- [x] Grok 1.0.34 parser, marketplace, argv, and model-shell routing passed after the owned command prefix repaired its captured login PATH.
-- [~] Antigravity `agy` 1.2.7 passed routing and a short model workflow with managed Cargo output; its print mode cancels automatically backgrounded long commands before `--print-timeout`.
-- [~] OpenCode and Pi native routes: implemented; host/package acceptance remains.
-- [~] Other advertised agents: launcher or metadata routes only until real native acceptance exists.
+Native cache eviction, scratch expiry, Apple build adapters, and further ecosystems need their own storage and concurrency contracts. Scratch is reserved and retained in version 0.2.0.
 
-## Release gates
-
-- [x] MIT license, copyright, SECURITY.md, governance, contribution, release, support, CI, CodeQL, Dependabot, and launch docs.
-- [x] Isolated npm package verification, fresh skip/setup/status/uninstall, v0.1.0 upgrade, real Cargo/Go/npm/uv smoke checks, plugin/skill validators, and npm audit pass for v0.2.0. Final counts and hashes are recorded in [verification](verification.md) and `.release/`.
-- [~] Performance: the final 100-pair no-op run measured 57.96 ms added median and 67.28 ms added p95, below the provisional 75 ms ceiling. Broader supported-Node and variance coverage remains follow-up work, and the 50 ms optimization target is not met.
-- [ ] Capture baseline/enabled host model requests to verify token neutrality.
-- [~] Debian 13 ARM64 passes the v0.2.0 source suite and installed-package gate on exact Node 20.12.2 and 20.19.2. Windows, native Apple/Xcode/SwiftPM, and full host acceptance remain.
-- [ ] Add native cache eviction and scratch expiry; scratch is currently reserved and retained.
-- [x] The v0.2.0 release candidate is independently reviewed, verified, committed, tagged, and pushed.
-- [~] npm publication and public-registry verification remain separate because the package name has not yet been published.
-
-See [verification](verification.md), [agent integrations](agent-integrations.md), [safety model](safety-model.md), [performance](performance.md), and the [audit record](audit-2026-09-18.md). This file is the repository's authoritative acceptance ledger; the longer work-session design notes are not required for installation or operation.
+See [the roadmap](../ROADMAP.md), [agent integrations](agent-integrations.md), [safety model](safety-model.md), and [performance targets](performance.md). Historical audit checklists remain dated records rather than current completion claims.

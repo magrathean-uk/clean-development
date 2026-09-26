@@ -3,6 +3,7 @@
 ## User setup
 
 ```sh
+clean-development setup --dry-run --root /absolute/path/to/clean-development --agents all
 clean-development setup --root /absolute/path/to/clean-development --agents all
 ```
 

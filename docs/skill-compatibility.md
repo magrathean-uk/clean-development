@@ -27,21 +27,21 @@ The skill now distinguishes inspection, setup, routing, and cleanup. Read-only d
 
 `npm run check` enforces matching workflow bodies, the Claude/Grok manual-invocation field, and Codex's explicit-only policy. The installed-package gate requires both skill variants and Codex's policy file. The launcher regression exercises Codex, Claude, AGY, and Grok command names, both session modes, argv, working directory, environment routing, and child exit status using isolated fake executables.
 
-## Current host evidence — 26 September 2026
+## Recorded host evidence, 26 September 2026
 
 - **Repository validation:** `npm run check` and `npm run test:package` passed; the package contains 58 files, including both skill variants and Codex's policy. `npm test` completed with 159 passing tests, one platform-specific skip, and no failures. The four-host launcher matrix uses isolated executables, not live model sessions.
 - **Codex CLI 0.155.1:** a local marketplace add/install/list cycle passed in a disposable `CODEX_HOME`. The plugin was enabled. An ordinary debug prompt contained no management skill body; this is not an explicit-invocation or billed-token acceptance test.
 - **Grok 1.0.41:** `.grok-plugin` validation passed with zero components. In a disposable home, `inspect --json` discovered the Claude variant at `.grok/skills/clean-development/SKILL.md` as a user skill with `userInvocable: true`. The inventory does not expose `disable-model-invocation`; its manual-only meaning is documented by Grok. No model session was started.
 - **AGY 1.2.10:** `plugin validate` accepted the repository's root plugin and found one skill. This establishes package shape, not explicit-only discovery or model behaviour.
-- **Claude Code 2.1.283:** strict manifest validation, marketplace validation/add/install/list, launcher version smoke, and ordinary/explicit request capture passed. After login, three live `claude-sonnet-5` scenarios also passed: ordinary development, read-only diagnosis, and explicit session-only child-command routing. Details and limits follow below.
+- **Claude Code 2.1.283:** strict manifest validation, marketplace validation/add/install/list, launcher version smoke, and ordinary/explicit request capture passed. Three live `claude-sonnet-5` scenarios also passed: ordinary development, read-only diagnosis, and explicit session-only child-command routing. Details and limits follow below.
 
-Only the Claude scenarios below add real-model acceptance in this review; the other current host checks remain loader/package evidence. Existing routing observations and remaining sandbox, lifecycle, and native-host gaps are in [verification.md](verification.md). No installed user host settings were changed by these checks.
+Only the Claude scenarios below added real-model acceptance in that recorded review; the other host checks recorded on 26 September 2026 remain loader/package evidence. Existing routing observations and remaining sandbox, lifecycle, and native-host gaps are in [verification.md](verification.md). The record reports that installed user host settings were unchanged. These observations apply to the recorded revisions and host versions.
 
 ### Claude live skill acceptance
 
 The loader checks used a disposable home and configuration directory at source revision `7a9c97f`. A localhost fixture captured neither the skill description nor its body in an ordinary request; `/clean-development:clean-development` loaded the exact Claude variant. These synthetic responses verify request construction, not inference or billing. The inventory's estimated ~58 always-on tokens are not a request capture. See the [Claude skill contract](https://code.claude.com/docs/en/skills).
 
-The subsequent authenticated tests used revision `6b1c3ed` (the same skill/runtime), Claude Code 2.1.283, and `claude-sonnet-5` at low effort. They used the existing macOS keychain login without copying credentials, an isolated fixture project, temporary Clean Development storage, and session-only marketplace settings. User/project/local settings were excluded with `--setting-sources ""`, MCP servers were disabled, and tool permissions were limited to the fixture commands. The real user's Claude settings hash remained unchanged.
+The subsequent authenticated tests used revision `6b1c3ed` (the same skill/runtime), Claude Code 2.1.283, and `claude-sonnet-5` at low effort. They used an isolated fixture project, temporary Clean Development storage, and session-only marketplace settings. User/project/local settings were excluded with `--setting-sources ""`, MCP servers were disabled, and tool permissions were limited to the fixture commands. The record reports an unchanged user settings hash.
 
 | Live scenario | Observed result |
 | --- | --- |

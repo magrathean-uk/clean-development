@@ -1,19 +1,15 @@
-## What changed
+## Change
 
-Describe the storage behavior or documentation changed.
-
-## Why
-
-Link the issue or upstream tool contract where relevant.
+Describe the problem and the resulting behavior. Link an issue or upstream storage contract where relevant.
 
 ## Verification
 
-- [ ] `npm run check`
-- [ ] `npm test`
-- [ ] `npm run test:package` when packaging changed
-- [ ] Explicit user overrides and unrelated agent config are preserved
-- [ ] No new prompt context, model calls, telemetry, or automatic deletion
+List the checks actually run and their results. Explain skipped checks. For documentation-only changes, verify links, examples, and agreement with source.
+
+For runtime changes, include the relevant isolated tests plus `npm run check` and `npm test`. For packaging changes, include `npm run test:package`. Distinguish fixtures from named-host acceptance.
 
 ## Risk
 
-List any path ownership, deletion, command execution, compatibility, or migration risk.
+Describe any effect on path ownership, deletion, configuration, arguments, signals, compatibility, or migration. Explain how explicit environment overrides and unrelated host settings remain intact.
+
+Remove credentials, private paths, prompts, and account information from attached logs. Follow SECURITY.md for suspected vulnerabilities.
