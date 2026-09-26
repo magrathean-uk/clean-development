@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "clean-development",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Explicit management skill for configuring and inspecting clean-development.",
   "author": {
     "name": "Magrathean UK",

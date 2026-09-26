@@ -8,7 +8,8 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
 const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "clean-development-package-"));
-const previousRelease = "v0.1.0";
+const previousRelease = "v0.2.0";
+const previousVersion = previousRelease.slice(1);
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, { cwd: root, encoding: "utf8", ...options });
@@ -186,7 +187,7 @@ try {
   const previousPrefix = path.join(temporary, "previous-prefix");
   run("npm", ["install", "--prefix", previousPrefix, "--ignore-scripts", "--no-audit", "--no-fund", path.join(temporary, previousPacked[0].filename)]);
   const previousBinary = path.join(previousPrefix, "node_modules", ".bin", process.platform === "win32" ? "clean-development.cmd" : "clean-development");
-  assert.equal(run(previousBinary, ["--version"], { cwd: temporary }).stdout.trim(), "0.1.0");
+  assert.equal(run(previousBinary, ["--version"], { cwd: temporary }).stdout.trim(), previousVersion);
 
   const lifecycleRoot = path.join(temporary, "lifecycle-managed");
   const lifecycleEnv = {
@@ -198,7 +199,7 @@ try {
     CODEX_HOME: path.join(temporary, "lifecycle-codex")
   };
   const installed = runJson(previousBinary, ["setup", "--agents", "codex", "--json"], { cwd: temporary, env: lifecycleEnv });
-  assert.equal(installed.runtime.version, "0.1.0");
+  assert.equal(installed.runtime.version, previousVersion);
   const upgraded = runJson(binary, ["update", "--agents", "codex", "--json"], { cwd: temporary, env: lifecycleEnv });
   assert.equal(upgraded.command, "update");
   assert.equal(upgraded.runtime.version, packageJson.version);
@@ -207,7 +208,7 @@ try {
   assert.equal(runtimeReceipt.status, "installed");
   assert.equal(runtimeReceipt.source, fs.realpathSync.native(path.join(prefix, "node_modules", "clean-development")));
   const archivedReceipts = path.join(lifecycleEnv.CLEAN_DEVELOPMENT_DATA_HOME, "state", "runtime-receipts");
-  assert.ok(fs.readdirSync(archivedReceipts).some((name) => name.startsWith("0.1.0-")));
+  assert.ok(fs.readdirSync(archivedReceipts).some((name) => name.startsWith(`${previousVersion}-`)));
 
   const status = runJson(binary, ["status", "--json"], { cwd: temporary, env: lifecycleEnv });
   assert.equal(status.version, packageJson.version);
@@ -222,7 +223,7 @@ try {
   assert.equal(uninstalled.runtime.retained.length, 0);
   assert.equal(fs.existsSync(launcher), false);
   assert.equal(fs.existsSync(path.join(lifecycleEnv.CLEAN_DEVELOPMENT_DATA_HOME, "runtime", packageJson.version)), false);
-  assert.equal(fs.existsSync(path.join(lifecycleEnv.CLEAN_DEVELOPMENT_DATA_HOME, "runtime", "0.1.0")), false);
+  assert.equal(fs.existsSync(path.join(lifecycleEnv.CLEAN_DEVELOPMENT_DATA_HOME, "runtime", previousVersion)), false);
 
   const currentLifecycleEnv = {
     ...sessionEnv,

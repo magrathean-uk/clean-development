@@ -2,6 +2,14 @@
 
 Updated for the source review on 26 September 2026. The v0.2.0 release and host observations below are historical evidence from 19 September 2026.
 
+## 0.2.1 local rollout — 26 September 2026
+
+The reviewed fixes now have a distinct patch version so installed 0.2.0 runtimes can upgrade without replacing the contents of an existing version. Package and host manifests are synchronized at 0.2.1; this local rollout does not publish an npm package or create a release tag.
+
+- `npm run check` passed; `npm test` passed with 159 successes, one platform-specific skip, and no failures.
+- `npm run test:package` passed with 58 packaged files, both exports, all session choices, fresh install/uninstall, and upgrade from the preceding `v0.2.0` release. The package gate now derives its upgrade assertions from that preceding version.
+- The management-skill bodies and runtime behaviour are unchanged from the reviewed fixes and live Claude acceptance documented below; the new version provides the upgrade boundary.
+
 ## Unreleased review fixes — 26 September 2026
 
 The [code, design, and general inspection](review-2026-09-26.md) covered the CLI, session/configuration API, runtime, adapters, storage, integrations, packaging, and documentation. The final source checks ran on macOS 27.2.0 arm64 with Node 26.9.0:

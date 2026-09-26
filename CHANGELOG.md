@@ -4,6 +4,10 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-09-26
+
+Prepared for local runtime rollout; not yet published to npm or tagged.
+
 ### Fixed
 
 - Management skills now separate read-only diagnosis from activation, reuse prior session consent, preserve requested prune ages, and document Codex, Claude, Antigravity/agy, and Grok invocation routes. Packaging checks enforce matching host instructions and explicit-only metadata.
