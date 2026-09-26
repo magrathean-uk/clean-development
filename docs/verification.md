@@ -15,6 +15,8 @@ The [code, design, and general inspection](review-2026-09-26.md) covered the CLI
 
 These are source and isolated-process results. No new real-agent acceptance, native Windows run, or performance benchmark is claimed. The immutable v0.2.0 package hashes below remain tied to that earlier release; these changes are unreleased.
 
+The later [skill compatibility checks](skill-compatibility.md) include a real Claude Code 2.1.283 marketplace installation, launcher version check, and ordinary/explicit skill request capture against a localhost fixture. Claude correctly excludes the manual skill from an ordinary request and loads the Claude variant on explicit slash invocation. These host checks do not use a real model; authentication was unavailable. Claude model behaviour and native lifecycle acceptance remain open.
+
 ## v0.2.0 acceptance
 
 The release candidate passed the session, package, host, and review gates on 19 September 2026:
@@ -84,7 +86,7 @@ The named agent parser and launcher observations above are host-specific manual 
 - Grok resume, subagent, and future-version acceptance beyond the verified 1.0.34 single-turn workflow.
 - OpenCode variants that currently do not apply `shell.env` to their development Bash tool.
 - Pi package installation against a released npm tarball.
-- Claude, Cursor, Devin, Droid, Kimi, OpenCode, Pi, and Hermes launcher/package smoke runs.
+- Cursor, Devin, Droid, Kimi, OpenCode, Pi, and Hermes launcher/package smoke runs. Claude's loader and skip-mode version smoke passed on 26 September; routed model execution remains unverified.
 - Native Windows behavior, concurrent real worktrees, external-volume loss, symlink races, and disk-full conditions.
 - Host-level model request captures needed to certify billed-token neutrality.
 
