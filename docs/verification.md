@@ -1,6 +1,19 @@
 # Verification status
 
-Updated for the v0.2.0 session feature on 19 September 2026. Earlier host observations were recorded on macOS 27.0 Apple silicon and Debian GNU/Linux 13 ARM64.
+Updated for the source review on 26 September 2026. The v0.2.0 release and host observations below are historical evidence from 19 September 2026.
+
+## Unreleased review fixes — 26 September 2026
+
+The [code, design, and general inspection](review-2026-09-26.md) covered the CLI, session/configuration API, runtime, adapters, storage, integrations, packaging, and documentation. The final source checks ran on macOS 27.2.0 arm64 with Node 26.9.0:
+
+- `npm run check` passed: 21 JavaScript files and 14 synchronized version files.
+- `npm test` passed: 159 tests, 158 passed, zero failed, and one native-Windows execution test skipped. New regressions cover diagnostics, CLI help and validation, exclusive initialization, disabled/skip API behaviour, conservative corrupt-state handling, environment casing, and Claude fork activation.
+- `npm run test:package` passed with 57 packaged files, including install/export checks, all three session choices, fresh setup/status/uninstall, and upgrade from v0.1.0.
+- `npm run smoke:tools` passed Cargo, Go, npm, and uv. The offline fixture lab passed all six baseline/routed Rust, Node, and Go cases.
+- `npm audit --omit=dev --audit-level=low` found zero vulnerabilities. `git diff --check` passed.
+- An independent review of the combined fixes found no remaining blocker in the changed paths.
+
+These are source and isolated-process results. No new real-agent acceptance, native Windows run, or performance benchmark is claimed. The immutable v0.2.0 package hashes below remain tied to that earlier release; these changes are unreleased.
 
 ## v0.2.0 acceptance
 

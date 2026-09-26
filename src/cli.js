@@ -7,7 +7,7 @@ import { CONFIG_FILE, DEFAULT_CONFIG, SHIM_TOOLS, SUPPORTED_AGENTS, VERSION } fr
 import { installAgentIntegrations, integrationStatus, applyClaudeSessionEnvironment, removeOwnedAgentIntegrations, validateClaudeHookOwner } from "./integrations.js";
 import { acquireDirectoryLock, directorySize, readJson, writeJsonAtomic } from "./io.js";
 import { environmentValue, platformPaths, prependUniquePath } from "./platform.js";
-import { ensureRuntime, removeRuntime, resolveExecutable, runTool, runWithShims, runtimeRemovalPlan } from "./runtime.js";
+import { ensureRuntime, removeRuntime, resolveExecutable, runTool, runWithShims, runtimeHealth, runtimeRemovalPlan } from "./runtime.js";
 import { applySessionPlan, deferSessionRouting, normalizeSessionMode, planSession, selectSessionMode } from "./session.js";
 import { acquireWorkspaceLock, activeWorkspaceIds, applyPrune, listWorkspaceRecords, prunePlan } from "./state.js";
 
@@ -29,6 +29,10 @@ Usage:
   clean-development prune [--older-than DAYS] [--apply] [--json]
   clean-development pin WORKSPACE_ID | unpin WORKSPACE_ID
   clean-development uninstall [--dry-run] [--json]
+
+Use COMMAND --help for help. Put child command options after --.
+Interactive launches offer session only (Enter), save project settings, or skip.
+Noninteractive launches default to session-only; native integrations default to skip.
 
 Agents:
   ${Object.keys(SUPPORTED_AGENTS).join(", ")}
@@ -124,6 +128,7 @@ function output(value, json = false) {
 function splitAgents(value) {
   if (!value || value === "all") return Object.keys(SUPPORTED_AGENTS);
   const agents = String(value).split(",").map((item) => item.trim()).filter(Boolean);
+  if (!agents.length) throw new Error("--agents requires 'all' or a comma-separated list of supported agents");
   for (const agent of agents) if (!Object.hasOwn(SUPPORTED_AGENTS, agent)) throw new Error(`Unsupported agent '${agent}'`);
   return [...new Set(agents)];
 }
@@ -238,7 +243,7 @@ async function promptSessionChoice(plan, input = process.stdin, stream = process
     while (true) {
       let answer;
       try {
-        answer = (await prompt.question("Choose [1] session only, [2] save project settings, or [3] skip: ")).trim().toLowerCase();
+        answer = (await prompt.question("Choose [1] session only (default), [2] save project settings, or [3] skip: ")).trim().toLowerCase();
       } catch {
         return "skip";
       }
@@ -292,6 +297,9 @@ function formatEnvironment(values, format) {
 
 function envCommand(options, config, env) {
   const format = options.format || "json";
+  if (!["json", "sh", "fish", "powershell"].includes(format)) {
+    throw new Error(`Unsupported environment format '${format}'; use json, sh, fish, or powershell`);
+  }
   if (options.tool) {
     if (!SHIM_TOOLS.includes(options.tool)) throw new Error(`Unsupported tool '${options.tool}'`);
     if (options.tool === "cargo") throw new Error("Cargo build output needs ownership and an active lease; use 'clean-development run -- cargo …' or the cargo shim");
@@ -332,30 +340,26 @@ function statusCommand(options, config) {
   return result;
 }
 
-function nearestExistingParent(target) {
-  let current = path.resolve(target);
-  while (!fs.existsSync(current)) {
-    const parent = path.dirname(current);
-    if (parent === current) return null;
-    current = parent;
-  }
-  return current;
-}
-
-function doctorCommand(config) {
-  const rootParent = nearestExistingParent(config.root);
+function doctorCommand(config, env) {
   const checks = [];
   checks.push({ name: "config", ok: fs.existsSync(config.locations.configPath), detail: config.locations.configPath });
-  checks.push({ name: "managed-root-parent", ok: Boolean(rootParent), detail: rootParent });
-  checks.push({ name: "managed-root-writable", ok: Boolean(rootParent) && (() => { try { fs.accessSync(rootParent, fs.constants.W_OK); return true; } catch { return false; } })(), detail: rootParent });
-  const runtimeRecord = readJson(path.join(config.locations.stateDir, "runtime.json"), null);
-  checks.push({
-    name: "runtime",
-    ok: runtimeRecord?.version === VERSION && runtimeRecord?.status === "installed",
-    detail: runtimeRecord ? `${runtimeRecord.version} (${runtimeRecord.status || "legacy"})` : "not installed"
-  });
+  for (const key of ["root", "cacheRoot", "buildRoot", "scratchRoot"]) {
+    const directory = config[key];
+    let ok = false;
+    let detail = directory;
+    try {
+      const stat = fs.lstatSync(directory);
+      if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error("not a real directory");
+      fs.accessSync(directory, fs.constants.R_OK | fs.constants.W_OK | fs.constants.X_OK);
+      ok = true;
+    } catch (error) {
+      detail = `${directory}: ${error.code || error.message}; mount the volume or run clean-development prepare`;
+    }
+    checks.push({ name: `managed-${key}`, ok, detail });
+  }
+  checks.push({ name: "runtime", ...runtimeHealth(config) });
   for (const tool of SHIM_TOOLS) {
-    const executable = resolveExecutable(tool, process.env, config.locations.binDir);
+    const executable = resolveExecutable(tool, env, config.locations.binDir);
     checks.push({ name: `tool:${tool}`, ok: Boolean(executable), optional: true, detail: executable || "not found" });
   }
   return { ok: checks.filter((item) => !item.optional).every((item) => item.ok), checks };
@@ -421,6 +425,12 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
     : ["--version", "-v"].includes(rawCommand) ? "version"
       : rawCommand;
   if (!Object.hasOwn(COMMAND_OPTIONS, command)) throw new Error(`Unknown command '${command}'. Run clean-development help.`);
+  const separator = rest.indexOf("--");
+  const ownArguments = separator === -1 ? rest : rest.slice(0, separator);
+  if (ownArguments.some((argument) => argument === "--help" || argument === "-h")) {
+    console.log(HELP);
+    return 0;
+  }
   const optionTypes = COMMAND_OPTIONS[command];
   const parsed = parse(rest, optionTypes);
   validateArguments(command, parsed);
@@ -523,7 +533,7 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
     return 0;
   }
   if (command === "doctor") {
-    const result = doctorCommand(config);
+    const result = doctorCommand(config, env);
     output(result, json);
     return result.ok ? 0 : 1;
   }

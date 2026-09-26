@@ -373,6 +373,39 @@ export function ensureRuntime(config, options = {}) {
   }
 }
 
+export function runtimeHealth(config) {
+  try {
+    const receipt = runtimeReceipt(config);
+    if (!receipt) return { ok: false, detail: "not installed" };
+    if (receipt.status !== "installed") return { ok: false, detail: `${receipt.version} (${receipt.status})` };
+    if (receipt.version !== VERSION) return { ok: false, detail: `${receipt.version} installed; run clean-development update for ${VERSION}` };
+    if (!ensureRealDirectory(config.locations.runtimeDir, { label: "Runtime directory" })) {
+      return { ok: false, detail: `Runtime directory is missing: ${config.locations.runtimeDir}` };
+    }
+    if (!ensureRealDirectory(config.locations.binDir, { label: "Runtime bin directory" })) {
+      return { ok: false, detail: `Runtime bin directory is missing: ${config.locations.binDir}` };
+    }
+    validateRuntimeRoot(receipt.versionRoot, receipt.installationId, receipt.version);
+    verifyInventory(receipt.runtimeFiles, receipt.versionRoot);
+    verifyInventory(receipt.ownedFiles, config.locations.binDir);
+    try {
+      fs.accessSync(receipt.node, fs.constants.X_OK);
+    } catch {
+      throw new Error(`Runtime Node executable is unavailable: ${receipt.node}`);
+    }
+    for (const record of receipt.ownedFiles) {
+      try {
+        fs.accessSync(record.path, fs.constants.X_OK);
+      } catch {
+        throw new Error(`Runtime launcher is not executable: ${record.path}`);
+      }
+    }
+    return { ok: true, detail: `${receipt.version} (${receipt.status})` };
+  } catch (error) {
+    return { ok: false, detail: error.message };
+  }
+}
+
 function removeMatchingFile(record, allowedParent, removed, retained) {
   const file = path.resolve(record.path);
   if (!isPathInside(allowedParent, file) || !fs.existsSync(file)) return;

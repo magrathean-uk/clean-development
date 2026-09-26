@@ -477,6 +477,21 @@ test("unknown lease files are ignored and retained", (t) => {
   assert.equal(fs.existsSync(innocent), true);
 });
 
+test("a corrupt matching lease conservatively keeps its workspace active", (t) => {
+  const item = fixture();
+  t.after(() => fs.rmSync(item.root, { recursive: true, force: true }));
+  const config = resolveConfig({ cwd: item.project, env: item.env });
+  const leases = path.join(config.locations.stateDir, "leases");
+  fs.mkdirSync(leases, { recursive: true });
+  const corrupt = path.join(leases, `${process.pid}-fixture-deadbeef00-${crypto.randomUUID()}.json`);
+  const invalid = path.join(leases, `${process.pid}-fixture-deadbeef00-${crypto.randomUUID()}.json`);
+  fs.writeFileSync(corrupt, "{not valid json\n");
+  fs.writeFileSync(invalid, "{}\n");
+  assert.deepEqual([...activeWorkspaceIds(config)], ["fixture-deadbeef00"]);
+  assert.equal(fs.existsSync(corrupt), true);
+  assert.equal(fs.existsSync(invalid), true);
+});
+
 test("workspace lock symlinks fail closed without touching their owner file", async (t) => {
   const item = fixture();
   t.after(() => fs.rmSync(item.root, { recursive: true, force: true }));

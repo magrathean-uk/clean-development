@@ -133,7 +133,7 @@ function installClaudeHook(config, runtime, env = process.env, previousEntries =
   const ownershipId = previousForFile.find((entry) => entry.ownershipId)?.ownershipId || randomUUID();
   const command = hookCommand(runtime, ownershipId);
   settings.hooks.SessionStart.push({
-    matcher: "startup|resume|clear|compact",
+    matcher: "startup|resume|clear|compact|fork",
     hooks: [{ type: "command", command }]
   });
   writeJsonAtomicFollowingLeafSymlink(file, settings);

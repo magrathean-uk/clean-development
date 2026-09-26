@@ -65,6 +65,66 @@ test("setup dry run performs no writes", (t) => {
   assert.equal(fs.existsSync(managed), false);
 });
 
+test("command help is read-only and does not intercept child help", (t) => {
+  const item = fixture();
+  t.after(() => fs.rmSync(item.root, { recursive: true, force: true }));
+  for (const args of [["setup", "--help"], ["run", "-h"], ["agent", "--help"]]) {
+    const result = run(args, item.env);
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /Usage:/);
+    assert.match(result.stdout, /Noninteractive launches default to session-only/);
+  }
+  const child = run(["run", "--session", "skip", "--", process.execPath, "--help"], item.env);
+  assert.equal(child.status, 0, child.stderr);
+  assert.match(child.stdout, /Usage: node/);
+  assert.equal(fs.existsSync(path.join(item.root, "data")), false);
+  assert.equal(fs.existsSync(path.join(item.root, "config")), false);
+});
+
+test("invalid environment formats and empty agent selections fail before writing", (t) => {
+  const item = fixture();
+  t.after(() => fs.rmSync(item.root, { recursive: true, force: true }));
+  const invalidFormat = run(["env", "--format", "typo"], item.env);
+  assert.equal(invalidFormat.status, 1);
+  assert.match(invalidFormat.stderr, /Unsupported environment format/);
+  const invalidAgents = run(["setup", "--agents", ", ,", "--root", path.join(item.root, "managed")], item.env);
+  assert.equal(invalidAgents.status, 1);
+  assert.match(invalidAgents.stderr, /--agents requires/);
+  assert.equal(fs.existsSync(path.join(item.root, "data")), false);
+  assert.equal(fs.existsSync(path.join(item.root, "managed")), false);
+});
+
+test("doctor reports missing or invalid managed directories without recreating them", (t) => {
+  const item = fixture();
+  t.after(() => fs.rmSync(item.root, { recursive: true, force: true }));
+  const managed = path.join(item.root, "managed");
+  const installed = run(["setup", "--root", managed, "--agents", "claude"], item.env);
+  assert.equal(installed.status, 0, installed.stderr);
+  const healthy = run(["doctor", "--json"], item.env);
+  assert.equal(healthy.status, 0, healthy.stderr);
+  for (const [name, key] of [["caches", "cacheRoot"], ["builds", "buildRoot"], ["scratch", "scratchRoot"]]) {
+    const directory = path.join(managed, name);
+    fs.rmdirSync(directory);
+    for (const presentAsFile of [false, true]) {
+      if (presentAsFile) fs.writeFileSync(directory, "not a directory");
+      const result = run(["doctor", "--json"], item.env);
+      assert.equal(result.status, 1, result.stderr);
+      const report = JSON.parse(result.stdout);
+      assert.equal(report.ok, false);
+      assert.equal(report.checks.find((check) => check.name === `managed-${key}`).ok, false);
+      assert.equal(fs.existsSync(directory), presentAsFile);
+      if (presentAsFile) fs.unlinkSync(directory);
+    }
+    fs.mkdirSync(directory);
+  }
+  const launcher = path.join(item.root, "data", "bin", process.platform === "win32" ? "cargo.cmd" : "cargo");
+  fs.unlinkSync(launcher);
+  const brokenRuntime = run(["doctor", "--json"], item.env);
+  assert.equal(brokenRuntime.status, 1, brokenRuntime.stderr);
+  assert.equal(JSON.parse(brokenRuntime.stdout).checks.find((check) => check.name === "runtime").ok, false);
+  assert.equal(fs.existsSync(launcher), false);
+});
+
 test("setup refuses to create through a missing parent that may be an unmounted volume", (t) => {
   const item = fixture();
   t.after(() => fs.rmSync(item.root, { recursive: true, force: true }));

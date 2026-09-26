@@ -3,7 +3,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { SHIM_TOOLS } from "./constants.js";
 import { readJson, writeJsonAtomic } from "./io.js";
-import { canonicalizePotentialPath, isPathInside } from "./platform.js";
+import { canonicalizePotentialPath, environmentValue, isPathInside, setEnvironmentValue } from "./platform.js";
 import { identifyWorkspace } from "./workspace.js";
 
 export const OWNERSHIP_MARKER = ".clean-development-owned.json";
@@ -35,19 +35,22 @@ function definitions(config, workspace) {
 
 function isInjectedDefault(name, value, config, env) {
   if (name === "CARGO_TARGET_DIR") {
-    return env.CLEAN_DEVELOPMENT_ACTIVE === "1"
-      && value === env.CLEAN_DEVELOPMENT_CARGO_TARGET_DIR;
+    return environmentValue(env, "CLEAN_DEVELOPMENT_ACTIVE") === "1"
+      && value === environmentValue(env, "CLEAN_DEVELOPMENT_CARGO_TARGET_DIR");
   }
   if (name !== "npm_config_cache") return false;
   const pathKey = (candidate) => {
     const canonical = canonicalizePotentialPath(candidate);
     return process.platform === "win32" ? canonical.toLowerCase() : canonical;
   };
+  const home = environmentValue(env, "HOME");
+  const userProfile = environmentValue(env, "USERPROFILE");
+  const localAppData = environmentValue(env, "LOCALAPPDATA");
   const candidates = [
     path.join(config.locations.home, ".npm"),
-    env.HOME ? path.join(env.HOME, ".npm") : null,
-    env.USERPROFILE ? path.join(env.USERPROFILE, "AppData", "Local", "npm-cache") : null,
-    env.LOCALAPPDATA ? path.join(env.LOCALAPPDATA, "npm-cache") : null
+    home ? path.join(home, ".npm") : null,
+    userProfile ? path.join(userProfile, "AppData", "Local", "npm-cache") : null,
+    localAppData ? path.join(localAppData, "npm-cache") : null
   ].filter(Boolean).map(pathKey);
   return candidates.includes(pathKey(value));
 }
@@ -55,6 +58,11 @@ function isInjectedDefault(name, value, config, env) {
 function matchingEnvironmentKeys(env, name) {
   const normalized = name.toLowerCase();
   return Object.keys(env).filter((key) => key.toLowerCase() === normalized);
+}
+
+function deleteEnvironmentValue(env, name) {
+  const normalized = name.toLowerCase();
+  for (const key of Object.keys(env)) if (key.toLowerCase() === normalized) delete env[key];
 }
 
 function assertRealDirectory(directory, label) {
@@ -165,7 +173,7 @@ export function environmentForTool(tool, args, { config, cwd = process.cwd(), en
       for (const key of explicitKeys) preserved[key] = childEnv[key];
       continue;
     }
-    for (const key of existingKeys) delete childEnv[key];
+    deleteEnvironmentValue(childEnv, name);
     childEnv[name] = value;
     applied[name] = value;
     if (name === "YARN_ENABLE_GLOBAL_CACHE" || name === "YARN_ENABLE_MIRROR") continue;
@@ -187,13 +195,13 @@ export function environmentForTool(tool, args, { config, cwd = process.cwd(), en
     }
   }
   if (tool === "cargo") {
-    if (applied.CARGO_TARGET_DIR) childEnv.CLEAN_DEVELOPMENT_CARGO_TARGET_DIR = applied.CARGO_TARGET_DIR;
-    else delete childEnv.CLEAN_DEVELOPMENT_CARGO_TARGET_DIR;
+    if (applied.CARGO_TARGET_DIR) setEnvironmentValue(childEnv, "CLEAN_DEVELOPMENT_CARGO_TARGET_DIR", applied.CARGO_TARGET_DIR);
+    else deleteEnvironmentValue(childEnv, "CLEAN_DEVELOPMENT_CARGO_TARGET_DIR");
   }
-  childEnv.CLEAN_DEVELOPMENT_ACTIVE = "1";
-  childEnv.CLEAN_DEVELOPMENT_RESOLVED_ROOT = config.root;
-  childEnv.CLEAN_DEVELOPMENT_WORKSPACE_ID = workspace.id;
-  childEnv.CLEAN_DEVELOPMENT_WORKSPACE = workspace.root;
+  setEnvironmentValue(childEnv, "CLEAN_DEVELOPMENT_ACTIVE", "1");
+  setEnvironmentValue(childEnv, "CLEAN_DEVELOPMENT_RESOLVED_ROOT", config.root);
+  setEnvironmentValue(childEnv, "CLEAN_DEVELOPMENT_WORKSPACE_ID", workspace.id);
+  setEnvironmentValue(childEnv, "CLEAN_DEVELOPMENT_WORKSPACE", workspace.root);
   return { env: childEnv, applied, preserved, workspace, disabled: false, ownedBuild };
 }
 

@@ -207,6 +207,10 @@ An explicit `--agents` selection also deactivates previously owned native integr
 
 `env --tool` is for shared cache-only adapters. Cargo must run through the shim or `clean-development run -- cargo …` so its per-workspace directory has an ownership receipt and an active-build lease.
 
+Use `clean-development COMMAND --help` to see command usage and session defaults. Child options belong after `--`, for example `clean-development run --session skip -- cargo --help`.
+
+`doctor` is read-only and exits unsuccessfully when a managed storage directory is missing or inaccessible, or installed runtime files are missing, modified, or unusable. Mount the configured volume before repairing missing storage with `prepare`; use `update` to refresh an outdated runtime. Modified owned files are preserved for inspection.
+
 ## What it does not promise
 
 - It does not clean or adopt existing clutter during installation.

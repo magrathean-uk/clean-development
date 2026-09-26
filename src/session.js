@@ -209,11 +209,12 @@ export function prepareManagedDirectories(plan) {
 }
 
 export function applySessionPlan(plan, mode, env = process.env) {
-  const selected = normalizeSessionMode(mode);
-  if (!selected) throw new Error("A session choice is required");
+  const requested = normalizeSessionMode(mode);
+  if (!requested) throw new Error("A session choice is required");
+  const selected = plan.managed.enabled === false ? "skip" : requested;
   const childEnv = { ...env };
   setEnvironmentValue(childEnv, SESSION_MODE_ENV, selected === "persist" ? "session-only" : selected);
-  if (selected === "skip") return { mode: selected, env: childEnv, projectConfig: null };
+  if (selected === "skip") return { mode: selected, env: environmentWithoutSessionRouting(childEnv), projectConfig: null };
   if (plan.managed.repositoryPaths.length) {
     throw new Error(`Managed storage must be outside the project for ${selected}: ${plan.managed.repositoryPaths.join(", ")}`);
   }

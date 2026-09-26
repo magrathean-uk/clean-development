@@ -28,6 +28,16 @@ function regularJsonFile(file) {
   }
 }
 
+function readStateJson(file) {
+  try {
+    return readJson(file, null);
+  } catch {
+    // State is only evidence for ownership. A corrupt receipt must not make a
+    // directory eligible for deletion or prevent inspection of other receipts.
+    return null;
+  }
+}
+
 function validWorkspaceRecord(value, file) {
   if (
     value?.schemaVersion !== 1
@@ -47,7 +57,7 @@ export function workspaceRecord(config, workspaceId, buildRoot = config.buildRoo
   const file = path.join(expectedDirectory, `${registryKey(workspaceId, buildRoot)}.json`);
   const directory = stateCollection(config, "workspaces");
   if (!directory || !regularJsonFile(file)) return { file, value: null };
-  const value = readJson(file, null);
+  const value = readStateJson(file);
   return { file, value: validWorkspaceRecord(value, file) ? value : null };
 }
 
@@ -75,7 +85,7 @@ function ownedBuildReason(config, value) {
   if (!fs.existsSync(markerFile)) return "unowned";
   const markerStat = fs.lstatSync(markerFile);
   if (!markerStat.isFile() || markerStat.isSymbolicLink()) return "unowned";
-  const marker = readJson(markerFile, null);
+  const marker = readStateJson(markerFile);
   if (marker?.owner !== "clean-development" || marker?.ownershipId !== value.ownershipId || marker?.workspaceId !== value.workspaceId || marker?.workspace !== value.workspace) return "unowned";
   return null;
 }
@@ -159,7 +169,16 @@ export function activeWorkspaceIds(config) {
     if (!match) continue;
     const file = path.join(directory, name);
     if (!regularJsonFile(file)) continue;
-    const lease = readJson(file, null);
+    let lease;
+    try {
+      lease = readJson(file, null);
+    } catch {
+      // A matching filename identifies the workspace even when a concurrent
+      // write or filesystem fault makes its lease unreadable. Retain it rather
+      // than risk pruning an active build.
+      active.add(match[2]);
+      continue;
+    }
     const valid = lease?.schemaVersion === 1
       && lease.wrapperPid === Number(match[1])
       && lease.workspaceId === match[2]
@@ -170,7 +189,12 @@ export function activeWorkspaceIds(config) {
       && Number.isFinite(Date.parse(lease.startedAt))
       && Number.isInteger(lease.pid)
       && lease.pid > 0;
-    if (!valid) continue;
+    if (!valid) {
+      // A matching lease that cannot establish it is stale must conservatively
+      // protect its workspace from pruning.
+      active.add(match[2]);
+      continue;
+    }
     if (processIsAlive(lease.pid)) active.add(lease.workspaceId);
     else {
       try {
@@ -196,7 +220,7 @@ export function listWorkspaceRecords(config) {
   return names.map((name) => {
     const file = path.join(directory, name);
     if (!regularJsonFile(file)) return null;
-    const value = readJson(file, null);
+    const value = readStateJson(file);
     return validWorkspaceRecord(value, file) ? { file, value } : null;
   }).filter(Boolean);
 }
@@ -221,10 +245,12 @@ export async function applyPrune(config, plan) {
   for (const item of plan.filter((entry) => entry.eligible)) {
     const releaseLock = await acquireWorkspaceLock(config, item.workspaceId, item.buildRoot);
     try {
-      const current = readJson(item.recordFile, null);
-      if (!current || current.ownershipId !== item.ownershipId || current.path !== item.path) continue;
-      const active = activeWorkspaceIds(config);
+      if (!regularJsonFile(item.recordFile)) continue;
+      const current = readStateJson(item.recordFile);
       const threshold = Date.parse(item.pruneBefore);
+      if (!validWorkspaceRecord(current, item.recordFile) || !Number.isFinite(threshold)
+        || current.ownershipId !== item.ownershipId || current.path !== item.path) continue;
+      const active = activeWorkspaceIds(config);
       if (ownedBuildReason(config, current) || current.pinned || active.has(current.workspaceId)) continue;
       if (!Number.isFinite(Date.parse(current.lastUsedAt)) || Date.parse(current.lastUsedAt) >= threshold) continue;
       fs.rmSync(current.path, { recursive: true, force: false });

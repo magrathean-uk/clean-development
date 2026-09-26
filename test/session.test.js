@@ -130,6 +130,13 @@ test("disabled project configuration keeps routed session choices unavailable", 
   assert.equal(plan.managed.enabled, false);
   assert.equal(plan.choices.find((choice) => choice.mode === "session-only").available, false);
   assert.deepEqual(plan.managed.environment, {});
+  for (const mode of ["session-only", "persist"]) {
+    const applied = applySessionPlan(plan, mode, item.env);
+    assert.equal(applied.mode, "skip");
+    assert.equal(applied.env.CLEAN_DEVELOPMENT_SESSION_MODE, "skip");
+    assert.equal(applied.projectConfig, null);
+    assert.equal(fs.existsSync(config.root), false);
+  }
   const capture = path.join(item.root, "disabled-agent");
   fs.writeFileSync(path.join(item.fakeBin, "agy"), `#!${process.execPath}\nrequire('node:fs').writeFileSync(process.env.CAPTURE, process.env.CLEAN_DEVELOPMENT_SESSION_MODE || 'missing');\n`, { mode: 0o755 });
   const launched = spawnSync(process.execPath, [cli, "agent", "antigravity", "--", "hello"], {
@@ -152,6 +159,15 @@ test("nested session planning retains cleanup provenance for outer injected valu
   const cleaned = environmentWithoutSessionRouting(second.env, config.locations.binDir);
   assert.equal(cleaned.npm_config_cache, undefined);
   assert.equal(cleaned.CLEAN_DEVELOPMENT_SESSION_ENV, undefined);
+  for (const disabled of [false, true]) {
+    const skippedPlan = { ...secondPlan, managed: { ...secondPlan.managed, enabled: !disabled } };
+    const skipped = applySessionPlan(skippedPlan, disabled ? "session-only" : "skip", second.env);
+    assert.equal(skipped.mode, "skip");
+    assert.equal(skipped.env.npm_config_cache, undefined);
+    assert.equal(skipped.env.CLEAN_DEVELOPMENT_SESSION_ENV, undefined);
+    const overridden = applySessionPlan(skippedPlan, "skip", { ...second.env, npm_config_cache: "user-cache" });
+    assert.equal(overridden.env.npm_config_cache, "user-cache");
+  }
 });
 
 test("skip bypasses runtime, shims, managed variables, and Codex argument changes", async (t) => {

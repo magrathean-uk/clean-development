@@ -6,7 +6,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { environmentForTool } from "../src/adapters.js";
 import { resolveConfig } from "../src/config.js";
-import { ensureRuntime, removeRuntime, resolveExecutable, runTool, spawnInherited, windowsBatchInvocation } from "../src/runtime.js";
+import { ensureRuntime, removeRuntime, resolveExecutable, runTool, runtimeHealth, spawnInherited, windowsBatchInvocation } from "../src/runtime.js";
 import { acquireWorkspaceLock, activeWorkspaceIds, prunePlan, workspaceRecord } from "../src/state.js";
 import { identifyWorkspace } from "../src/workspace.js";
 
@@ -47,6 +47,36 @@ test("nested Cargo re-routes inherited managed output and still preserves a chan
   const overridden = environmentForTool("cargo", [], { config: item.config, cwd: item.second, env: { ...first.env, CARGO_TARGET_DIR: explicit }, create: false });
   assert.equal(overridden.env.CARGO_TARGET_DIR, explicit);
   assert.equal(overridden.env.CLEAN_DEVELOPMENT_CARGO_TARGET_DIR, undefined);
+});
+
+test("Cargo recognizes lowercased inherited routing markers and emits one canonical marker set", (t) => {
+  const item = fixture(t);
+  const first = environmentForTool("cargo", [], { config: item.config, cwd: item.first, env: item.env, create: false });
+  const inherited = { ...first.env };
+  for (const name of [
+    "CARGO_TARGET_DIR",
+    "CLEAN_DEVELOPMENT_CARGO_TARGET_DIR",
+    "CLEAN_DEVELOPMENT_ACTIVE",
+    "CLEAN_DEVELOPMENT_RESOLVED_ROOT",
+    "CLEAN_DEVELOPMENT_WORKSPACE_ID",
+    "CLEAN_DEVELOPMENT_WORKSPACE"
+  ]) {
+    inherited[name.toLowerCase()] = inherited[name];
+    delete inherited[name];
+  }
+  const rerouted = environmentForTool("cargo", [], { config: item.config, cwd: item.second, env: inherited, create: false });
+  assert.notEqual(rerouted.env.CARGO_TARGET_DIR, first.env.CARGO_TARGET_DIR);
+  assert.equal(rerouted.env.CLEAN_DEVELOPMENT_CARGO_TARGET_DIR, rerouted.env.CARGO_TARGET_DIR);
+  for (const name of [
+    "CARGO_TARGET_DIR",
+    "CLEAN_DEVELOPMENT_CARGO_TARGET_DIR",
+    "CLEAN_DEVELOPMENT_ACTIVE",
+    "CLEAN_DEVELOPMENT_RESOLVED_ROOT",
+    "CLEAN_DEVELOPMENT_WORKSPACE_ID",
+    "CLEAN_DEVELOPMENT_WORKSPACE"
+  ]) {
+    assert.equal(Object.keys(rerouted.env).filter((key) => key.toLowerCase() === name.toLowerCase()).length, 1);
+  }
 });
 
 test("a Cargo child launched through another workspace shim receives its own registered target", { skip: process.platform === "win32" }, async (t) => {
@@ -241,6 +271,18 @@ test("runtime update and uninstall accept receipts created with a different Node
   } finally {
     process.execPath = original;
   }
+});
+
+test("runtime health verifies the installed launcher inventory without changing it", (t) => {
+  const item = fixture(t);
+  const runtime = ensureRuntime(item.config);
+  const launcher = path.join(runtime.binDir, process.platform === "win32" ? "cargo.cmd" : "cargo");
+  assert.equal(runtimeHealth(item.config).ok, true);
+  fs.unlinkSync(launcher);
+  const health = runtimeHealth(item.config);
+  assert.equal(health.ok, false);
+  assert.match(health.detail, /missing or unsafe/);
+  assert.equal(fs.existsSync(launcher), false);
 });
 
 test("executable probing reads at most a 4096-byte prefix of a large binary", (t) => {

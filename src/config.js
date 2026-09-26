@@ -153,6 +153,6 @@ export function writeProjectConfig(file, value, { force = false, exclusive = fal
     ...value
   };
   validateConfig(output, file);
-  if (exclusive) writeJsonExclusive(file, output, { expectedParent });
+  if (exclusive || !force) writeJsonExclusive(file, output, { expectedParent });
   else writeJsonAtomic(file, output);
 }

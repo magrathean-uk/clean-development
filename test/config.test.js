@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { resolveConfig, writeUserConfig } from "../src/config.js";
+import { resolveConfig, writeProjectConfig, writeUserConfig } from "../src/config.js";
 import { environmentForTool } from "../src/adapters.js";
 import { SHIM_TOOLS } from "../src/constants.js";
 import { canonicalizePotentialPath } from "../src/platform.js";
@@ -24,6 +24,23 @@ function fixture() {
   };
   return { root, home, project, env };
 }
+
+test("project initialization preserves a file created after its existence check", (t) => {
+  const item = fixture();
+  t.after(() => fs.rmSync(item.root, { recursive: true, force: true }));
+  const file = path.join(item.project, ".clean-development.json");
+  const original = '{"schemaVersion":1,"enabled":false}\n';
+  const existsSync = fs.existsSync;
+  t.mock.method(fs, "existsSync", (candidate) => {
+    if (candidate === file && !existsSync(file)) {
+      fs.writeFileSync(file, original);
+      return false;
+    }
+    return existsSync(candidate);
+  });
+  assert.throws(() => writeProjectConfig(file, { enabled: true }), { code: "EEXIST" });
+  assert.equal(fs.readFileSync(file, "utf8"), original);
+});
 
 test("user root and project buildRoot resolve with clear precedence", (t) => {
   const item = fixture();

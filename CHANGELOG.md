@@ -2,6 +2,17 @@
 
 This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Compatibility can still change during `0.x` releases.
 
+## [Unreleased]
+
+### Fixed
+
+- `doctor` checks every managed storage directory and verifies installed runtime files, launcher permissions, and the recorded Node executable instead of trusting an installation receipt alone.
+- The public session API honors disabled project settings without creating managed storage, removes inherited routing on skip, and preserves user overrides. Project initialization cannot overwrite a configuration file created concurrently.
+- Pruning retains corrupt ownership state, protects workspaces with unreadable leases, and revalidates workspace receipts and retention timestamps before deletion.
+- Cargo recognizes inherited routing markers regardless of environment-variable casing and emits one canonical set of markers.
+- Native Claude setup activates on forked sessions, matching the bundled hook configuration.
+- CLI commands accept `--help`, describe session defaults, and reject unsupported environment formats and empty agent lists before making changes.
+
 ## [0.2.0] - 2026-09-19
 
 ### Added
