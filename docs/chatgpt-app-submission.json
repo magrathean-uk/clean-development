@@ -1,0 +1,63 @@
+{
+  "$schema": "https://developers.openai.com/plugins/schemas/chatgpt-app-submission.v1.json",
+  "schema_version": 1,
+  "tools": {},
+  "app_info": {
+    "display_name": "Clean Development",
+    "subtitle": "Manage local build caches",
+    "description": "An explicit management skill for the local Clean Development Node.js CLI. It previews, configures, routes, diagnoses, and safely prunes supported development caches and build output on a developer machine; it does not install itself or run automatically.",
+    "category": "PRODUCTIVITY"
+  },
+  "test_cases": [
+    {
+      "description": "Preview a repository storage plan without changes.",
+      "user_prompt": "Show me the Clean Development storage plan for this repository without changing anything.",
+      "tools_triggered": "No MCP tools; explicitly invoked Clean Development skill runs `clean-development session --dry-run --json`.",
+      "expected_output": "In a supported-manifest fixture, reports detected tools, managed destinations, and proposed configuration. Assertions: no runtime, managed-storage directory, or `.clean-development.json` is created."
+    },
+    {
+      "description": "Set up a selected local managed-storage root after previewing it.",
+      "user_prompt": "Set up Clean Development for this fixture under the supplied external managed root, but show the plan first.",
+      "tools_triggered": "No MCP tools; explicitly invoked Clean Development skill runs setup preview and then the local `clean-development setup` command with the supplied root and agent selection.",
+      "expected_output": "In an isolated fixture with a disposable external root, installs the durable runtime and only the selected owned integration. Assertion: package installation alone has made no configuration changes."
+    },
+    {
+      "description": "Route one npm test session without saving project configuration.",
+      "user_prompt": "Run this fixture's npm test with Clean Development for this session only.",
+      "tools_triggered": "No MCP tools; explicitly invoked Clean Development skill runs `clean-development run --session session-only -- npm test`.",
+      "expected_output": "In a Node fixture with a probe command, the probe sees the managed npm cache. Assertions: `.clean-development.json` is absent and project `node_modules` remains local."
+    },
+    {
+      "description": "Diagnose installed local storage without changing it.",
+      "user_prompt": "Inspect Clean Development status and doctor output without changing configuration.",
+      "tools_triggered": "No MCP tools; explicitly invoked Clean Development skill runs `clean-development status --json` and `clean-development doctor --json`.",
+      "expected_output": "In a fixture with prepared managed storage, reports runtime and storage health. Assertions: configuration and storage are not edited."
+    },
+    {
+      "description": "Preview eligible managed-build cleanup.",
+      "user_prompt": "Preview cleanup of Clean Development builds older than 30 days.",
+      "tools_triggered": "No MCP tools; explicitly invoked Clean Development skill runs `clean-development prune --older-than 30d --json` without `--apply`.",
+      "expected_output": "In a fixture containing registered, active, pinned, unowned, and corrupt records, lists only eligible owned directories and retains all protected records. Assertion: no directory is deleted."
+    }
+  ],
+  "negative_test_cases": [
+    {
+      "description": "An ordinary build request does not trigger the management skill.",
+      "user_prompt": "Run `npm test` in this project.",
+      "tools_triggered": null,
+      "expected_output": "The Clean Development skill is not invoked. The ordinary command receives no setup, routing, or managed-storage change."
+    },
+    {
+      "description": "An ambiguous deletion request does not invoke pruning.",
+      "user_prompt": "Delete old files to free space.",
+      "tools_triggered": null,
+      "expected_output": "The Clean Development skill is not invoked and deletes nothing. An explicit later prune request previews candidates; deletion requires `--apply`."
+    },
+    {
+      "description": "A disabled project stays inactive.",
+      "user_prompt": "Use Clean Development, but this project has `enabled: false`.",
+      "tools_triggered": "No MCP tools; explicitly invoked Clean Development skill diagnoses the disabled project setting.",
+      "expected_output": "Reports that the project is disabled. Assertions: no managed storage is created and routing is not forced."
+    }
+  ]
+}

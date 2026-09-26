@@ -49,3 +49,11 @@ For Claude, use repository `magrathean-uk/clean-development`, branch `main`, and
 Regenerate it after source changes with `node scripts/build-marketplace.mjs`. `npm run check` verifies that its files match the source. Do not edit generated bundle files directly.
 
 Claude's initial root scan flagged source files that combine environment handling with a `raw.githubusercontent.com` JSON schema URL. The URL is written as a `$schema` string in generated configuration, not fetched by the runtime. There is no HTTP client in the CLI. Environment inheritance is for explicitly requested local child commands, which retain their own network behavior and credentials. Explain those facts to reviewers; do not remove the schema or environment support merely to silence a heuristic scan.
+
+## Direct bundle acceptance (26 September 2026)
+
+The Claude bundle at commit `17e5cbf` passed three real Claude Code 2.1.283 / Sonnet 5 sessions using `--plugin-dir`, isolated empty settings, no MCP servers, and exact command allowlists. An ordinary request ran only `npm test`. Explicit diagnosis called the bundled CLI and correctly reported an unhealthy doctor result without writes. An already approved session-only request previewed the plan and ran a fixture that asserted managed npm cache routing and no project configuration file. A denied attempt to append `echo` to the doctor command was followed by the permitted standalone command; no permission bypass was used. This proves direct loading, not installation through the public directory.
+
+The exact Codex upload archive was also checked in an isolated environment: status, doctor, and session preview left storage untouched; an explicit session-only child observed the managed npm cache with no project configuration. Its SHA-256 is `337b3849093d2851185057e2c0dec29f136fbfc6ce9694245563465246c73766`. Archive verification does not establish portal approval.
+
+[chatgpt-app-submission.json](chatgpt-app-submission.json) contains importable listing copy and the five positive plus three negative reviewer cases. It declares no MCP tools.
