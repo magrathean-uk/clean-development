@@ -1,0 +1,90 @@
+{
+  "name": "clean-development",
+  "version": "0.2.1",
+  "description": "Keep development caches and supported build output in one managed place, without adding prompt context.",
+  "type": "module",
+  "main": "./.opencode/plugins/clean-development.js",
+  "exports": {
+    ".": "./.opencode/plugins/clean-development.js",
+    "./api": "./src/index.js",
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "clean-development": "bin/clean-development.js"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "schemas/",
+    "skills/",
+    "claude-skills/",
+    "integrations/",
+    "hooks/",
+    "docs/",
+    ".agents/",
+    ".claude-plugin/",
+    ".codex-plugin/",
+    ".cursor-plugin/",
+    ".devin-plugin/",
+    ".grok-plugin/",
+    ".kimi-plugin/",
+    ".hermes-plugin/",
+    ".opencode/",
+    ".pi/",
+    "gemini-extension.json",
+    "plugin.json",
+    "CHANGELOG.md",
+    "CODE_OF_CONDUCT.md",
+    "CONTRIBUTING.md",
+    "GOVERNANCE.md",
+    "README.md",
+    "RELEASING.md",
+    "ROADMAP.md",
+    "LICENSE",
+    "SECURITY.md",
+    "SUPPORT.md"
+  ],
+  "scripts": {
+    "check": "node ./scripts/check.mjs",
+    "test": "node --test",
+    "test:coverage": "node --test --experimental-test-coverage",
+    "test:package": "node ./scripts/verify-package.mjs",
+    "smoke:tools": "node ./scripts/smoke-real-tools.mjs",
+    "benchmark:overhead": "node ./scripts/benchmark-overhead.mjs",
+    "prepack": "npm run check && npm test"
+  },
+  "engines": {
+    "node": ">=20.12"
+  },
+  "keywords": [
+    "ai-agent",
+    "build-cache",
+    "cargo",
+    "clean-development",
+    "developer-tools",
+    "pi-package"
+  ],
+  "pi": {
+    "extensions": [
+      "./.pi/extensions/clean-development.ts"
+    ]
+  },
+  "author": {
+    "name": "Magrathean UK",
+    "url": "https://github.com/magrathean-uk"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/magrathean-uk/clean-development.git"
+  },
+  "bugs": {
+    "url": "https://github.com/magrathean-uk/clean-development/issues"
+  },
+  "homepage": "https://github.com/magrathean-uk/clean-development#readme",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/",
+    "provenance": true
+  }
+}

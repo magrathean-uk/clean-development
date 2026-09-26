@@ -1,0 +1,19 @@
+#!/bin/sh
+set -eu
+
+owner=${1:-}
+[ -n "$owner" ] || exit 0
+
+plugin_root=${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}
+if [ -n "$plugin_root" ] && [ -f "$plugin_root/bin/clean-development.js" ]; then
+  if command -v node >/dev/null 2>&1; then
+    exec node "$plugin_root/bin/clean-development.js" hook session-start --owner "$owner"
+  fi
+  exit 0
+fi
+
+if command -v clean-development >/dev/null 2>&1; then
+  exec clean-development hook session-start --owner "$owner"
+fi
+
+exit 0

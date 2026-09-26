@@ -1,5 +1,7 @@
 # Releasing
 
+Before validating a release, run `node scripts/build-marketplace.mjs` to refresh the self-contained Claude directory bundle. `npm run check` rejects a stale bundle. Public marketplace listings have their own review and publishing steps; see [the submission worksheet](docs/marketplace-submission.md).
+
 Only a maintainer with npm package access and GitHub release authority can publish.
 
 ## One-time repository setup

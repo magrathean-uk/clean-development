@@ -99,4 +99,9 @@ if (!fs.existsSync(path.join(root, ".grok-plugin", "plugin.json")) || fs.existsS
   throw new Error("Dedicated Grok plugin must have a manifest and no skills directory");
 }
 
-console.log(`Checked ${javascript.length} JavaScript files, ${bump.files.length} synchronized version files, and the bug-report version prompt.`);
+const marketplaceCheck = spawnSync(process.execPath, [path.join(root, "scripts/build-marketplace.mjs"), "--check"], { encoding: "utf8" });
+if (marketplaceCheck.status !== 0) {
+  throw new Error(marketplaceCheck.stderr || marketplaceCheck.error?.message || "Claude marketplace bundle is stale");
+}
+
+console.log(`Checked ${javascript.length} JavaScript files, ${bump.files.length} synchronized version files, the Claude directory bundle, and the bug-report version prompt.`);

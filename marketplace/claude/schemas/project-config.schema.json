@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/magrathean-uk/clean-development/main/schemas/project-config.schema.json",
+  "title": "Clean Development project configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string", "minLength": 1 },
+    "schemaVersion": { "const": 1 },
+    "enabled": { "type": "boolean" },
+    "root": { "type": "string", "minLength": 1 },
+    "cacheRoot": { "type": "string", "minLength": 1 },
+    "buildRoot": { "type": "string", "minLength": 1 },
+    "scratchRoot": { "type": "string", "minLength": 1 },
+    "retention": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "buildDays": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "tools": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cargo": { "type": "boolean" },
+        "go": { "type": "boolean" },
+        "npm": { "type": "boolean" },
+        "npx": { "type": "boolean" },
+        "pnpm": { "type": "boolean" },
+        "yarn": { "type": "boolean" },
+        "bun": { "type": "boolean" },
+        "uv": { "type": "boolean" },
+        "pip": { "type": "boolean" },
+        "pip3": { "type": "boolean" },
+        "dotnet": { "type": "boolean" },
+        "composer": { "type": "boolean" },
+        "ccache": { "type": "boolean" },
+        "sccache": { "type": "boolean" }
+      }
+    }
+  },
+  "required": ["schemaVersion"]
+}

@@ -14,10 +14,12 @@ your agent or terminal
   ~/Developer/.artifacts/
     caches/       shared downloads and compiler caches
     builds/       one directory per Cargo workspace or manifest root
-    scratch/      reserved scratch space; not pruned in 0.2.0
+    scratch/      reserved scratch space; not pruned in 0.2.1
 ```
 
-The project is at `0.2.0` and should be treated as an early release. The npm and GitHub names were clear when this repository was prepared, but publication is a separate step.
+The current source version is `0.2.1` and should be treated as an early release. It is not yet published to npm or listed in the official Codex or Claude directories. Use the source checkout below until a public release is available.
+
+[Support](SUPPORT.md) · [Privacy](PRIVACY.md) · [Software terms](TERMS.md) · [License](LICENSE)
 
 ## Install
 
@@ -29,10 +31,10 @@ clean-development setup --root "$HOME/Developer/.artifacts" --agents all
 clean-development doctor
 ```
 
-Or run setup once with `npx`; setup copies the runtime to a durable application-data directory, so no hook points into npm's temporary `_npx` cache:
+After npm publication, you can also run setup once with `npx`; setup copies the runtime to a durable application-data directory, so no hook points into npm's temporary `_npx` cache:
 
 ```sh
-npx clean-development setup --root "$HOME/Developer/.artifacts" --agents all
+npx clean-development@0.2.1 setup --root "$HOME/Developer/.artifacts" --agents all
 ```
 
 An `npx` process has a temporary, project-influenced `PATH`. Clean Development refuses to save that PATH into Codex's global configuration and reports its stable launcher instead. Claude's absolute hook and the durable runtime are still installed. To install Codex's native pass-through policy, run the globally installed command from a fresh shell; routing still requires an explicit launcher/session choice. Grok setup writes an owned `toolset.bash.cmd_prefix` that sources the durable runtime's environment helper in default-skip mode; it does not persist the temporary npm PATH.

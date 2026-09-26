@@ -1,0 +1,22 @@
+{
+  "name": "clean-development",
+  "displayName": "Clean Development",
+  "description": "Inspect and manage local development caches and build output with explicit session consent.",
+  "version": "0.2.1",
+  "author": {
+    "name": "Magrathean UK"
+  },
+  "homepage": "https://github.com/magrathean-uk/clean-development",
+  "repository": "https://github.com/magrathean-uk/clean-development",
+  "license": "MIT",
+  "keywords": [
+    "build-cache",
+    "developer-tools",
+    "storage"
+  ],
+  "icon": "./.claude-plugin/icon.svg",
+  "privacyPolicyUrl": "https://github.com/magrathean-uk/clean-development/blob/main/PRIVACY.md",
+  "supportUrl": "https://github.com/magrathean-uk/clean-development/blob/main/SUPPORT.md",
+  "documentationUrl": "https://github.com/magrathean-uk/clean-development/blob/main/README.md",
+  "termsOfServiceUrl": "https://github.com/magrathean-uk/clean-development/blob/main/TERMS.md"
+}
