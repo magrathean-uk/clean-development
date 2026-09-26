@@ -65,6 +65,13 @@ if (/^disable-model-invocation:/m.test(codexSkill)) {
 if (!/^disable-model-invocation:\s*true\s*$/m.test(claudeSkill)) {
   throw new Error("Claude management skill must remain explicit-only with disable-model-invocation: true");
 }
+if (claudeSkill.replace(/^disable-model-invocation: true\r?\n/m, "") !== codexSkill) {
+  throw new Error("Codex and Claude/Grok skill instructions must match apart from host invocation metadata");
+}
+const codexSkillPolicy = fs.readFileSync(path.join(root, "skills/clean-development/agents/openai.yaml"), "utf8");
+if (!/^  allow_implicit_invocation:\s*false\s*$/m.test(codexSkillPolicy)) {
+  throw new Error("Codex management skill must remain explicit-only with allow_implicit_invocation: false");
+}
 const claudeMarketplace = JSON.parse(fs.readFileSync(path.join(root, ".claude-plugin/marketplace.json"), "utf8"));
 if (claudeMarketplace.plugins?.[0]?.skills !== "./claude-skills/") {
   throw new Error("Claude marketplace must replace root skill discovery with ./claude-skills/");

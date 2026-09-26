@@ -111,3 +111,30 @@ test("shim executes the real tool with routed environment and exit status", asyn
   assert.match(observed.target, /managed[/\\]builds[/\\]project-[a-f0-9]{10}[/\\]cargo[/\\]target$/);
   assert.equal(fs.readdirSync(path.join(config.locations.stateDir, "leases")).length, 0);
 });
+
+test("the four documented skill launchers honor an explicit mode, argv, cwd, and exit status", { skip: process.platform === "win32" }, (t) => {
+  for (const [agent, executable] of [["codex", "codex"], ["claude", "claude"], ["antigravity", "agy"], ["grok", "grok"]]) {
+    const item = fixture();
+    t.after(() => fs.rmSync(item.root, { recursive: true, force: true }));
+    fs.writeFileSync(path.join(item.project, "package.json"), "{}\n");
+    fs.writeFileSync(path.join(item.fakeBin, executable), `#!${process.execPath}\nconsole.log(JSON.stringify({args:process.argv.slice(2),cwd:process.cwd(),mode:process.env.CLEAN_DEVELOPMENT_SESSION_MODE,cache:process.env.npm_config_cache||null}));process.exit(7);\n`, { mode: 0o755 });
+    const args = ["--help", "value with spaces", "--", "literal argument"];
+    for (const mode of ["session-only", "skip"]) {
+      const result = spawnSync(process.execPath, [path.resolve("bin/clean-development.js"), "agent", agent, "--session", mode, "--", ...args], {
+        cwd: item.project,
+        env: { ...item.env, CLEAN_DEVELOPMENT_SESSION_MODE: "skip" },
+        encoding: "utf8"
+      });
+      assert.equal(result.status, 7, `${agent}/${mode}: ${result.stderr}`);
+      const observed = JSON.parse(result.stdout);
+      assert.equal(observed.mode, mode);
+      assert.equal(fs.realpathSync(observed.cwd), fs.realpathSync(item.project));
+      assert.equal(observed.cache, mode === "skip" ? null : path.join(fs.realpathSync(item.root), "managed", "caches", "node", "npm"));
+      const expectedArgs = agent === "codex" && mode === "session-only"
+        ? [...args.slice(0, 2), "-c", "allow_login_shell=false", "-c", 'shell_environment_policy.set.CLEAN_DEVELOPMENT_SESSION_MODE="session-only"', ...args.slice(2)]
+        : args;
+      assert.deepEqual(observed.args, expectedArgs);
+      assert.equal(fs.readFileSync(path.join(item.project, ".clean-development.json"), "utf8"), '{"schemaVersion":1}\n');
+    }
+  }
+});

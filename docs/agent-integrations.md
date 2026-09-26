@@ -11,7 +11,7 @@ Clean Development follows Superpowers' 13-family, 14-surface repository shape bu
 | Family / surface | Native pass-through integration | Zero-context launcher | Package metadata | Evidence boundary |
 |---|---|---|---|---|
 | Claude Code | Shipped: `SessionStart`; plugin also uses `CwdChanged` | `clean-development-claude` | Claude plugin | Isolated fixtures pass; real-host acceptance pending |
-| Antigravity | None | `clean-development-antigravity` | Claude-compatible | Routing and short model workflow passed with `agy` 1.2.7; long print-mode commands hit an upstream cancellation bug |
+| Antigravity | None | `clean-development-antigravity` | Portable layout validates; launcher recommended | Routing and short model workflow passed with `agy` 1.2.7; long print-mode commands hit an upstream cancellation bug; explicit-only skill discovery unverified |
 | Codex App | Shipped: `allow_login_shell = false` and `shell_environment_policy` | Not applicable to the GUI | Codex plugin and repo marketplace | Restart, sandbox, and shell snapshot acceptance pending |
 | Codex CLI | Shipped: non-login-shell environment policy | `clean-development-codex` | Codex plugin and repo marketplace | Terra-high model workflow passed with 0.154.0, managed Cargo output, and no local `target` |
 | Cursor | None | `clean-development-cursor` | Cursor manifest | Launcher/package route only; acceptance pending |
@@ -71,7 +71,7 @@ Setup updates and uninstall must resolve the same agent configuration locations 
 
 ## Skills and token use
 
-The management skill is narrowly scoped to setup, status, diagnosis, and explicit pruning. Codex uses `skills/clean-development` with an `agents/openai.yaml` policy that disables implicit invocation. The Claude marketplace explicitly replaces root skill discovery with `claude-skills/`, whose copy uses `disable-model-invocation: true`, so Claude does not place its description in normal model context. The Grok marketplace points at the dedicated `.grok-plugin/` package, which intentionally contains no skills directory; management stays CLI-only there. The skill is not needed for routing, is never invoked by a shim, and does not tell an agent how to build software.
+The management skill is narrowly scoped to setup, status, diagnosis, explicit routing, and pruning. Codex uses `skills/clean-development` with an `agents/openai.yaml` policy that disables implicit invocation. The Claude marketplace explicitly replaces root skill discovery with `claude-skills/`, whose copy uses `disable-model-invocation: true`, so Claude does not place its description in normal model context. The Grok marketplace points at the dedicated `.grok-plugin/` package, which intentionally contains no skills directory; management stays CLI-only there. Grok can separately opt into the Claude variant as a user skill. AGY uses the launcher or an explicitly requested read of the skill; its native explicit-only discovery is not verified. See [the four-host skill guide](skill-compatibility.md) for exact routes and current loader checks. The skill is not needed for routing and is never invoked by a shim.
 
 The Codex plugin manifest must include a `defaultPrompt` field for the host schema. Its only entry is explicitly worded as an opt-in UX suggestion (`Use Clean Development only when explicitly requested.`); it is not a startup hook, session bootstrap, or normal routing context.
 

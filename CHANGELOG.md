@@ -6,6 +6,7 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ### Fixed
 
+- Management skills now separate read-only diagnosis from activation, reuse prior session consent, preserve requested prune ages, and document Codex, Claude, Antigravity/agy, and Grok invocation routes. Packaging checks enforce matching host instructions and explicit-only metadata.
 - `doctor` checks every managed storage directory and verifies installed runtime files, launcher permissions, and the recorded Node executable instead of trusting an installation receipt alone.
 - The public session API honors disabled project settings without creating managed storage, removes inherited routing on skip, and preserves user overrides. Project initialization cannot overwrite a configuration file created concurrently.
 - Pruning retains corrupt ownership state, protects workspaces with unreadable leases, and revalidates workspace receipts and retention timestamps before deletion.
