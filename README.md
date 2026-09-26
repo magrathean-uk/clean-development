@@ -142,7 +142,7 @@ The repository targets the same 13 agent families and 14 named surfaces document
 
 | Agent surface | Route included | Current status |
 |---|---|---|
-| Claude Code | `SessionStart`/`CwdChanged` pass-through integration and `clean-development-claude` launcher | Implemented; real-host acceptance pending |
+| Claude Code | `SessionStart`/`CwdChanged` pass-through integration and `clean-development-claude` launcher | Management skill and explicitly wrapped child commands passed with 2.1.283 / Sonnet 5; full native-hook/lifecycle acceptance pending |
 | Antigravity | `clean-development-antigravity` launcher; portable metadata | Routing and short model workflow passed with `agy` 1.2.7; long print-mode commands are canceled by an upstream lifecycle bug; explicit-only native skill discovery unverified |
 | Codex App | Default-skip `shell_environment_policy`; Codex plugin and marketplace metadata | Implemented; app restart/sandbox acceptance pending |
 | Codex CLI | Non-login-shell `clean-development-codex` launcher and native environment policy | Model-backed Rust workflow passed with 0.154.0, Terra high, managed Cargo output, and no local `target` |

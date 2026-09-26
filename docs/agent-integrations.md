@@ -10,7 +10,7 @@ Clean Development follows Superpowers' 13-family, 14-surface repository shape bu
 
 | Family / surface | Native pass-through integration | Zero-context launcher | Package metadata | Evidence boundary |
 |---|---|---|---|---|
-| Claude Code | Shipped: `SessionStart`; plugin also uses `CwdChanged` | `clean-development-claude` | Claude plugin | Isolated fixtures pass; real-host acceptance pending |
+| Claude Code | Shipped: `SessionStart`; plugin also uses `CwdChanged` | `clean-development-claude` | Claude plugin | Management skill and explicitly wrapped child commands passed with 2.1.283 / Sonnet 5; full native-hook/lifecycle acceptance pending |
 | Antigravity | None | `clean-development-antigravity` | Portable layout validates; launcher recommended | Routing and short model workflow passed with `agy` 1.2.7; long print-mode commands hit an upstream cancellation bug; explicit-only skill discovery unverified |
 | Codex App | Shipped: `allow_login_shell = false` and `shell_environment_policy` | Not applicable to the GUI | Codex plugin and repo marketplace | Restart, sandbox, and shell snapshot acceptance pending |
 | Codex CLI | Shipped: non-login-shell environment policy | `clean-development-codex` | Codex plugin and repo marketplace | Terra-high model workflow passed with 0.154.0, managed Cargo output, and no local `target` |
