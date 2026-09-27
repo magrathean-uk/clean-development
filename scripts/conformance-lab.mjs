@@ -193,11 +193,13 @@ function probeArgs(tool, mode, args) {
   if (tool === 'npm') return ['--silent', 'run', 'probe', '--', mode, ...args];
   return ['--quiet', 'run', '--no-project', '--no-python-downloads', '--', 'node', 'probe.cjs', mode, ...args];
 }
-function expectedCache(tool, env, routed) {
+export function expectedCache(tool, env, routed, platform = process.platform) {
   const base = env.CLEAN_DEVELOPMENT_ROOT;
   if (tool === 'npm') return env.npm_config_cache || (routed ? path.join(base, 'caches/node/npm') : path.join(env.HOME, '.npm'));
   if (tool === 'uv') return env.UV_CACHE_DIR || (routed ? path.join(base, 'caches/python/uv') : path.join(env.XDG_CACHE_HOME, 'uv'));
-  if (tool === 'go') return { GOCACHE: env.GOCACHE || (routed ? path.join(base, 'caches/go/build') : path.join(env.XDG_CACHE_HOME, 'go-build')),
+  // Go uses os.UserCacheDir: macOS ignores XDG_CACHE_HOME for this default.
+  const goDefault = platform === 'darwin' ? path.join(env.HOME, 'Library/Caches/go-build') : path.join(env.XDG_CACHE_HOME, 'go-build');
+  if (tool === 'go') return { GOCACHE: env.GOCACHE || (routed ? path.join(base, 'caches/go/build') : goDefault),
     GOMODCACHE: env.GOMODCACHE || (routed ? path.join(base, 'caches/go/modules') : path.join(env.GOPATH, 'pkg/mod')) };
   return null;
 }

@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { TOOLS, vectors, minimise, commandResultEqual, environment, capture, runToolLab } from '../scripts/conformance-lab.mjs';
+import { TOOLS, vectors, minimise, commandResultEqual, environment, capture, expectedCache, runToolLab } from '../scripts/conformance-lab.mjs';
 
 const temporary = () => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'cd-conformance-test-')));
 
@@ -43,6 +43,23 @@ test('allowlisted environment never copies ambient credentials, tool overrides o
   assert.equal(env.HOME, path.join(root, 'home')); assert.equal(env.GOPROXY, 'off'); assert.equal(env.UV_PYTHON_DOWNLOADS, 'never');
 });
 
+test('Go cache oracle honours macOS defaults without overriding the native environment', () => {
+  const root = path.resolve('unused-cache-oracle');
+  const env = { HOME: path.join(root, 'home'), XDG_CACHE_HOME: path.join(root, 'xdg-cache'),
+    GOPATH: path.join(root, 'go'), CLEAN_DEVELOPMENT_ROOT: path.join(root, 'managed') };
+  assert.equal(expectedCache('go', env, false, 'linux').GOCACHE, path.join(env.XDG_CACHE_HOME, 'go-build'));
+  assert.equal(expectedCache('go', env, false, 'darwin').GOCACHE, path.join(env.HOME, 'Library/Caches/go-build'));
+  for (const platform of ['linux', 'darwin']) {
+    assert.deepEqual(expectedCache('go', env, true, platform), {
+      GOCACHE: path.join(env.CLEAN_DEVELOPMENT_ROOT, 'caches/go/build'),
+      GOMODCACHE: path.join(env.CLEAN_DEVELOPMENT_ROOT, 'caches/go/modules') });
+    const override = { ...env, GOCACHE: path.join(root, 'explicit-cache'), GOMODCACHE: path.join(root, 'explicit-modules') };
+    for (const routed of [false, true]) assert.deepEqual(expectedCache('go', override, routed, platform), {
+      GOCACHE: override.GOCACHE, GOMODCACHE: override.GOMODCACHE });
+  }
+  assert.equal(Object.hasOwn(env, 'GOCACHE'), false);
+});
+
 test('capture handles ENOENT and deadlines as infrastructure errors, never conformance passes', { skip: process.platform === 'win32' }, async t => {
   const root = temporary(); t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const missing = await capture(path.join(root, 'missing'), [], { cwd: root, env: {}, timeout: 2000 });
@@ -55,7 +72,7 @@ for (const tool of TOOLS) test(`differential REAL ${tool}: commands, bytes, sign
   const result = await runToolLab(tool, { count: 3, minimiseFailures: false });
   if (result.status === 'blocked') { t.skip(result.reason); return; }
   t.diagnostic(JSON.stringify({ tool, version: result.version, rustc: result.rustc, python: result.python,
-    platform: result.platform, node: result.node, cases: result.cases.map(c => ({ id: c.id, status: c.status, differences: c.differences })),
+    platform: result.platform, kernel: result.kernel, node: result.node, seed: result.seed, count: result.count, cases: result.cases.map(c => ({ id: c.id, status: c.status, differences: c.differences, violations: c.status === 'failed' ? c.violations : undefined })),
     artifacts: result.artifacts, root: result.root }));
   // Keep failed fixture evidence. Passing test fixtures are generated exclusively by this call.
   if (result.status === 'passed') t.after(() => fs.rmSync(result.root, { recursive: true, force: true }));

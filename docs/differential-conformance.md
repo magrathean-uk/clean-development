@@ -157,6 +157,17 @@ uv 0.10.0 and Python 3.13.5. Cargo/rustc are unavailable locally and outbound
 package/Git DNS failed. Cargo is therefore explicitly blocked here. The
 repository's ordinary PR test matrix runs these tests on installed real tools;
 only inspected job logs may establish additional Cargo/platform coverage.
+Initial CI ran real Cargo 1.98.1 / rustc 1.98.1 successfully on macOS 26.6.2
+arm64 (Node 22.23.2), including both signals and equal 514,128-byte executable
+hashes. It also exposed an error in this lab's independent Go oracle, not in
+routing: Go 1.27.1 correctly chose `$HOME/Library/Caches/go-build` on macOS,
+where the initial lab expected `$XDG_CACHE_HOME/go-build`. The reduced
+`Go cache oracle` test reproduces that mismatch without launching tools; it
+failed before the platform-aware correction and now preserves both native
+platform defaults and explicit overrides. No environment value is forced to
+make the native result conform to the test. The native reproduction is in
+[the initial macOS job](https://github.com/magrathean-uk/clean-development/actions/runs/36348750697/job/108703139582).
+This follows Go's [UserCacheDir contract](https://pkg.go.dev/os#UserCacheDir).
 Final check results and exact CI revisions belong in the draft PR evidence.
 
 Relevant upstream contracts:
