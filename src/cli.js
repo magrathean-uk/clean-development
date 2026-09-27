@@ -13,6 +13,7 @@ import { acquireWorkspaceLock, applyPrune, listWorkspaceRecords, prunePlan } fro
 import { explainCommand, formatExplanation } from "./explain.js";
 import { storageStatus, formatStorageStatus, parseByteSize } from "./status.js";
 import { probeTool, formatProbe } from "./probe.js";
+import { preflightToolRouting, assertRoutingBoundary } from "./routing-context.js";
 
 const HELP = `clean-development ${VERSION}
 
@@ -273,7 +274,7 @@ async function promptSessionChoice(plan, input = process.stdin, stream = process
   }
 }
 
-async function sessionDecision(options, config, env, cwd = process.cwd()) {
+async function sessionDecision(options, config, env, cwd = process.cwd(), validateRouting = null) {
   normalizeSessionMode(options.session);
   const plan = planSession({ cwd, env, config });
   if (options["dry-run"]) return { dryRun: true, plan };
@@ -281,6 +282,7 @@ async function sessionDecision(options, config, env, cwd = process.cwd()) {
   const interactive = config.enabled !== false && !options.session && !inherited && Boolean(process.stdin.isTTY && process.stderr.isTTY);
   const choice = interactive ? await promptSessionChoice(plan) : null;
   const mode = config.enabled === false ? "skip" : selectSessionMode({ requested: options.session, env, interactive, choice });
+  if (mode !== "skip") validateRouting?.();
   const applied = applySessionPlan(plan, mode, env);
   const result = {
     dryRun: false,
@@ -504,7 +506,10 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
   if (command === "run") {
     const [executable, ...args] = parsed.passthrough.length ? parsed.passthrough : parsed.positionals;
     if (!executable) throw new Error("run requires a command after --");
-    const session = await sessionDecision(parsed.options, config, env);
+    const validateRouting = SHIM_TOOLS.includes(executable)
+      ? () => assertRoutingBoundary(preflightToolRouting(executable, args, { config, env }).repositoryPaths)
+      : null;
+    const session = await sessionDecision(parsed.options, config, env, process.cwd(), validateRouting);
     return runWithShims(executable, args, { config, env: session.env });
   }
   if (command === "agent") {

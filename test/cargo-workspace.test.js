@@ -168,12 +168,16 @@ test("attached Cargo directory and unstable flags retain their meaning", (t) => 
 
 test("Cargo -C applies to relative target ownership checks before execution", { skip: process.platform === "win32" }, async (t) => {
   const item = fixture(t);
+  // Keep managed storage outside both command contexts so this regression
+  // reaches the distinct explicit-target ownership check.
+  const caller = path.join(item.root, "caller");
+  fs.mkdirSync(caller);
   const env = { ...fakeCargo(item), QUERY_ROOT: path.join(item.workspace, "Cargo.toml") };
   for (const directory of [item.config.cacheRoot, item.config.buildRoot, item.config.scratchRoot]) fs.mkdirSync(directory, { recursive: true });
   const target = path.join(item.config.buildRoot, "unregistered", "target");
   const relative = path.relative(item.member, target);
   await assert.rejects(runTool("cargo", ["+nightly", "-C", item.member, "-Zunstable-options", "check", "--target-dir", relative], {
-    config: item.config, cwd: item.root, env
+    config: item.config, cwd: caller, env
   }), /Refusing unowned explicit Cargo target/);
   assert.equal(fs.existsSync(env.CAPTURE), false);
   assert.equal(fs.existsSync(target), false);
