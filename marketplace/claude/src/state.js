@@ -143,68 +143,96 @@ export function createLease(config, workspace, tool) {
   };
 }
 
-function processIsAlive(pid) {
-  if (!Number.isInteger(pid) || pid <= 0) return false;
+const MAX_LEASE_BYTES = 64 * 1024;
+
+// A lease is local evidence, not permission to read arbitrary files. Bound the
+// read and reject non-regular files even if they replace the path after lstat.
+function readLease(file) {
+  const before = fs.lstatSync(file, { bigint: true });
+  if (!before.isFile() || before.isSymbolicLink()) throw new Error("non-regular");
+  let descriptor;
   try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return error.code === "EPERM";
+    descriptor = fs.openSync(file, fs.constants.O_RDONLY
+      | (fs.constants.O_NOFOLLOW || 0) | (fs.constants.O_NONBLOCK || 0));
+    const opened = fs.fstatSync(descriptor, { bigint: true });
+    if (!opened.isFile() || opened.dev !== before.dev || opened.ino !== before.ino) throw new Error("changed-file");
+    if (opened.size > BigInt(MAX_LEASE_BYTES)) throw new Error("oversized");
+    const buffer = Buffer.alloc(MAX_LEASE_BYTES + 1);
+    let length = 0;
+    while (length < buffer.length) {
+      const count = fs.readSync(descriptor, buffer, length, buffer.length - length, length);
+      if (count === 0) break;
+      length += count;
+    }
+    if (length > MAX_LEASE_BYTES) throw new Error("oversized");
+    return JSON.parse(buffer.toString("utf8", 0, length));
+  } finally {
+    if (descriptor !== undefined) fs.closeSync(descriptor);
   }
 }
 
-export function activeWorkspaceIds(config) {
+/** Inspect leases without deleting even demonstrably stale files. Unknown
+ * evidence protects its workspace; only ESRCH proves a recorded PID is absent.
+ * These are observations, not a process-lifetime or filesystem-race guarantee.
+ */
+export function inspectWorkspaceLeases(config) {
   const directory = stateCollection(config, "leases");
-  const active = new Set();
-  if (!directory) return active;
-  let names = [];
+  if (!directory) return [];
+  let names;
   try {
-    names = fs.readdirSync(directory);
+    names = fs.readdirSync(directory).sort();
   } catch (error) {
-    if (error.code === "ENOENT") return active;
+    if (error.code === "ENOENT") return [];
     throw error;
   }
+  const leases = [];
   for (const name of names) {
     const match = name.match(/^(\d+)-([a-z0-9-]+)-([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.json$/i);
     if (!match) continue;
     const file = path.join(directory, name);
-    if (!regularJsonFile(file)) continue;
+    const observation = { file, workspaceId: match[2], status: "unknown", reason: "unreadable" };
+    leases.push(observation);
     let lease;
     try {
-      lease = readJson(file, null);
+      lease = readLease(file);
     } catch {
-      // A matching filename identifies the workspace even when a concurrent
-      // write or filesystem fault makes its lease unreadable. Retain it rather
-      // than risk pruning an active build.
-      active.add(match[2]);
+      // A matching filename identifies the workspace even if the contents are
+      // corrupt, oversized, missing after enumeration, or a substituted link.
       continue;
     }
     const valid = lease?.schemaVersion === 1
       && lease.wrapperPid === Number(match[1])
+      && Number.isSafeInteger(lease.wrapperPid) && lease.wrapperPid > 0
       && lease.workspaceId === match[2]
       && lease.tool === "cargo"
       && typeof lease.workspace === "string"
       && path.isAbsolute(lease.workspace)
       && typeof lease.startedAt === "string"
       && Number.isFinite(Date.parse(lease.startedAt))
-      && Number.isInteger(lease.pid)
-      && lease.pid > 0;
+      && Number.isSafeInteger(lease.pid) && lease.pid > 0;
     if (!valid) {
-      // A matching lease that cannot establish it is stale must conservatively
-      // protect its workspace from pruning.
-      active.add(match[2]);
+      observation.reason = "invalid-record";
       continue;
     }
-    if (processIsAlive(lease.pid)) active.add(lease.workspaceId);
-    else {
-      try {
-        fs.unlinkSync(file);
-      } catch {
-        // A concurrent process may already have removed its lease.
+    try {
+      process.kill(lease.pid, 0);
+      observation.status = "active";
+      observation.reason = "running";
+    } catch (error) {
+      if (error.code === "ESRCH") {
+        observation.status = "stale";
+        observation.reason = "process-missing";
+      } else {
+        observation.reason = "process-unverifiable";
       }
     }
   }
-  return active;
+  return leases;
+}
+
+export function activeWorkspaceIds(config) {
+  return new Set(inspectWorkspaceLeases(config)
+    .filter((lease) => lease.status !== "stale").map((lease) => lease.workspaceId));
 }
 
 export function listWorkspaceRecords(config) {
