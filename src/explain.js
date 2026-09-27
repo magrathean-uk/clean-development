@@ -102,7 +102,7 @@ export function explainCommand(command, args = [], { cwd = process.cwd(), env = 
   const nativeCacheOptions = inspectNativeCacheOptions(command, args);
   if (nativeCacheOptions) {
     report.routing.nativeCacheOptions = nativeCacheOptions;
-    report.limitations.push("Native cache inspection covers only leading recognised options; command arguments and unknown options stop inspection. Declarations are not observed write locations.");
+    if (nativeCacheOptions.declarations.length > 0) report.limitations.push("Native cache inspection covers only leading recognised options; command arguments and unknown options stop inspection. Declarations are not observed write locations.");
   }
   if (command === "cargo") {
     report.routing.commandLineTarget = explicitTarget(args);
