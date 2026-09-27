@@ -74,6 +74,7 @@ for (const tool of TOOLS) test(`differential REAL ${tool}: commands, bytes, sign
   t.diagnostic(JSON.stringify({ tool, version: result.version, rustc: result.rustc, python: result.python,
     platform: result.platform, kernel: result.kernel, node: result.node, seed: result.seed, count: result.count, cases: result.cases.map(c => ({ id: c.id, status: c.status, differences: c.differences, violations: c.status === 'failed' ? c.violations : undefined })),
     artifacts: result.artifacts, root: result.root }));
+  for (const failure of result.cases.filter(c => c.status === 'failed')) t.diagnostic(JSON.stringify({ failure }));
   // Keep failed fixture evidence. Passing test fixtures are generated exclusively by this call.
   if (result.status === 'passed') t.after(() => fs.rmSync(result.root, { recursive: true, force: true }));
   assert.equal(result.status, 'passed', result.error || JSON.stringify(result.failures));

@@ -130,7 +130,24 @@ failures trigger at most 40 reducer replays: delete argument chunks, then
 Unicode codepoints, retaining the same difference-category signature. This is
 a bounded reduction, **not proof of a global minimum or unchanged root cause**.
 Inspect/replay it before labelling a production regression. The Node suite
-uses the same oracle but disables automatic minimisation to bound CI time.
+uses the same oracle but disables automatic argv minimisation to bound CI time.
+A failed signal pair retains its empty-argument witness and raw lane captures,
+then runs eight additional direct and eight routed controls in the same fixture.
+Those controls are diagnostic only: even unanimous later agreement cannot turn
+the original failure into a pass. Failure records, including Base64 streams,
+are emitted in TAP diagnostics so they survive disposal of a CI runner.
+
+The final macOS/Node 22 check of `05e7c9d69e7e39c58cd1ab2c7aca99b812727145`
+reported a Go SIGTERM stderr/termination difference with no argv, cwd,
+environment or artifact violation. Node 20/24 macOS and Linux jobs passed;
+this does not erase the Node 22 failure. The original log included difference
+categories but not raw lane captures; this evidence gap prompted the capture
+and repeated-control output above. Signal scheduling/native Go variation is
+an investigation hypothesis, not an established explanation or a reason to
+normalise the failure. Reproduce with `--tools go --seed 24301 --count 1` and
+a new `--output` file. See the
+[failed native job](https://github.com/magrathean-uk/clean-development/actions/runs/36349220402/job/108704469628).
+
 
 Controls reject same-length byte corruption, changed stderr/status/signals,
 missing executables and deadlines, and test seed/reducer behaviour. Product

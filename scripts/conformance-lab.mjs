@@ -237,7 +237,7 @@ export async function runToolLab(tool, { seed = 0x5eed, count = 4, parent = os.t
     scope: 'same physical cwd and argv; real tool invocation; selected environment and nested effective caches; separate stdout/stderr byte comparison' };
   const run = async (routed, args, options = {}) => {
     const r = await capture(routed ? process.execPath : toolPaths[tool], routed ? [cli, 'run', '--session', 'session-only', '--', tool, ...args] : args,
-      { cwd: options.cwd || project, env: { ...env, ...options.env }, input: options.input, signal: options.signal });
+      { cwd: options.cwd || project, env: { ...env, ...options.env }, input: options.input, signal: options.signal, timeout: options.timeout });
     result.commands.push({ lane: routed ? 'routed' : 'direct', ...r }); return r;
   };
   const save = () => write(path.join(root, 'report.json'), JSON.stringify(result, null, 2) + '\n');
@@ -287,6 +287,20 @@ export async function runToolLab(tool, { seed = 0x5eed, count = 4, parent = os.t
       if (violations.length) comparison.differences.push('observation-invariant');
       const item = { id, mode, argv: args, launchCwd, childCwd, signal: signal || null, override, ...comparison, observations, violations, accounting: [...comparison.accounting, 'one owned PATH entry and explicit session mode', 'declared adapter cache variables only'],
         status: comparison.differences.length ? 'failed' : 'passed' };
+      if (signal || item.status === 'failed') item.captures = captures;
+      // Keep a failed signal pair failed even if later controls happen to agree.
+      // Repeated native invocations distinguish native scheduling variation from
+      // a repeatable wrapper difference without silently expanding the oracle.
+      if (signal && item.status === 'failed' && captures.every(c => !c.error)) {
+        write(path.join(root, `signal-${signal}-failure.json`), JSON.stringify(item, null, 2) + '\n');
+        item.signalControls = [];
+        for (const lane of [false, true]) for (let attempt = 0; attempt < 8; attempt++) {
+          const control = await run(lane, argv, { input, env: override, signal, cwd: launchCwd, timeout: 5000 });
+          item.signalControls.push({ lane: lane ? 'routed' : 'direct', attempt, ...control });
+        }
+        item.reproduction = { tool, mode, argv: args, signal, signalTarget: 'process-group',
+          seed, count: 1, note: 'empty argv signal witness; controls do not change the failed verdict' };
+      }
       if (record) result.cases.push(item);
       return item;
     };
