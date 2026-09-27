@@ -1,10 +1,16 @@
-# clean-development
+<h1 align="center">clean-development</h1>
+
+<p align="center">Routes new development caches and build output to a managed root, for developers and coding agents.</p>
+
+<p align="center">
+  <a href="docs/index.md">Documentation</a>
+</p>
+
+## Overview
 
 `clean-development` routes new development caches and supported build output to a managed root. It is a local Node.js CLI for developers and coding agents. Routing is explicit and preserves existing environment values unless force mode is selected.
 
 The current source version is `0.2.1` and requires Node.js `20.12` or newer. The repository is MIT licensed. It has not been published to npm or listed in the official Codex or Claude directories; use this source checkout until a public release is available.
-
-[Support](SUPPORT.md) · [Privacy](PRIVACY.md) · [Software terms](TERMS.md) · [License](LICENSE)
 
 Directory review is separate from public availability. The Claude directory submission passed its automated security scan and is in manual policy review because the bundle contains executable files. The [Codex community submission](https://github.com/openai/community-plugins/pull/21) is open but not live. The global OpenAI directory listing is a draft and has not been submitted because its MCP form blocks the submission.
 
@@ -134,8 +140,14 @@ The router is not a filesystem sandbox. A tool can still write an absolute path 
 
 The test suite covers configuration precedence, routing, ownership, leases, pruning, integration edits, and safety regressions. The fixture lab provides separate baseline and routed projects for Rust, Node, and Go. Neither source tests nor package metadata establish ordinary-user acceptance for every listed host integration.
 
-## Project documentation
+## Documentation
 
 The detailed documents in `docs/` cover [architecture](docs/architecture.md), [configuration](docs/configuration.md), [agent integrations](docs/agent-integrations.md), [safety](docs/safety-model.md), and [verification](docs/verification.md). Read the verification document before treating an integration manifest or launcher as host acceptance evidence.
 
-Contributions and security reports are covered by [`CONTRIBUTING.md`](CONTRIBUTING.md) and [`SECURITY.md`](SECURITY.md). Licensing terms are the complete [`MIT License`](LICENSE), with project guidance in [`docs/licensing.md`](docs/licensing.md). The project also includes [`SUPPORT.md`](SUPPORT.md), [`GOVERNANCE.md`](GOVERNANCE.md), and [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md).
+Contributions and security reports are covered by [`CONTRIBUTING.md`](CONTRIBUTING.md) and [`SECURITY.md`](SECURITY.md). Project guidance on licensing is in [`docs/licensing.md`](docs/licensing.md). The project also includes [`SUPPORT.md`](SUPPORT.md), [`GOVERNANCE.md`](GOVERNANCE.md), and [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md). Its privacy notice and software terms are at [`PRIVACY.md`](PRIVACY.md) and [`TERMS.md`](TERMS.md).
+
+## Licence
+
+clean-development is open source under the MIT licence. See [LICENSE](LICENSE). Contributions: see [CONTRIBUTING](CONTRIBUTING.md).
+
+<sub>© 2026 MAGRATHEAN UK LTD and contributors · [Legal](https://github.com/magrathean-uk/.github/blob/main/LEGAL.md)</sub>

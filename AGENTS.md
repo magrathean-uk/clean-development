@@ -11,6 +11,7 @@ Carry authorized changes through their relevant checks without asking again for 
 - Keep session planning read-only. `session-only` writes no project config; `persist` creates only the reviewed absent `.clean-development.json`; `skip` removes inherited routing without discarding independent overrides. Native integrations default to skip.
 - Test setup, update, uninstall, persistence, and deletion with disposable homes, settings, and storage roots. Never use a contributor's real agent configuration or build storage as a fixture.
 - Do not add prompt bootstrap text, telemetry, command recording, postinstall configuration changes, or automatic deletion.
+- Legal files (`LICENSE`, `NOTICE`, `docs/legal/`, contributor terms, copyright and attribution strings) are owner-controlled: change them only on the owner's explicit instruction.
 
 ## Checks
 

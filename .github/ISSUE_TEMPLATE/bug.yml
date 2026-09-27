@@ -5,7 +5,7 @@ labels: [bug]
 body:
   - type: markdown
     attributes:
-      value: Do not post vulnerability details here. Read https://github.com/magrathean-uk/clean-development/blob/main/SECURITY.md for the reporting policy.
+      value: Do not post vulnerability details here. Read https://github.com/magrathean-uk/clean-development/blob/main/.github/SECURITY.md for the reporting policy.
   - type: input
     id: version
     attributes:

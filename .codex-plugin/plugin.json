@@ -3,7 +3,7 @@
   "version": "0.2.1",
   "description": "Explicit management skill for configuring and inspecting clean-development.",
   "author": {
-    "name": "Magrathean UK",
+    "name": "MAGRATHEAN UK LTD",
     "url": "https://github.com/magrathean-uk"
   },
   "skills": "./skills/",
@@ -11,7 +11,7 @@
     "displayName": "Clean Development",
     "shortDescription": "Managed developer caches and build output",
     "longDescription": "Preview, configure, inspect, and explicitly prune supported local development caches and build output. Requires Node.js 20.12 or later and a coding host with local command access.",
-    "developerName": "Magrathean UK",
+    "developerName": "MAGRATHEAN UK LTD",
     "category": "Productivity",
     "capabilities": [
       "Read",

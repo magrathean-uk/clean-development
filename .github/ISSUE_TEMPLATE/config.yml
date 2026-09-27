@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: Security reporting policy
-    url: https://github.com/magrathean-uk/clean-development/blob/main/SECURITY.md
+    url: https://github.com/magrathean-uk/clean-development/blob/main/.github/SECURITY.md
     about: Read the reporting policy before sharing a suspected vulnerability. Do not post sensitive details publicly.
   - name: Support and questions
-    url: https://github.com/magrathean-uk/clean-development/blob/main/SUPPORT.md
+    url: https://github.com/magrathean-uk/clean-development/blob/main/.github/SUPPORT.md
     about: Read troubleshooting guidance and the available support route.

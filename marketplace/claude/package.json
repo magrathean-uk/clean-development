@@ -34,15 +34,17 @@
     "gemini-extension.json",
     "plugin.json",
     "CHANGELOG.md",
+    "README.md",
+    "LICENSE",
     "CODE_OF_CONDUCT.md",
     "CONTRIBUTING.md",
-    "GOVERNANCE.md",
-    "README.md",
-    "RELEASING.md",
-    "ROADMAP.md",
-    "LICENSE",
     "SECURITY.md",
-    "SUPPORT.md"
+    "SUPPORT.md",
+    "PRIVACY.md",
+    "TERMS.md",
+    "GOVERNANCE.md",
+    "RELEASING.md",
+    "ROADMAP.md"
   ],
   "scripts": {
     "check": "node ./scripts/check.mjs",
@@ -70,7 +72,7 @@
     ]
   },
   "author": {
-    "name": "Magrathean UK",
+    "name": "MAGRATHEAN UK LTD",
     "url": "https://github.com/magrathean-uk"
   },
   "license": "MIT",

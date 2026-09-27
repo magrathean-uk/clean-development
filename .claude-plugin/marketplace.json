@@ -2,7 +2,7 @@
   "name": "clean-development-dev",
   "description": "Development marketplace for clean-development",
   "owner": {
-    "name": "Magrathean UK"
+    "name": "MAGRATHEAN UK LTD"
   },
   "plugins": [
     {
@@ -12,7 +12,7 @@
       "source": "./",
       "skills": "./claude-skills/",
       "author": {
-        "name": "Magrathean UK"
+        "name": "MAGRATHEAN UK LTD"
       }
     }
   ]

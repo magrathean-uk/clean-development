@@ -30,4 +30,4 @@ This ledger describes the code and the remaining acceptance work. Historical res
 
 Native cache eviction, scratch expiry, Apple build adapters, and further ecosystems need their own storage and concurrency contracts. Scratch is reserved and retained in version 0.2.0.
 
-See [the roadmap](../ROADMAP.md), [agent integrations](agent-integrations.md), [safety model](safety-model.md), and [performance targets](performance.md). Historical audit checklists remain dated records rather than current completion claims.
+See [the roadmap](../roadmap.md), [agent integrations](agent-integrations.md), [safety model](safety-model.md), and [performance targets](performance.md). Historical audit checklists remain dated records rather than current completion claims.

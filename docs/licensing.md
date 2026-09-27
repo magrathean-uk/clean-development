@@ -2,7 +2,7 @@
 
 ## Project license
 
-Clean Development is licensed under the MIT License. The complete, controlling text is the root [LICENSE](../LICENSE) file, reproduced from the source repository without modification. Its copyright notice names Magrathean UK and contributors.
+Clean Development is licensed under the MIT License. The complete, controlling text is the root [LICENSE](../LICENSE) file, reproduced from the source repository without modification. Its copyright notice names MAGRATHEAN UK LTD and contributors.
 
 The package metadata and checked plugin manifests declare `MIT`. This document explains the repository layout; it does not amend the license grant or add terms.
 
