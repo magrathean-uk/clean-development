@@ -41,8 +41,9 @@ function projectEvidence(names) {
 }
 
 function nearestProjectRoot(start, home = os.homedir()) {
-  const resolvedStart = path.resolve(start);
-  const resolvedHome = path.resolve(home);
+  // Walk physical ancestors; an alias may live under an unrelated project.
+  const resolvedStart = safeRealpath(start);
+  const resolvedHome = safeRealpath(home);
   const startsBelowHome = resolvedStart !== resolvedHome && resolvedStart.startsWith(`${resolvedHome}${path.sep}`);
   let current = resolvedStart;
   while (true) {
@@ -170,7 +171,7 @@ function hasManifest(directory, patterns) {
 }
 
 function findRoot(start, patterns) {
-  let current = path.resolve(start);
+  let current = safeRealpath(start);
   let gitFallback = null;
   while (true) {
     if (patterns && hasManifest(current, patterns)) return current;
@@ -190,7 +191,7 @@ function isCargoWorkspaceManifest(file) {
 }
 
 function findCargoRoot(start) {
-  let current = path.resolve(start);
+  let current = safeRealpath(start);
   let nearestManifest = null;
   let gitFallback = null;
   while (true) {
