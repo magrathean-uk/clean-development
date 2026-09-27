@@ -132,6 +132,7 @@ function argumentValue(args, names) {
     for (const name of names) {
       if (argument === name && args[index + 1]) return args[index + 1];
       if (argument.startsWith(`${name}=`)) return argument.slice(name.length + 1);
+      if (name.length === 2 && !name.startsWith("--") && argument.startsWith(name) && argument.length > 2) return argument.slice(2);
     }
   }
   return null;
@@ -139,8 +140,10 @@ function argumentValue(args, names) {
 
 function commandCwd(tool, args, cwd) {
   if (tool === "cargo") {
+    const changed = argumentValue(args, ["-C"]);
+    const base = changed ? path.resolve(cwd, changed) : cwd;
     const manifest = argumentValue(args, ["--manifest-path"]);
-    if (manifest) return path.dirname(path.resolve(cwd, manifest));
+    return manifest ? path.dirname(path.resolve(base, manifest)) : path.resolve(base);
   }
   if (tool === "go") {
     const changed = argumentValue(args, ["-C"]);
@@ -216,9 +219,9 @@ function slug(value) {
   return cleaned || "workspace";
 }
 
-export function identifyWorkspace(tool, args = [], cwd = process.cwd()) {
+export function identifyWorkspace(tool, args = [], cwd = process.cwd(), { root: resolvedRoot } = {}) {
   const effectiveCwd = commandCwd(tool, args, cwd);
-  const root = safeRealpath(tool === "cargo" ? findCargoRoot(effectiveCwd) : findRoot(effectiveCwd, MANIFESTS[tool]));
+  const root = safeRealpath(resolvedRoot || (tool === "cargo" ? findCargoRoot(effectiveCwd) : findRoot(effectiveCwd, MANIFESTS[tool])));
   const digest = crypto.createHash("sha256").update(root).digest("hex").slice(0, 10);
   const id = `${slug(path.basename(root))}-${digest}`;
   return { id, root, effectiveCwd };

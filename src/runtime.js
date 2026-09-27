@@ -12,6 +12,7 @@ import { canonicalizePotentialPath, environmentValue, isPathInside, prependUniqu
 import { environmentWithoutSessionRouting, normalizeSessionMode, SESSION_MODE_ENV } from "./session.js";
 import { acquireWorkspaceLock, createLease, listWorkspaceRecords, recordWorkspace, workspaceRecord } from "./state.js";
 import { identifyWorkspace } from "./workspace.js";
+import { cargoInvocationCwd, resolveCargoWorkspace } from "./cargo-workspace.js";
 
 const RUNTIME_MARKER = ".clean-development-runtime.json";
 const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
@@ -723,7 +724,7 @@ export async function runTool(tool, args, { config, cwd = process.cwd(), env = p
     if (!executable) throw new Error(`Cannot find the real '${tool}' executable outside ${config.locations.binDir}`);
     return spawnInherited(executable, args, { cwd, env: childEnv });
   }
-  const workspace = identifyWorkspace(tool, args, cwd);
+  let workspace = identifyWorkspace(tool, args, cwd);
   const effectiveConfig = workspace.effectiveCwd === path.resolve(cwd)
     ? config
     : resolveConfig({ cwd: workspace.effectiveCwd, env });
@@ -735,9 +736,17 @@ export async function runTool(tool, args, { config, cwd = process.cwd(), env = p
   }
   const executable = resolveExecutable(tool, env, effectiveConfig.locations.binDir);
   if (!executable) throw new Error(`Cannot find the real '${tool}' executable outside ${effectiveConfig.locations.binDir}`);
-  const preview = tool === "cargo" ? environmentForTool(tool, args, { config: effectiveConfig, cwd, env, create: false }) : null;
+  if (tool === "cargo") {
+    workspace = resolveCargoWorkspace(args, {
+      executable, cwd, env,
+      invocation: (command, argv, childEnv) => process.platform === "win32" && /\.(cmd|bat)$/i.test(command)
+        ? windowsBatchInvocation(command, argv, childEnv) : { command, args: argv }
+    });
+  }
+  const preview = tool === "cargo" ? environmentForTool(tool, args, { config: effectiveConfig, cwd, env, create: false, workspace }) : null;
   const targetSelection = preview ? cargoTargetSelection(args, preview) : null;
   const targetDirectory = targetSelection?.directory;
+  const targetCwd = tool === "cargo" ? cargoInvocationCwd(args, cwd) : cwd;
   let targetOwners = [];
   const releaseLocks = [];
   const leases = [];
@@ -745,7 +754,7 @@ export async function runTool(tool, args, { config, cwd = process.cwd(), env = p
   let routed;
   try {
     for (let attempt = 0; tool === "cargo" && attempt < 5; attempt += 1) {
-      targetOwners = managedCargoTargetOwners(effectiveConfig, targetDirectory, cwd);
+      targetOwners = managedCargoTargetOwners(effectiveConfig, targetDirectory, targetCwd);
       const lockTargets = [{ workspaceId: workspace.id, buildRoot: effectiveConfig.buildRoot }];
       for (const owner of targetOwners) {
         if (!lockTargets.some((target) => target.workspaceId === owner.workspaceId && target.buildRoot === owner.buildRoot)) lockTargets.push(owner);
@@ -756,12 +765,12 @@ export async function runTool(tool, args, { config, cwd = process.cwd(), env = p
         return a < b ? -1 : a > b ? 1 : 0;
       });
       for (const target of lockTargets) releaseLocks.push(await acquireWorkspaceLock(effectiveConfig, target.workspaceId, target.buildRoot));
-      const currentOwners = managedCargoTargetOwners(effectiveConfig, targetDirectory, cwd);
+      const currentOwners = managedCargoTargetOwners(effectiveConfig, targetDirectory, targetCwd);
       const stable = currentOwners.length === targetOwners.length && currentOwners.every((owner, index) =>
         ["workspaceId", "workspace", "buildRoot", "path", "ownershipId"].every((key) => owner[key] === targetOwners[index][key]));
       if (stable) {
         targetOwners = currentOwners;
-        if (targetSelection.explicit) rejectUnownedManagedTarget(effectiveConfig, targetDirectory, cwd, targetOwners);
+        if (targetSelection.explicit) rejectUnownedManagedTarget(effectiveConfig, targetDirectory, targetCwd, targetOwners);
         break;
       }
       while (releaseLocks.length > 0) releaseLocks.pop()();
@@ -770,7 +779,7 @@ export async function runTool(tool, args, { config, cwd = process.cwd(), env = p
     const existingBuildRecord = tool === "cargo"
       ? workspaceRecord(effectiveConfig, workspace.id, effectiveConfig.buildRoot).value
       : null;
-    routed = environmentForTool(tool, args, { config: effectiveConfig, cwd, env, create: true, existingBuildRecord });
+    routed = environmentForTool(tool, args, { config: effectiveConfig, cwd, env, create: true, existingBuildRecord, workspace });
     if (routed.ownedBuild) {
       recordWorkspace(effectiveConfig, routed.workspace, routed.ownedBuild);
     }

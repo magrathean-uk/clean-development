@@ -129,9 +129,8 @@ export function ensureOwnedBuildRoot(config, workspace, existingRecord = null) {
   }
 }
 
-export function environmentForTool(tool, args, { config, cwd = process.cwd(), env = process.env, create = true, validateBase = false, existingBuildRecord = null } = {}) {
+export function environmentForTool(tool, args, { config, cwd = process.cwd(), env = process.env, create = true, validateBase = false, existingBuildRecord = null, workspace = identifyWorkspace(tool, args, cwd) } = {}) {
   if (!SHIM_TOOLS.includes(tool)) throw new Error(`Unsupported shim tool: ${tool}`);
-  const workspace = identifyWorkspace(tool, args, cwd);
   const desired = definitions(config, workspace)[tool] || {};
   const applied = {};
   const preserved = {};
