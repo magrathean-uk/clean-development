@@ -32,6 +32,21 @@ Cargo identities are provisional until command-time discovery; native flags,
 configuration and scripts can choose other paths. It does not prove that an agent
 host or the current parent shell is routed. See [command explanations](docs/explain.md).
 
+## Inspect stored builds
+
+```sh
+node bin/clean-development.js status --workspaces --sizes
+node bin/clean-development.js status --build-budget 20GiB --json
+```
+
+The workspace view shows valid registered records, last use, pins, active or uncertain
+leases and retention eligibility. Sizes are bounded metadata scans; incomplete or
+missing measurements are explicitly unknown, not zero. The build budget is
+advisory, covers registered logical bytes only, and never changes retention or
+triggers cleanup. Shared caches are not arbitrarily attributed to projects.
+See [workspace status and size limits](docs/status.md) and
+[read-only inspection guarantees](docs/inspection.md).
+
 ## What it manages
 
 When a routed session is active, the CLI provides adapters for:
@@ -65,6 +80,16 @@ npm run test:package
 ```
 
 The package has no runtime or development dependency declaration, so a clean checkout does not need `npm install` for these scripts. `package.json` declares Node.js `>=20.12`. `npm run check` validates repository-facing files, `npm test` runs the Node test suite, and `npm run test:package` packs and installs temporary tarballs, including the preceding-release tag named in `scripts/verify-package.mjs`. Run it only with that tag available. A quick check should not use `npm pack --dry-run`: the package's `prepack` hook runs the check and test suite. The fixture lab is a separate offline integration exercise described in [`test/lab/README.md`](test/lab/README.md).
+
+For required real-tool coverage and a source-fingerprinted JSON record:
+
+```sh
+node scripts/smoke-real-tools.mjs --require cargo,go,npm --json
+```
+
+Missing required tools fail the run rather than silently reducing coverage. The
+harness uses predefined offline fixtures, not live agent sessions; see
+[verification evidence](docs/verification-evidence.md) for the schema and limits.
 
 The CLI can be run directly without installing a global command:
 
@@ -141,7 +166,8 @@ agent AGENT [--session session-only|persist|skip] [-- ARGS...]
 run [--session session-only|persist|skip] -- COMMAND [ARGS...]
 explain [--session session-only|skip] [--json] -- COMMAND [ARGS...]
 env [--tool TOOL] [--format json|sh|fish|powershell]
-status [--sizes] [--json]
+status [--workspaces] [--sizes] [--build-budget SIZE] [--json]
+  [--max-scan-entries COUNT] [--max-scan-ms MS]
 doctor [--json]
 prune [--older-than DAYS] [--apply] [--json]
 pin WORKSPACE_ID
