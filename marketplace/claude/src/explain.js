@@ -11,7 +11,7 @@ import { identifyWorkspace } from "./workspace.js";
 
 function executablePlan(command, env, binDir, cwd) {
   const hasPath = command.includes(path.sep) || (process.platform === "win32" && command.includes("/"));
-  const selected = resolveExecutable(hasPath ? path.resolve(cwd, command) : command, env, binDir);
+  const selected = resolveExecutable(hasPath ? path.resolve(cwd, command) : command, env, binDir, cwd);
   try {
     if (!selected || !fs.statSync(selected).isFile()) return { path: selected, found: false };
     fs.accessSync(selected, fs.constants.X_OK);
@@ -109,6 +109,14 @@ export function explainCommand(command, args = [], { cwd = process.cwd(), env = 
   return report;
 }
 
+function terminalLine(value) {
+  // JSON escapes C0 controls, quotes, backslashes and unpaired surrogates.
+  // Also make C1, direction controls and Unicode line separators visible.
+  return JSON.stringify(String(value)).slice(1, -1)
+    .replace(/[\u007f-\u009f\u061c\u200e\u200f\u2028-\u202e\u2066-\u2069]/gu,
+      (character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`);
+}
+
 export function formatExplanation(report) {
   const lines = [
     "Clean Development command prediction (read-only)",
@@ -123,5 +131,5 @@ export function formatExplanation(report) {
     lines.push(`${entry.action === "preserve" ? "Preserve" : "Set"} ${entry.name}=${entry.value}`, `  ${entry.reason}; source: ${entry.source}`);
   }
   if (report.routing.commandLineTarget) lines.push(`Cargo command-line target: ${report.routing.commandLineTarget}`);
-  return [...lines, "", ...report.limitations].join("\n");
+  return [...lines, "", ...report.limitations].map(terminalLine).join("\n");
 }

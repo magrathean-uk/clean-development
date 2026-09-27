@@ -7,7 +7,7 @@ files or permission to delete data.
 Inspection reads at most **64 KiB plus one overflow-detection byte** from each
 recognised regular lease file. Reads use a file descriptor, handle short reads,
 and close on success and every failure. The opened file must match the initial
-stat by device, inode, size and change/modified timestamps. File contents and path
+stat by device, inode, size and change/modified timestamps. File metadata and path
 identity are rechecked after reading. No-follow and nonblocking flags are used
 where supported, so a substituted symlink or special file is not intentionally
 followed or allowed to block a read.

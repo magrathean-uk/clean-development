@@ -12,6 +12,7 @@ import { applySessionPlan, deferSessionRouting, normalizeSessionMode, planSessio
 import { acquireWorkspaceLock, applyPrune, listWorkspaceRecords, prunePlan } from "./state.js";
 import { explainCommand, formatExplanation } from "./explain.js";
 import { storageStatus, formatStorageStatus, parseByteSize } from "./status.js";
+import { probeTool, formatProbe } from "./probe.js";
 
 const HELP = `clean-development ${VERSION}
 
@@ -30,6 +31,7 @@ Usage:
   clean-development status [--workspaces] [--sizes] [--build-budget SIZE] [--json]
     [--max-scan-entries COUNT] [--max-scan-ms MS]
   clean-development doctor [--json]
+  clean-development probe --tool npm|go|uv [--execute] [--timeout-ms MS] [--json]
   clean-development prune [--older-than DAYS] [--apply] [--json]
   clean-development pin WORKSPACE_ID | unpin WORKSPACE_ID
   clean-development uninstall [--dry-run] [--json]
@@ -60,6 +62,7 @@ const COMMAND_OPTIONS = Object.freeze({
   env: { tool: "value", format: "value" },
   status: { sizes: "boolean", workspaces: "boolean", "build-budget": "value", "max-scan-entries": "value", "max-scan-ms": "value", json: "boolean" },
   doctor: { json: "boolean" },
+  probe: { tool: "value", execute: "boolean", "timeout-ms": "value", json: "boolean" },
   prune: { "older-than": "value", apply: "boolean", json: "boolean" },
   pin: { json: "boolean" },
   unpin: { json: "boolean" },
@@ -101,7 +104,7 @@ function parse(argv, optionTypes) {
 
 function validateArguments(command, parsed) {
   const { positionals, passthrough } = parsed;
-  const noArguments = ["help", "version", "setup", "update", "prepare", "session", "init", "env", "status", "doctor", "prune", "uninstall"];
+  const noArguments = ["help", "version", "setup", "update", "prepare", "session", "init", "env", "status", "doctor", "probe", "prune", "uninstall"];
   if (noArguments.includes(command) && (positionals.length > 0 || passthrough.length > 0)) {
     throw new Error(`${command} does not accept positional arguments`);
   }
@@ -459,6 +462,15 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
     const report = explainCommand(executable, args, { env, mode: parsed.options.session });
     output(json ? report : formatExplanation(report), json);
     return 0;
+  }
+  if (command === "probe") {
+    const timeout = parsed.options["timeout-ms"];
+    if (timeout !== undefined && !/^\d+$/.test(timeout)) throw new Error("Invalid --timeout-ms; use an integer from 100 to 30000");
+    const report = await probeTool(parsed.options.tool, { env, execute: Boolean(parsed.options.execute),
+      timeoutMs: timeout === undefined ? 5000 : Number(timeout) });
+    output(json ? report : formatProbe(report), json);
+    if (report.reason === "interrupted") return report.interruptedSignal === "SIGTERM" ? 143 : 130;
+    return ["failed", "mismatch", "unavailable", "blocked"].includes(report.status) ? 1 : 0;
   }
   const requestedSession = normalizeSessionMode(parsed.options.session);
   const inheritedSession = normalizeSessionMode(environmentValue(env, "CLEAN_DEVELOPMENT_SESSION_MODE"));

@@ -30,3 +30,25 @@ resolves nontrivial layouts and applies ownership and active-build checks.
 Tool-specific native configuration and arbitrary scripts are not executed to
 infer output. A prediction is not proof of routing in a GUI agent, resumed shell
 or subagent. Source and project-local dependencies are not automatically moved.
+
+## Terminal rendering
+
+The human-readable explanation escapes control characters inside each generated
+line before adding its own line breaks. A command name, path, environment override
+or reason therefore cannot introduce an ANSI/OSC control sequence or forge an
+extra report line. C0/C1 controls, Unicode directional controls and line/paragraph
+separators are displayed as literal escapes. Ordinary Unicode text remains readable.
+Backslashes and quotes are escaped too, so a filename containing the literal text
+`\n` can be distinguished from a filename containing an actual newline.
+
+This is display encoding, not a change to routing or the report object. The
+version-1 JSON data contract preserves the original values after JSON parsing.
+Consumers rendering that data must apply their own context-appropriate escaping;
+do not treat raw JSON values as terminal-safe strings or executable shell snippets.
+No commands are logged or executed, and no file changes result from rendering.
+This change covers human-readable `explain` output, not every other CLI formatter,
+child-process output, or arbitrary third-party terminals.
+
+```sh
+node --test test/explain-rendering.test.js test/explain.test.js
+```

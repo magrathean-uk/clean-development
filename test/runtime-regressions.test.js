@@ -318,8 +318,8 @@ test("Windows batch invocation uses cmd with protected metacharacters and reject
   const result = windowsBatchInvocation("C:\\Program Files\\npm.cmd", ["", "hello world", "x&y", "a\\", 'a"b', "%PATH%"], { ComSpec: "C:\\Windows\\System32\\cmd.exe" });
   assert.equal(result.command, "C:\\Windows\\System32\\cmd.exe");
   assert.deepEqual(result.args.slice(0, 4), ["/d", "/v:off", "/s", "/c"]);
-  assert.ok(result.args[4].includes("x^&y"));
-  assert.ok(result.args[4].includes("^%PATH^%"));
+  assert.ok(result.args[4].includes("x^^^&y"));
+  assert.ok(result.args[4].includes("^^^%PATH^^^%"));
   assert.equal(result.windowsVerbatimArguments, true);
   assert.throws(() => windowsBatchInvocation("tool.cmd", ["first\nsecond"], {}), /cannot contain newlines/);
 });

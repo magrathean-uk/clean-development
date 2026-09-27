@@ -89,7 +89,7 @@ function expectedFiles() {
   for (const directory of ["bin", "src", "integrations", "hooks", "schemas"]) sourceTree(directory, files);
   for (const relative of ["package.json", "LICENSE", "SUPPORT.md", "PRIVACY.md", "TERMS.md", "SECURITY.md", "docs/verification.md"]) {
     const source = path.join(root, relative);
-    files.set(relative, { source, mode: regularFile(source, "Source").mode & 0o777 });
+    files.set(path.normalize(relative), { source, mode: regularFile(source, "Source").mode & 0o777 });
   }
   const icon = path.join(root, ".claude-plugin", "icon.svg");
   files.set(path.join(".claude-plugin", "icon.svg"), { source: icon, mode: regularFile(icon, "Source").mode & 0o777 });
@@ -138,7 +138,9 @@ function compare(files) {
       continue;
     }
     if (!fs.readFileSync(target).equals(contents(entry))) errors.push(`Stale bundle file: ${relative}`);
-    if ((status.mode & 0o777) !== entry.mode) errors.push(`Bundle mode differs: ${relative}`);
+    // NTFS permissions cannot represent the Unix modes stored by Git. Content
+    // and regular-file checks remain mandatory on every platform.
+    if (process.platform !== "win32" && (status.mode & 0o777) !== entry.mode) errors.push(`Bundle mode differs: ${relative}`);
   }
   return errors;
 }

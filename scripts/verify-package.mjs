@@ -88,6 +88,9 @@ try {
     "src/explain.js",
     "src/status.js",
     "src/measurement.js",
+    "src/probe.js",
+    "src/probe-process.js",
+    "docs/probe.md",
     "docs/explain.md",
     "docs/status.md",
     "plugin.json",
@@ -115,7 +118,7 @@ try {
     "const plugin = await import('clean-development');",
     "const api = await import('clean-development/api');",
     "if (typeof plugin.default !== 'function') process.exit(9);",
-    "for (const name of ['resolveConfig', 'planSession', 'explainCommand', 'formatExplanation', 'storageStatus', 'formatStorageStatus', 'parseByteSize', 'measureDirectory', 'createSizeScanner']) if (typeof api[name] !== 'function') throw new Error('Missing API export: ' + name);",
+    "for (const name of ['resolveConfig', 'planSession', 'explainCommand', 'formatExplanation', 'storageStatus', 'formatStorageStatus', 'parseByteSize', 'measureDirectory', 'createSizeScanner', 'planProbe', 'probeTool', 'formatProbe']) if (typeof api[name] !== 'function') throw new Error('Missing API export: ' + name);",
     "if (api.parseByteSize('1KiB') !== 1024 || api.DEFAULT_SCAN_LIMITS.maxEntries !== 200000) process.exit(10);"
   ].join("\n")], { cwd: prefix });
   assert.equal(contract.status, 0);

@@ -1,8 +1,6 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
-import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { environmentForTool, OWNERSHIP_MARKER } from "./adapters.js";
 import { resolveConfig } from "./config.js";
@@ -13,6 +11,11 @@ import { environmentWithoutSessionRouting, normalizeSessionMode, SESSION_MODE_EN
 import { acquireWorkspaceLock, createLease, listWorkspaceRecords, recordWorkspace, workspaceRecord } from "./state.js";
 import { identifyWorkspace } from "./workspace.js";
 import { cargoInvocationCwd, resolveCargoWorkspace } from "./cargo-workspace.js";
+import { windowsBatchInvocation } from "./windows-command.js";
+import { spawnInherited } from "./process-runner.js";
+import { resolveExecutable } from "./executable.js";
+
+export { windowsBatchInvocation, spawnInherited, resolveExecutable };
 
 const RUNTIME_MARKER = ".clean-development-runtime.json";
 const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
@@ -534,139 +537,6 @@ function removeVersionedRuntime(config, receipt, result) {
   }
 }
 
-function candidateNames(executable, env) {
-  if (process.platform !== "win32") return [executable];
-  const extension = path.extname(executable);
-  if (extension) return [executable];
-  const pathExt = (environmentValue(env, "PATHEXT") || ".EXE;.CMD;.BAT;.COM").split(";");
-  return [...pathExt.map((item) => `${executable}${item.toLowerCase()}`), ...pathExt.map((item) => `${executable}${item.toUpperCase()}`), executable];
-}
-
-function sameFile(left, right) {
-  try {
-    const a = fs.statSync(left);
-    const b = fs.statSync(right);
-    return a.dev === b.dev && a.ino === b.ino;
-  } catch {
-    return false;
-  }
-}
-
-function isGeneratedShim(file) {
-  let descriptor;
-  try {
-    descriptor = fs.openSync(file, "r");
-    const prefix = Buffer.alloc(4096);
-    const bytes = fs.readSync(descriptor, prefix, 0, prefix.length, 0);
-    const contents = prefix.toString("utf8", 0, bytes);
-    return contents.includes("clean-development-shim.js")
-      || (contents.includes("import { runTool }") && contents.includes("import { resolveConfig }"));
-  } catch {
-    return false;
-  } finally {
-    if (descriptor !== undefined) fs.closeSync(descriptor);
-  }
-}
-
-export function resolveExecutable(executable, env, excludedDirectory) {
-  if (executable.includes(path.sep) || (path.sep === "\\" && executable.includes("/"))) return path.resolve(executable);
-  const excluded = excludedDirectory ? canonicalizePotentialPath(excludedDirectory) : null;
-  const directories = (environmentValue(env, "PATH") || "").split(path.delimiter).filter(Boolean);
-  for (const directory of directories) {
-    if (excluded && canonicalizePotentialPath(directory) === excluded) continue;
-    for (const name of candidateNames(executable, env)) {
-      const candidate = path.join(directory, name);
-      try {
-        fs.accessSync(candidate, fs.constants.X_OK);
-        if (excluded && isPathInside(excluded, candidate)) continue;
-        if (excluded && sameFile(candidate, path.join(excluded, name))) continue;
-        if (isGeneratedShim(candidate)) continue;
-        return candidate;
-      } catch {
-        // Keep searching PATH.
-      }
-    }
-  }
-  return null;
-}
-
-function escapeCmd(value) {
-  return value.replace(/[()\[\]%!^"`<>&|;, *?]/g, (character) => `^${character}`);
-}
-
-function quoteWindowsArgument(value) {
-  // Quote for the Windows argv parser before protecting cmd.exe metacharacters.
-  let quoted = '"';
-  let backslashes = 0;
-  for (const character of String(value)) {
-    if (character === "\\") {
-      backslashes += 1;
-      continue;
-    }
-    quoted += "\\".repeat(character === '"' ? backslashes * 2 + 1 : backslashes) + character;
-    backslashes = 0;
-  }
-  return quoted + "\\".repeat(backslashes * 2) + '"';
-}
-
-export function windowsBatchInvocation(command, args, env) {
-  if ([command, ...args].some((value) => /[\r\n\0]/.test(String(value)))) {
-    throw new Error("Windows batch commands cannot contain newlines or NUL bytes");
-  }
-  const doubleEscape = /node_modules[\\/]\.bin[\\/][^\\/]+\.cmd$/i.test(command);
-  const escapedArgs = args.map((value) => {
-    const escaped = escapeCmd(quoteWindowsArgument(value));
-    return doubleEscape ? escapeCmd(escaped) : escaped;
-  });
-  const commandLine = [escapeCmd(path.win32.normalize(command)), ...escapedArgs].join(" ");
-  return {
-    command: environmentValue(env, "ComSpec") || "cmd.exe",
-    args: ["/d", "/v:off", "/s", "/c", `"${commandLine}"`],
-    windowsVerbatimArguments: true
-  };
-}
-
-export function spawnInherited(command, args, options = {}) {
-  return new Promise((resolve, reject) => {
-    const env = options.env || process.env;
-    const invocation = process.platform === "win32" && /\.(cmd|bat)$/i.test(command)
-      ? windowsBatchInvocation(command, args, env)
-      : { command, args };
-    const child = spawn(invocation.command, invocation.args, {
-      cwd: options.cwd || process.cwd(), env, stdio: "inherit", windowsHide: false,
-      windowsVerbatimArguments: invocation.windowsVerbatimArguments || false
-    });
-    try {
-      options.onSpawn?.(child);
-    } catch (error) {
-      child.once("error", () => {});
-      try {
-        child.kill();
-      } catch {
-        // The child may not have reached a running state.
-      }
-      reject(error);
-      return;
-    }
-    const forward = (signal) => {
-      try {
-        child.kill(signal);
-      } catch {
-        // The process may have exited between signal receipt and forwarding.
-      }
-    };
-    process.once("SIGINT", forward);
-    process.once("SIGTERM", forward);
-    child.once("error", reject);
-    child.once("exit", (code, signal) => {
-      process.removeListener("SIGINT", forward);
-      process.removeListener("SIGTERM", forward);
-      const signalNumber = signal ? os.constants.signals[signal] : null;
-      resolve(signal ? 128 + (signalNumber || 1) : (code ?? 1));
-    });
-  });
-}
-
 function managedCargoTargetOwners(config, target, cwd) {
   if (!target) return [];
   const resolvedTarget = canonicalizePotentialPath(path.resolve(cwd, target));
@@ -720,7 +590,7 @@ export async function runTool(tool, args, { config, cwd = process.cwd(), env = p
   const sessionMode = normalizeSessionMode(environmentValue(env, SESSION_MODE_ENV));
   if (sessionMode === "skip") {
     const childEnv = environmentWithoutSessionRouting(env, config.locations.binDir);
-    const executable = resolveExecutable(tool, childEnv, config.locations.binDir);
+    const executable = resolveExecutable(tool, childEnv, config.locations.binDir, cwd);
     if (!executable) throw new Error(`Cannot find the real '${tool}' executable outside ${config.locations.binDir}`);
     return spawnInherited(executable, args, { cwd, env: childEnv });
   }
@@ -730,11 +600,11 @@ export async function runTool(tool, args, { config, cwd = process.cwd(), env = p
     : resolveConfig({ cwd: workspace.effectiveCwd, env });
   if (effectiveConfig.enabled === false || effectiveConfig.tools?.[tool] === false) {
     const childEnv = environmentWithoutSessionRouting(env, effectiveConfig.locations.binDir);
-    const executable = resolveExecutable(tool, childEnv, effectiveConfig.locations.binDir);
+    const executable = resolveExecutable(tool, childEnv, effectiveConfig.locations.binDir, cwd);
     if (!executable) throw new Error(`Cannot find the real '${tool}' executable outside ${effectiveConfig.locations.binDir}`);
     return spawnInherited(executable, args, { cwd, env: childEnv });
   }
-  const executable = resolveExecutable(tool, env, effectiveConfig.locations.binDir);
+  const executable = resolveExecutable(tool, env, effectiveConfig.locations.binDir, cwd);
   if (!executable) throw new Error(`Cannot find the real '${tool}' executable outside ${effectiveConfig.locations.binDir}`);
   if (tool === "cargo") {
     workspace = resolveCargoWorkspace(args, {
@@ -823,7 +693,7 @@ export async function runWithShims(command, args, { config, cwd = process.cwd(),
   const sessionMode = normalizeSessionMode(environmentValue(env, SESSION_MODE_ENV));
   if (sessionMode === "skip") {
     const childEnv = environmentWithoutSessionRouting(env, config.locations.binDir);
-    const executable = resolveExecutable(command, childEnv, config.locations.binDir);
+    const executable = resolveExecutable(command, childEnv, config.locations.binDir, cwd);
     if (!executable) throw new Error(`Cannot find executable: ${command}`);
     return spawnInherited(executable, args, { cwd, env: childEnv });
   }
@@ -831,7 +701,7 @@ export async function runWithShims(command, args, { config, cwd = process.cwd(),
   const childEnv = { ...env, CLEAN_DEVELOPMENT_ACTIVE: "1" };
   setEnvironmentValue(childEnv, "PATH", prependUniquePath(environmentValue(childEnv, "PATH"), runtime.binDir));
   if (SHIM_TOOLS.includes(command)) return runTool(command, args, { config, cwd, env: childEnv });
-  const executable = resolveExecutable(command, childEnv, runtime.binDir);
+  const executable = resolveExecutable(command, childEnv, runtime.binDir, cwd);
   if (!executable) throw new Error(`Cannot find executable: ${command}`);
   let forwarded = args;
   if (command === SUPPORTED_AGENTS.codex) {
