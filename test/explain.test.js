@@ -11,7 +11,7 @@ import { applySessionPlan, planSession } from "../src/session.js";
 import { isolatedEnvironment } from "../scripts/harness-utils.mjs";
 
 function fixture(t) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "clean-development-explain-"));
+  const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "clean-development-explain-")));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const cwd = path.join(root, "project");
   fs.mkdirSync(cwd);
