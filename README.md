@@ -26,6 +26,20 @@ Cargo identities are provisional until command-time discovery; native flags,
 configuration and scripts can choose other paths. It does not prove that an agent
 host or the current parent shell is routed. See [command explanations](docs/explain.md).
 
+## Check an installed adapter
+
+```sh
+node bin/clean-development.js probe --tool npm --json
+node bin/clean-development.js probe --tool npm --execute --json
+```
+
+The first command only plans. The second explicitly queries the installed tool
+with a temporary project, tool home and cache. Supported probes are npm, Go and uv.
+An observed match verifies the adapter in that disposable fixture, **not** the
+configured volume, a repository build or an agent session. Overrides and disabled
+routing are reported without probing user-owned paths. No repository scripts run.
+See [probe scope, limits and cleanup](docs/probe.md).
+
 ## Inspect stored builds
 
 ```sh
@@ -163,6 +177,7 @@ env [--tool TOOL] [--format json|sh|fish|powershell]
 status [--workspaces] [--sizes] [--build-budget SIZE] [--json]
   [--max-scan-entries COUNT] [--max-scan-ms MS]
 doctor [--json]
+probe --tool npm|go|uv [--execute] [--timeout-ms MS] [--json]
 prune [--older-than DAYS] [--apply] [--json]
 pin WORKSPACE_ID
 unpin WORKSPACE_ID

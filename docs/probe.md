@@ -1,0 +1,101 @@
+# Explicit installed-tool probes
+
+```sh
+# Read-only plan: no processes, temporary directories or managed-storage writes.
+node bin/clean-development.js probe --tool npm --json
+
+# Explicit execution of a fixed query in disposable storage.
+node bin/clean-development.js probe --tool npm --execute --json
+node bin/clean-development.js probe --tool go --execute --timeout-ms 10000
+node bin/clean-development.js probe --tool uv --execute
+```
+
+`probe` complements `explain` and `doctor`; neither of those commands starts a
+probe. A tool name is required and limited to npm, Go and uv. Arbitrary commands,
+package installs, project scripts and compilation are not accepted. Cargo builds
+remain the responsibility of the existing offline smoke/fixture harness.
+
+## What a successful probe proves
+
+The selected installed executable reports the same disposable cache paths that the
+production adapter assigned. It does **not** demonstrate write access or free space
+on your configured drive, actual compiler/cache artifacts, project-specific native
+configuration, shims in a parent shell, resumed sessions, subagents or a GUI agent.
+Use the existing doctor for configured-directory checks and the offline fixture
+harness for real compiler/package artifacts. There are no model calls.
+
+The report separates `configuredRouting` (a prediction for the original project)
+from `observations` (paths queried in a temporary fixture). Do not interpret the
+latter as your real managed storage. Missing configured storage is not created.
+`testedAt` and the parsed tool version identify the observation, not an ongoing
+health guarantee. The version parser currently expects three numeric components;
+unrecognised responses fail instead of inventing a supported version.
+
+## Boundaries
+
+The plan uses the same configuration and adapter decisions as `explain`. Inherited
+skip, disabled tools/projects and blocked routes do not execute. Explicit cache
+overrides remain `preserved-override` and are not probed. Explicit force mode can
+select the adapter, but its probe still uses disposable storage, never the original
+override directory. A missing executable is `unavailable`; nothing is installed.
+
+Execution starts only with `--execute` (or API `execute: true`). It uses a new
+private temporary project and home, empty npm user/global configuration, native
+offline controls and the existing environment adapter. Only executable search and
+essential OS variables are copied; secrets, proxies and runtime preload variables
+such as `NODE_OPTIONS` are not forwarded. The native commands are:
+
+| Tool | Path query | Version query |
+| --- | --- | --- |
+| npm | `config get cache` | `--version` |
+| Go | `env -json GOCACHE GOMODCACHE` | `version` |
+| uv | `cache dir --offline --no-config` | `--version` |
+
+Each query has a combined stdout/stderr cap of 64 KiB and a default timeout of
+5,000 ms, configurable from 100 to 30,000 ms. This is per command; execution normally
+uses two commands. Capturing is asynchronous so an exited wrapper leaving an open
+pipe does not defeat the timeout. On interruption, timeout or excess output, POSIX
+process-group termination or Windows OS `taskkill /T /F` is attempted. A failed or
+uncertain termination retains the fixture and reports it rather than pretending
+cleanup succeeded. A temporary directory is removed only if its root identity still
+matches the directory created by the probe. A replaced or undeletable root is
+retained as a failure with its path for manual inspection.
+
+These are native offline controls and best-effort process cleanup, **not** a network,
+process or filesystem sandbox. A selected executable or shim must be trusted. A
+hostile descendant can escape a POSIX group; Windows cleanup depends on OS process
+tree visibility and permissions. A native executable can ignore offline controls.
+Configuration/executable metadata reads and filesystem calls have no hard OS I/O
+deadline. No environment or project source is intentionally uploaded or persisted.
+Local paths in JSON may be sensitive; review before sharing.
+
+## Output contract
+
+JSON schema 1 includes `kind: "isolated-routing-probe"`, `tool`, `status`,
+`executed`, selected `executable`, `configuredRouting`, fixed `query`, command
+limits, `toolVersion`, `observations`, `cleanup`, `scope` and `limitations`.
+`executed` means execution was attempted, not necessarily that process creation
+succeeded. A failure adds a bounded `reason`; retained fixtures add
+`retainedFixture`. Raw child stderr, arbitrary stdout and stack traces are not
+included in the report. Validated observed paths are included for comparison.
+
+`status` is `not-tested`, `observed-working`, `preserved-override`, `skipped`,
+`disabled`, `blocked`, `unavailable`, `mismatch` or `failed`. Only `observed-working`
+means a matching executed query. A read-only plan or an intentionally inactive route
+returns exit 0; blocked, unavailable, mismatched and failed outcomes return exit 1.
+An interrupted query returns exit 130 for SIGINT or 143 for SIGTERM. Invalid CLI options fail before fixture
+creation. Existing CLI error handling applies to invalid configuration.
+
+```js
+import { planProbe, probeTool, formatProbe } from 'clean-development/api';
+const plan = planProbe('npm');
+const observation = await probeTool('npm', { execute: true, timeoutMs: 5000 });
+console.log(formatProbe(observation));
+```
+
+API options also accept `cwd` and `env`. The environment object is not mutated.
+Relevant tests: `test/probe.test.js` and `test/probe-process.test.js`.
+Primary contracts: https://docs.npmjs.com/cli/v11/commands/npm-config/,
+https://pkg.go.dev/cmd/go#hdr-Print_Go_environment_information,
+https://docs.astral.sh/uv/reference/cli/#uv-cache-dir, and
+https://nodejs.org/api/child_process.html.
