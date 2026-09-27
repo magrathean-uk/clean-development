@@ -131,7 +131,8 @@ test("probe timeouts are visible failures and cleanup is explicit", async (t) =>
 test("cleanup refuses a replaced fixture root and retains its location", async (t) => {
   const item = fixture(t); fake(item);
   const mkdtemp = fs.mkdtempSync, lstat = fs.lstatSync; let allocated;
-  t.mock.method(fs, "mkdtempSync", (...args) => { allocated = mkdtemp(...args); return allocated; });
+  t.mock.method(fs, "mkdtempSync", (...args) => { const created = mkdtemp(...args); allocated = fs.realpathSync.native(created); return created; });
+  t.after(() => { if (allocated) fs.rmSync(allocated, { recursive: true, force: true }); });
   let rootReads = 0;
   t.mock.method(fs, "lstatSync", (file, ...args) => {
     const stat = lstat(file, ...args);
