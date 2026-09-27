@@ -40,9 +40,9 @@ jobs:
       - name: Foreground child lifecycle and failed launch cleanup
         if: ${{ !cancelled() }}
         run: node --test test/process-runner.test.js
-      - name: Executable discovery and relative cwd contracts
+      - name: Executable discovery and terminal rendering contracts
         if: ${{ !cancelled() }}
-        run: node --test test/executable.test.js
+        run: node --test test/executable.test.js test/explain-rendering.test.js
       - name: Portable inspection, storage and probe contracts
         if: ${{ !cancelled() }}
         run: node --test test/measurement.test.js test/status.test.js test/inspection.test.js test/bounded-leases.test.js test/probe.test.js test/probe-process.test.js test/marketplace-portability.test.js
