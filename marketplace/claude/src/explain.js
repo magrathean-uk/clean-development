@@ -8,6 +8,7 @@ import { isInjectedEnvironmentValue } from "./routing-environment.js";
 import { resolveExecutable } from "./runtime.js";
 import { environmentWithoutSessionRouting, normalizeSessionMode, planSession } from "./session.js";
 import { identifyWorkspace } from "./workspace.js";
+import { inspectNativeCacheOptions } from "./native-cache-options.js";
 
 function executablePlan(command, env, binDir, cwd) {
   const hasPath = command.includes(path.sep) || (process.platform === "win32" && command.includes("/"));
@@ -97,6 +98,11 @@ export function explainCommand(command, args = [], { cwd = process.cwd(), env = 
   }
   for (const [name, value] of Object.entries(preserved)) {
     report.routing.variables.push({ name, value, action: "preserve", source: "environment", reason: "explicit user override" });
+  }
+  const nativeCacheOptions = inspectNativeCacheOptions(command, args);
+  if (nativeCacheOptions) {
+    report.routing.nativeCacheOptions = nativeCacheOptions;
+    report.limitations.push("Native cache inspection covers only leading recognised options; command arguments and unknown options stop inspection. Declarations are not observed write locations.");
   }
   if (command === "cargo") {
     report.routing.commandLineTarget = explicitTarget(args);
