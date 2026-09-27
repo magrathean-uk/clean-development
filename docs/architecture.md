@@ -95,4 +95,4 @@ Cache and scratch eviction are not implemented in `0.2.0`. Package-manager cache
 
 ## Boundaries
 
-This is not complete filesystem isolation. Tools that ignore the routed variable, scripts with absolute output paths, native applications, remote jobs, and unsupported build systems can write elsewhere. A future strict mode would require an actual sandbox, container, or VM with separately designed mount and artifact-export rules.
+This is not complete filesystem isolation. Tools that ignore the routed variable, scripts with absolute output paths, native applications, remote jobs, and unsupported build systems can write elsewhere. The separately opted-in [experimental Linux strict command](strict-mode.md) adds real namespace/mount isolation with read-only source, fresh writable storage and explicit final-output grants. It does not change this normal routing path or use its ownership/pruning state.

@@ -14,6 +14,7 @@ import { explainCommand, formatExplanation } from "./explain.js";
 import { storageStatus, formatStorageStatus, parseByteSize } from "./status.js";
 import { probeTool, formatProbe } from "./probe.js";
 import { preflightToolRouting, assertRoutingBoundary } from "./routing-context.js";
+import { runStrict } from "./strict.js";
 
 const HELP = `clean-development ${VERSION}
 
@@ -27,6 +28,7 @@ Usage:
   clean-development init [--root PATH] [--force]
   clean-development agent AGENT [--session session-only|persist|skip] [-- ARGS...]
   clean-development run [--session session-only|persist|skip] -- COMMAND [ARGS...]
+  clean-development strict --experimental --policy FILE [--dry-run] -- COMMAND [ARGS...]
   clean-development explain [--session session-only|skip] [--json] -- COMMAND [ARGS...]
   clean-development env [--tool TOOL] [--format json|sh|fish|powershell]
   clean-development status [--workspaces] [--sizes] [--build-budget SIZE] [--json]
@@ -57,6 +59,7 @@ const COMMAND_OPTIONS = Object.freeze({
   init: { root: "value", force: "boolean", json: "boolean" },
   agent: { session: "value" },
   run: { session: "value" },
+  strict: { experimental: "boolean", policy: "value", "dry-run": "boolean" },
   explain: { session: "value", json: "boolean" },
   shim: {},
   hook: { owner: "value" },
@@ -111,6 +114,9 @@ function validateArguments(command, parsed) {
   }
   if (["pin", "unpin"].includes(command) && (positionals.length !== 1 || passthrough.length > 0)) {
     throw new Error(`${command} requires exactly one workspace ID`);
+  }
+  if (command === "strict" && (positionals.length || !passthrough.length)) {
+    throw new Error("strict requires the command and all arguments after --");
   }
   if (command === "agent") {
     if (positionals.length < 1) throw new Error("agent requires an agent name");
@@ -437,6 +443,7 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
     console.log(VERSION);
     return 0;
   }
+  if (command === "strict") return runStrict(parsed.options, parsed.passthrough);
   if (command === "setup") {
     output(await setup(parsed.options, env), json);
     return 0;

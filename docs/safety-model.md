@@ -50,6 +50,10 @@ Shared-cache variables are applied at session start. Cargo output remains under 
 - npm installation has no lifecycle mutation.
 - GitHub Actions use least-privilege permissions and commit-pinned actions.
 
+## Separately opted-in strict execution
+
+[Experimental Linux strict mode](strict-mode.md) is a distinct command with a reviewed explicit mount policy, not a session consent state. It uses user/mount/PID/network/IPC/UTS namespaces, read-only source/toolchain mounts, capability dropping and fresh private writable storage. Only explicitly declared empty final-output directories receive additional host write authority. It does not expose normal runtime/ownership state, install prerequisites, grant access automatically, or add deletion. Missing facilities or permissions fail closed. The strict guide states the exact trusted-host assumption, descriptor/socket exceptions, process contract, compatibility limits and remaining kernel/race/resource risks; the ordinary routing risks below remain unchanged.
+
 ## Residual risks
 
 A compromised local project can execute arbitrary package scripts with the user's existing permissions. A malicious tool can ignore its cache variable. PID reuse can make a stale lease appear active, which causes retention rather than deletion. A user can place valuable files inside a product-owned managed build directory; explicit prune can then remove them. Same-user adversarial filesystem races, disk-full interruption, and hostile network filesystems still need broader testing before a stable release.
