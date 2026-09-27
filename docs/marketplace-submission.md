@@ -57,3 +57,9 @@ The Claude bundle at commit `17e5cbf` passed three real Claude Code 2.1.283 / So
 The exact Codex upload archive was also checked in an isolated environment: status, doctor, and session preview left storage untouched; an explicit session-only child observed the managed npm cache with no project configuration. Its SHA-256 is `337b3849093d2851185057e2c0dec29f136fbfc6ce9694245563465246c73766`. Archive verification does not establish portal approval.
 
 [chatgpt-app-submission.json](chatgpt-app-submission.json) contains importable listing copy and the five positive plus three negative reviewer cases. It declares no MCP tools.
+
+## Claude directory push updates (27 September 2026)
+
+The Claude directory's GitHub webhook is active for `magrathean-uk/clean-development`. GitHub webhook ID `686614190` sends only `push` events to the Anthropic directory endpoint with `application/json` and a signing secret. The secret is held in the webhook configuration and must not be copied into this repository. If it is lost or compromised, use **Rotate secret** on the plugin's Settings tab and update the GitHub webhook with the new value; rotation immediately invalidates the old secret.
+
+At source revision `9ac3e484037e`, GitHub's automatic `ping` delivery returned HTTP 200 (`OK`) on 27 September 2026. This confirms webhook creation and endpoint reachability. For an update, check the `push` entry under GitHub's webhook Recent Deliveries and the receipt indicator on the Claude plugin page.
