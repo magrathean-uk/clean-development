@@ -42,12 +42,61 @@ export function ensureRealDirectory(directory, { create = false, label = "Direct
   return true;
 }
 
+// Metadata is not a stream. Bound both the declared size and bytes actually
+// read, since a regular file can grow (or report a misleading size) after stat.
+export const MAX_METADATA_BYTES = 1024 * 1024;
+
+function validateMetadataFile(details, file) {
+  if (!details.isFile()) throw new Error(`Metadata must be a regular file: ${file}`);
+  if (details.size > MAX_METADATA_BYTES) throw new Error(`Metadata exceeds ${MAX_METADATA_BYTES} bytes: ${file}`);
+}
+
+export function readTextMetadata(file) {
+  // Keep supported regular-file symlinks readable; ownership callers impose
+  // their own stronger path checks. Reject known special files before opening.
+  validateMetadataFile(fs.statSync(file), file);
+  let descriptor;
+  try {
+    // On POSIX this prevents a FIFO substituted between stat and open from
+    // waiting for a writer. Recheck the actual descriptor before reading it.
+    descriptor = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK || 0));
+    validateMetadataFile(fs.fstatSync(descriptor), file);
+    const buffer = Buffer.allocUnsafe(64 * 1024);
+    const chunks = [];
+    let total = 0;
+    while (total <= MAX_METADATA_BYTES) {
+      const size = fs.readSync(descriptor, buffer, 0, Math.min(buffer.length, MAX_METADATA_BYTES + 1 - total), null);
+      if (size === 0) return Buffer.concat(chunks, total).toString("utf8");
+      total += size;
+      if (total > MAX_METADATA_BYTES) throw new Error(`Metadata exceeds ${MAX_METADATA_BYTES} bytes: ${file}`);
+      chunks.push(Buffer.from(buffer.subarray(0, size)));
+    }
+  } finally {
+    if (descriptor !== undefined) fs.closeSync(descriptor);
+  }
+}
+
 export function readJson(file, fallback = null) {
   try {
-    return JSON.parse(fs.readFileSync(file, "utf8"));
+    const parsed = JSON.parse(readTextMetadata(file));
+    // Valid JSON numeric syntax can overflow Number to Infinity. Rewriting
+    // such a value with JSON.stringify would silently replace it with null.
+    // Use an iterative walk: a reviver recurses through deeply nested input.
+    const pending = [parsed];
+    while (pending.length) {
+      const value = pending.pop();
+      if (typeof value === "number" && !Number.isFinite(value)) throw new Error("JSON contains a non-finite number");
+      if (value && typeof value === "object") {
+        for (const child of Object.values(value)) pending.push(child);
+      }
+    }
+    return parsed;
   } catch (error) {
     if (error.code === "ENOENT") return fallback;
-    throw new Error(`Cannot read ${file}: ${error.message}`);
+    // V8 SyntaxError messages can quote secret-bearing file contents. Do not
+    // retain the parser error as a cause, either; report the source, not bytes.
+    const reason = error instanceof SyntaxError ? "Invalid JSON" : error.message;
+    throw new Error(`Cannot read ${file}: ${reason}`);
   }
 }
 

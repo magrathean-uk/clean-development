@@ -31,9 +31,14 @@ const absent = () => { throw Object.assign(new Error("missing process"), { code:
 test("oversized valid JSON remains protected without reading its payload", (t) => {
   const item = fixture(t);
   fs.writeFileSync(item.file, JSON.stringify({ ...item.value, padding: "x".repeat(65536) }));
-  const read = t.mock.method(fs, "readSync", () => assert.fail("oversized input must not be read"));
+  const open = fs.openSync;
+  t.mock.method(fs, "openSync", (file, ...args) => {
+    // Other bounded metadata readers may legitimately read workspace records.
+    // The oversized lease itself must not even be opened, on either path.
+    assert.notEqual(file, item.file, "oversized lease must not be opened");
+    return open(file, ...args);
+  });
   assert.ok(activeWorkspaceIds(item.config).has(item.id));
-  assert.equal(read.mock.callCount(), 0);
   assert.equal(prunePlan(item.config)[0].reason, "active");
 });
 
