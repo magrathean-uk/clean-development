@@ -5,3 +5,5 @@ export { applySessionPlan, planSession, selectSessionMode, SESSION_MODES } from 
 export { ensureRuntime, runTool, runWithShims } from "./runtime.js";
 export { SHIM_TOOLS, SUPPORTED_AGENTS, VERSION } from "./constants.js";
 export { explainCommand, formatExplanation } from "./explain.js";
+export { storageStatus, formatStorageStatus, parseByteSize } from "./status.js";
+export { measureDirectory, createSizeScanner, DEFAULT_SCAN_LIMITS } from "./measurement.js";
