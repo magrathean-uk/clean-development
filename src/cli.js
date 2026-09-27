@@ -5,12 +5,13 @@ import { allToolEnvironments, environmentForTool } from "./adapters.js";
 import { resolveConfig, writeProjectConfig, writeUserConfig } from "./config.js";
 import { CONFIG_FILE, DEFAULT_CONFIG, SHIM_TOOLS, SUPPORTED_AGENTS, VERSION } from "./constants.js";
 import { installAgentIntegrations, integrationStatus, applyClaudeSessionEnvironment, removeOwnedAgentIntegrations, validateClaudeHookOwner } from "./integrations.js";
-import { acquireDirectoryLock, directorySize, readJson, writeJsonAtomic } from "./io.js";
+import { acquireDirectoryLock, readJson, writeJsonAtomic } from "./io.js";
 import { environmentValue, platformPaths, prependUniquePath } from "./platform.js";
 import { ensureRuntime, removeRuntime, resolveExecutable, runTool, runWithShims, runtimeHealth, runtimeRemovalPlan } from "./runtime.js";
 import { applySessionPlan, deferSessionRouting, normalizeSessionMode, planSession, selectSessionMode } from "./session.js";
-import { acquireWorkspaceLock, activeWorkspaceIds, applyPrune, listWorkspaceRecords, prunePlan } from "./state.js";
+import { acquireWorkspaceLock, applyPrune, listWorkspaceRecords, prunePlan } from "./state.js";
 import { explainCommand, formatExplanation } from "./explain.js";
+import { storageStatus, formatStorageStatus, parseByteSize } from "./status.js";
 
 const HELP = `clean-development ${VERSION}
 
@@ -26,7 +27,8 @@ Usage:
   clean-development run [--session session-only|persist|skip] -- COMMAND [ARGS...]
   clean-development explain [--session session-only|skip] [--json] -- COMMAND [ARGS...]
   clean-development env [--tool TOOL] [--format json|sh|fish|powershell]
-  clean-development status [--sizes] [--json]
+  clean-development status [--workspaces] [--sizes] [--build-budget SIZE] [--json]
+    [--max-scan-entries COUNT] [--max-scan-ms MS]
   clean-development doctor [--json]
   clean-development prune [--older-than DAYS] [--apply] [--json]
   clean-development pin WORKSPACE_ID | unpin WORKSPACE_ID
@@ -56,7 +58,7 @@ const COMMAND_OPTIONS = Object.freeze({
   shim: {},
   hook: { owner: "value" },
   env: { tool: "value", format: "value" },
-  status: { sizes: "boolean", json: "boolean" },
+  status: { sizes: "boolean", workspaces: "boolean", "build-budget": "value", "max-scan-entries": "value", "max-scan-ms": "value", json: "boolean" },
   doctor: { json: "boolean" },
   prune: { "older-than": "value", apply: "boolean", json: "boolean" },
   pin: { json: "boolean" },
@@ -316,31 +318,15 @@ function envCommand(options, config, env) {
   }, format);
 }
 
-function statusCommand(options, config) {
-  const records = listWorkspaceRecords(config).map(({ value }) => value);
-  const result = {
-    version: VERSION,
-    configured: fs.existsSync(config.locations.configPath),
-    configFile: config.locations.configPath,
-    projectConfig: config.projectConfigPath,
-    root: config.root,
-    rootSource: config.rootSource,
-    cacheRoot: config.cacheRoot,
-    buildRoot: config.buildRoot,
-    scratchRoot: config.scratchRoot,
-    runtime: readJson(path.join(config.locations.stateDir, "runtime.json"), null),
-    integrations: integrationStatus(config).integrations,
-    workspaces: records.length,
-    activeWorkspaces: [...activeWorkspaceIds(config)]
+function statusCommand(options, config, env) {
+  const limit = (name) => {
+    if (options[name] === undefined) return undefined;
+    if (!/^\d+$/.test(options[name]) || !Number.isSafeInteger(Number(options[name]))) throw new Error(`Invalid --${name}; use a non-negative safe integer`);
+    return Number(options[name]);
   };
-  if (options.sizes) {
-    result.bytes = {
-      caches: directorySize(config.cacheRoot),
-      builds: directorySize(config.buildRoot),
-      scratch: directorySize(config.scratchRoot)
-    };
-  }
-  return result;
+  return storageStatus(config, { env, workspaces: Boolean(options.workspaces), sizes: Boolean(options.sizes),
+    buildBudgetBytes: options["build-budget"] === undefined ? null : parseByteSize(options["build-budget"]),
+    maxEntries: limit("max-scan-entries"), maxDurationMs: limit("max-scan-ms") });
 }
 
 function doctorCommand(config, env) {
@@ -538,7 +524,8 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
     return 0;
   }
   if (command === "status") {
-    output(statusCommand(parsed.options, config), json);
+    const report = statusCommand(parsed.options, config, env);
+    output(!json && (parsed.options.workspaces || parsed.options["build-budget"] !== undefined) ? formatStorageStatus(report) : report, json);
     return 0;
   }
   if (command === "doctor") {
