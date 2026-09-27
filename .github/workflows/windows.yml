@@ -37,6 +37,9 @@ jobs:
       - name: Extended batch and native argument contract
         if: ${{ !cancelled() }}
         run: node --test test/windows-argv.test.js
+      - name: Literal executable paths and variable expansion boundaries
+        if: ${{ !cancelled() }}
+        run: node --test test/windows-command-path.test.js
       - name: Foreground child lifecycle and failed launch cleanup
         if: ${{ !cancelled() }}
         run: node --test test/process-runner.test.js
