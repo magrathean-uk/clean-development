@@ -21,6 +21,17 @@ export function formatExplanation(report) {
   for (const entry of report.routing.variables) {
     lines.push(`${entry.action === "preserve" ? "Preserve" : "Set"} ${entry.name}=${entry.value}`, `  ${entry.reason}; source: ${entry.source}`);
   }
+  const nativeCache = report.routing.nativeCacheOptions;
+  if (nativeCache?.declarations?.length) {
+    for (const item of nativeCache.declarations) {
+      const effect = item.effect === "path-override" ? `declared path ${item.value}; can supersede ${item.variable}`
+        : item.effect === "temporary-cache" ? "temporary cache requested; this does not mean zero writes"
+        : "value missing or not safely interpretable";
+      lines.push(`Native ${item.option}: ${effect}`);
+    }
+    lines.push(`Native inspection: ${nativeCache.scope}; ${nativeCache.stopReason}. Effective destination not verified.`);
+    if (nativeCache.ambiguous) lines.push("Multiple or invalid native declarations: precedence is left to the tool; no winner is inferred.");
+  }
   if (report.routing.commandLineTarget) lines.push(`Cargo command-line target: ${report.routing.commandLineTarget}`);
   return [...lines, "", ...report.limitations].map(terminalLine).join("\n");
 }
