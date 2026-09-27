@@ -47,8 +47,23 @@ function validateConfig(value, file, { user = false } = {}) {
   return value;
 }
 
-function loadConfig(file, options) {
-  if (!fs.existsSync(file)) return null;
+function configEntryExists(file) {
+  try {
+    // Inspect the entry, not its referent: a dangling/looping config symlink
+    // must not silently select an ancestor file or a lower-precedence default.
+    fs.lstatSync(file);
+    return true;
+  } catch (error) {
+    if (error.code === "ENOENT") return false;
+    throw error;
+  }
+}
+
+function loadConfig(file, { required = false, ...options } = {}) {
+  if (!configEntryExists(file)) {
+    if (required) invalid(file, "selected configuration is missing");
+    return null;
+  }
   return validateConfig(readJson(file, null), file, options);
 }
 
@@ -83,7 +98,7 @@ export function findProjectConfig(start = process.cwd()) {
   let current = path.resolve(start);
   while (true) {
     const candidate = path.join(current, CONFIG_FILE);
-    if (fs.existsSync(candidate)) return candidate;
+    if (configEntryExists(candidate)) return candidate;
     const parent = path.dirname(current);
     if (parent === current) return null;
     current = parent;
@@ -99,7 +114,7 @@ export function resolveConfig({ cwd = process.cwd(), env = process.env, override
   const locations = platformPaths(env);
   const user = loadConfig(locations.configPath, { user: true });
   const projectPath = includeProject ? findProjectConfig(cwd) : null;
-  const project = projectPath ? loadConfig(projectPath) : null;
+  const project = projectPath ? loadConfig(projectPath, { required: true }) : null;
   let config = cloneDefault();
   config = merge(config, user);
   config = merge(config, project);
@@ -112,26 +127,26 @@ export function resolveConfig({ cwd = process.cwd(), env = process.env, override
   const rootValue = overrides.root || environmentRoot || project?.root || user?.root || locations.defaultRoot;
   const rootSource = overrides.root ? "command line" : environmentRoot ? "environment" : project?.root ? projectPath : user?.root ? locations.configPath : "platform default";
   const root = assertSafeManagedRoot(resolveConfiguredPath(rootValue, rootSource), env);
-  const projectBase = projectPath || locations.configPath;
   const cacheRootValue = overrides.cacheRoot || environmentCacheRoot || project?.cacheRoot || user?.cacheRoot || path.join(root, "caches");
   const buildRootValue = overrides.buildRoot || environmentBuildRoot || project?.buildRoot || user?.buildRoot || path.join(root, "builds");
   const scratchRootValue = overrides.scratchRoot || environmentScratchRoot || project?.scratchRoot || user?.scratchRoot || path.join(root, "scratch");
 
-  config.root = root;
-  config.cacheRoot = assertSafeManagedRoot(resolveConfiguredPath(cacheRootValue, projectBase), env);
-  config.buildRoot = assertSafeManagedRoot(resolveConfiguredPath(buildRootValue, projectBase), env);
-  config.scratchRoot = assertSafeManagedRoot(resolveConfiguredPath(scratchRootValue, projectBase), env);
-  config.projectConfigPath = projectPath;
-  config.rootSource = rootSource;
   const pathSource = (key, value, variable) => overrides[key] ? "command line"
     : value ? `environment: ${variable}` : project?.[key] ? projectPath
       : user?.[key] ? locations.configPath : `derived from root (${rootSource})`;
-  config.pathSources = {
+  const pathSources = {
     root: rootSource,
     cacheRoot: pathSource("cacheRoot", environmentCacheRoot, "CLEAN_DEVELOPMENT_CACHE_ROOT"),
     buildRoot: pathSource("buildRoot", environmentBuildRoot, "CLEAN_DEVELOPMENT_BUILD_ROOT"),
     scratchRoot: pathSource("scratchRoot", environmentScratchRoot, "CLEAN_DEVELOPMENT_SCRATCH_ROOT")
   };
+  config.root = root;
+  config.cacheRoot = assertSafeManagedRoot(resolveConfiguredPath(cacheRootValue, pathSources.cacheRoot), env);
+  config.buildRoot = assertSafeManagedRoot(resolveConfiguredPath(buildRootValue, pathSources.buildRoot), env);
+  config.scratchRoot = assertSafeManagedRoot(resolveConfiguredPath(scratchRootValue, pathSources.scratchRoot), env);
+  config.projectConfigPath = projectPath;
+  config.rootSource = rootSource;
+  config.pathSources = pathSources;
   config.locations = locations;
   return config;
 }
