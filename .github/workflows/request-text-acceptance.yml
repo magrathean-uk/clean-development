@@ -38,6 +38,11 @@ jobs:
           node -e 'const fs=require("fs"),c=require("crypto"),p=process.argv[1];const b=fs.readFileSync(p);const m=JSON.parse(b);if(m.name!=="@anthropic-ai/claude-code"||m.version!=="2.1.283")process.exit(1);console.log(JSON.stringify({package:m.name,version:m.version,manifestSha256:c.createHash("sha256").update(b).digest("hex")}));' \
             "$RUNNER_TEMP/request-host/node_modules/@anthropic-ai/claude-code/package.json"
           sha256sum "$RUNNER_TEMP/request-host/package-lock.json"
+          # The pinned host's launcher requires this documented native install step.
+          # Run only that installer, not arbitrary dependency lifecycle scripts.
+          env -i PATH="$PATH" HOME="$RUNNER_TEMP/request-host-home" \
+            npm_config_cache="$RUNNER_TEMP/request-host-cache" \
+            node "$RUNNER_TEMP/request-host/node_modules/@anthropic-ai/claude-code/install.cjs"
       - name: Version-only startup diagnostics (not a request capture)
         env:
           HOST_BINARY: ${{ runner.temp }}/request-host/node_modules/.bin/claude
