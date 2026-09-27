@@ -123,6 +123,15 @@ export function resolveConfig({ cwd = process.cwd(), env = process.env, override
   config.scratchRoot = assertSafeManagedRoot(resolveConfiguredPath(scratchRootValue, projectBase), env);
   config.projectConfigPath = projectPath;
   config.rootSource = rootSource;
+  const pathSource = (key, value, variable) => overrides[key] ? "command line"
+    : value ? `environment: ${variable}` : project?.[key] ? projectPath
+      : user?.[key] ? locations.configPath : `derived from root (${rootSource})`;
+  config.pathSources = {
+    root: rootSource,
+    cacheRoot: pathSource("cacheRoot", environmentCacheRoot, "CLEAN_DEVELOPMENT_CACHE_ROOT"),
+    buildRoot: pathSource("buildRoot", environmentBuildRoot, "CLEAN_DEVELOPMENT_BUILD_ROOT"),
+    scratchRoot: pathSource("scratchRoot", environmentScratchRoot, "CLEAN_DEVELOPMENT_SCRATCH_ROOT")
+  };
   config.locations = locations;
   return config;
 }

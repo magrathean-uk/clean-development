@@ -14,6 +14,24 @@ The current source version is `0.2.1` and requires Node.js `20.12` or newer. The
 
 Directory review is separate from public availability. The Claude directory submission passed its automated security scan and is in manual policy review because the bundle contains executable files. The [Codex community submission](https://github.com/openai/community-plugins/pull/21) is open but not live. The global OpenAI directory listing is a draft and has not been submitted because its MCP form blocks the submission.
 
+## Preview a command without running it
+
+From a source checkout, inspect the environment a wrapped command would receive:
+
+```sh
+node bin/clean-development.js explain -- npm test
+node bin/clean-development.js explain --json -- cargo check
+node bin/clean-development.js explain --session skip --json -- npm test
+```
+
+After installation, use `clean-development explain` with the same arguments.
+This read-only prediction reports the selected executable, project, configuration
+sources, managed environment values and preserved overrides. It creates no
+runtime, storage directories or receipts and executes no tools or project code.
+Cargo identities are provisional until command-time discovery; native flags,
+configuration and scripts can choose other paths. It does not prove that an agent
+host or the current parent shell is routed. See [command explanations](docs/explain.md).
+
 ## What it manages
 
 When a routed session is active, the CLI provides adapters for:
@@ -121,6 +139,7 @@ session [--session session-only|persist|skip] [--dry-run] [--json]
 init [--root PATH] [--force]
 agent AGENT [--session session-only|persist|skip] [-- ARGS...]
 run [--session session-only|persist|skip] -- COMMAND [ARGS...]
+explain [--session session-only|skip] [--json] -- COMMAND [ARGS...]
 env [--tool TOOL] [--format json|sh|fish|powershell]
 status [--sizes] [--json]
 doctor [--json]

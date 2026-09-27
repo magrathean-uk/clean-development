@@ -10,6 +10,7 @@ import { environmentValue, platformPaths, prependUniquePath } from "./platform.j
 import { ensureRuntime, removeRuntime, resolveExecutable, runTool, runWithShims, runtimeHealth, runtimeRemovalPlan } from "./runtime.js";
 import { applySessionPlan, deferSessionRouting, normalizeSessionMode, planSession, selectSessionMode } from "./session.js";
 import { acquireWorkspaceLock, activeWorkspaceIds, applyPrune, listWorkspaceRecords, prunePlan } from "./state.js";
+import { explainCommand, formatExplanation } from "./explain.js";
 
 const HELP = `clean-development ${VERSION}
 
@@ -23,6 +24,7 @@ Usage:
   clean-development init [--root PATH] [--force]
   clean-development agent AGENT [--session session-only|persist|skip] [-- ARGS...]
   clean-development run [--session session-only|persist|skip] -- COMMAND [ARGS...]
+  clean-development explain [--session session-only|skip] [--json] -- COMMAND [ARGS...]
   clean-development env [--tool TOOL] [--format json|sh|fish|powershell]
   clean-development status [--sizes] [--json]
   clean-development doctor [--json]
@@ -50,6 +52,7 @@ const COMMAND_OPTIONS = Object.freeze({
   init: { root: "value", force: "boolean", json: "boolean" },
   agent: { session: "value" },
   run: { session: "value" },
+  explain: { session: "value", json: "boolean" },
   shim: {},
   hook: { owner: "value" },
   env: { tool: "value", format: "value" },
@@ -107,7 +110,7 @@ function validateArguments(command, parsed) {
     if (positionals.length < 1) throw new Error("agent requires an agent name");
     if (passthrough.length > 0 && positionals.length !== 1) throw new Error("Put agent arguments after a single '--' separator");
   }
-  if (command === "run") {
+  if (["run", "explain"].includes(command)) {
     if (positionals.length === 0 && passthrough.length === 0) throw new Error(`${command} requires a command`);
     if (positionals.length > 0 && passthrough.length > 0) throw new Error(`Put the command and all arguments after a single '--' separator`);
   }
@@ -463,6 +466,12 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
   }
   if (command === "init") {
     output(projectInit(parsed.options, process.cwd()), json);
+    return 0;
+  }
+  if (command === "explain") {
+    const [executable, ...args] = parsed.passthrough.length ? parsed.passthrough : parsed.positionals;
+    const report = explainCommand(executable, args, { env, mode: parsed.options.session });
+    output(json ? report : formatExplanation(report), json);
     return 0;
   }
   const requestedSession = normalizeSessionMode(parsed.options.session);
