@@ -134,3 +134,39 @@ test("a handle that is no longer a regular file is never read", (t) => {
   assert.equal(resolveExecutable("tool", item.env), second);
   assert.equal(readSpecialFile, false);
 });
+
+
+test("a rejected replacement is not retried through duplicate PATH components", (t) => {
+  const item = fixture(t), first = candidate(item.first), second = candidate(item.second);
+  setEnvironmentValue(item.env, "PATH", [item.first, item.first, item.second].join(path.delimiter));
+  const replacement = path.join(item.root, "replacement"); fs.writeFileSync(replacement, "changed", { mode: 0o755 });
+  const open = fs.openSync; let count = 0;
+  t.mock.method(fs, "openSync", (file, ...args) => {
+    const descriptor = open(file, ...args);
+    if (file === first && ++count === 1) fs.renameSync(replacement, first);
+    return descriptor;
+  });
+  assert.equal(resolveExecutable("tool", item.env), second);
+  assert.equal(count, 1);
+});
+
+test("a rejected inode cannot be accepted through another hard-linked PATH name", (t) => {
+  const item = fixture(t), first = candidate(item.first);
+  const third = path.join(item.root, "third"); fs.mkdirSync(third);
+  const second = path.join(item.second, path.basename(first)); fs.linkSync(first, second);
+  const real = candidate(third);
+  setEnvironmentValue(item.env, "PATH", [item.first, item.second, third].join(path.delimiter));
+  const open = fs.openSync, read = fs.readSync; let rejectedDescriptor, aliasOpened = false;
+  t.mock.method(fs, "openSync", (file, ...args) => {
+    const fd = open(file, ...args);
+    if (file === first) rejectedDescriptor = fd; else rejectedDescriptor = undefined;
+    if (file === second) aliasOpened = true;
+    return fd;
+  });
+  t.mock.method(fs, "readSync", (fd, ...args) => {
+    if (fd === rejectedDescriptor) throw Object.assign(new Error("inspection failed"), { code: "EIO" });
+    return read(fd, ...args);
+  });
+  assert.equal(resolveExecutable("tool", item.env), real);
+  assert.equal(aliasOpened, false);
+});

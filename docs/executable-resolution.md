@@ -26,6 +26,11 @@ generated shim prefixes remain excluded to avoid recursion.
 At most 4,096 bytes of a candidate are read to recognise generated shims. The opened
 handle is checked against the initial file identity/type, then rechecked together
 with the pathname after reading. A replaced or changing candidate is skipped.
+Within one lookup, failed file identities and their replacements are not retried
+through case aliases, hard links or duplicate PATH entries. Distinct files in
+case-sensitive directories are not collapsed merely because their names differ
+only in case. Identity deduplication is omitted when the filesystem reports an
+unusable zero inode; exact duplicate path attempts are still suppressed.
 Unix opens use nonblocking mode so a regular file replaced by a FIFO after the
 initial stat cannot block waiting for a pipe writer. No special-file handle is
 read. Handles are closed on all inspection paths.

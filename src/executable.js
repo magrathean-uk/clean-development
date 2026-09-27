@@ -20,12 +20,19 @@ function sameSnapshot(a, b) {
   return b.isFile() && ["dev", "ino", "mode", "size", "mtimeNs", "ctimeNs"].every((key) => a[key] === b[key]);
 }
 
-function usableCandidate(file) {
+function fileIdentity(stat) {
+  // Some filesystems do not expose useful inode numbers. Do not collapse
+  // unrelated candidates into one when identity cannot be established.
+  return stat?.isFile() && stat.ino !== 0n ? `${stat.dev}:${stat.ino}` : null;
+}
+
+function usableCandidate(file, rejectedFiles) {
   let descriptor;
   let expected;
+  let accepted = false;
   try {
     expected = fs.statSync(file, { bigint: true });
-    if (!expected.isFile()) return false;
+    if (!expected.isFile() || rejectedFiles.has(fileIdentity(expected))) return false;
     fs.accessSync(file, fs.constants.X_OK);
     // A FIFO swapped in after stat must not block open on Unix. A successfully
     // opened handle is checked again before any read. Symlinked executables are
@@ -37,7 +44,8 @@ function usableCandidate(file) {
       // when content inspection is denied, but recheck type/identity and access.
       if (error.code !== "EACCES") return false;
       fs.accessSync(file, fs.constants.X_OK);
-      return sameSnapshot(expected, fs.statSync(file, { bigint: true }));
+      accepted = sameSnapshot(expected, fs.statSync(file, { bigint: true }));
+      return accepted;
     }
     if (!sameSnapshot(expected, fs.fstatSync(descriptor, { bigint: true }))) return false;
     const prefix = Buffer.alloc(4096);
@@ -45,10 +53,23 @@ function usableCandidate(file) {
     if (!sameSnapshot(expected, fs.fstatSync(descriptor, { bigint: true }))
       || !sameSnapshot(expected, fs.statSync(file, { bigint: true }))) return false;
     const contents = prefix.toString("utf8", 0, bytes);
-    return !contents.includes("clean-development-shim.js")
+    accepted = !contents.includes("clean-development-shim.js")
       && !(contents.includes("import { runTool }") && contents.includes("import { resolveConfig }"));
+    return accepted;
   } catch { return false; }
-  finally { if (descriptor !== undefined) fs.closeSync(descriptor); }
+  finally {
+    if (descriptor !== undefined) fs.closeSync(descriptor);
+    if (!accepted) {
+      const previous = fileIdentity(expected);
+      if (previous) rejectedFiles.add(previous);
+      try {
+        // A Windows case alias or a second hard link must not retry a file just
+        // rejected for changing during inspection. Remember its replacement too.
+        const current = fileIdentity(fs.statSync(file, { bigint: true }));
+        if (current) rejectedFiles.add(current);
+      } catch { /* Missing or inaccessible candidates remain rejected. */ }
+    }
+  }
 }
 
 /** Read-only executable discovery. Explicit paths remain caller-selected.
@@ -59,15 +80,18 @@ export function resolveExecutable(executable, env, excludedDirectory, cwd = proc
   if (executable.includes(path.sep) || (path.sep === "\\" && executable.includes("/"))) return path.resolve(cwd, executable);
   const excluded = excludedDirectory ? canonicalizePotentialPath(excludedDirectory) : null;
   const directories = (environmentValue(env, "PATH") || "").split(path.delimiter).filter(Boolean);
+  const attemptedPaths = new Set(), rejectedFiles = new Set();
   for (const directory of directories) {
     const absolute = path.resolve(cwd, directory);
     if (excluded && canonicalizePotentialPath(absolute) === excluded) continue;
     for (const name of candidateNames(executable, env)) {
       const candidate = path.join(absolute, name);
+      if (attemptedPaths.has(candidate)) continue;
+      attemptedPaths.add(candidate);
       try {
         if (excluded && isPathInside(excluded, candidate)) continue;
         if (excluded && sameFile(candidate, path.join(excluded, name))) continue;
-        if (usableCandidate(candidate)) return candidate;
+        if (usableCandidate(candidate, rejectedFiles)) return candidate;
       } catch {
         // Raced or inaccessible candidates do not hide later real tools.
       }
