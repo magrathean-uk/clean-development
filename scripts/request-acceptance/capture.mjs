@@ -99,10 +99,17 @@ export async function startCapture({ maxBodyBytes = 2 * 1024 * 1024, maxRequests
   const server = http.createServer((request, response) => {
     const reject = (status, reason) => { recordError(reason); response.writeHead(status, { "content-type": "application/json" }); response.end(JSON.stringify({ error: reason })); request.resume(); };
     if (++connections > maxRequests) return reject(429, "request-limit");
-    if (request.headers["x-api-key"] !== token && request.headers.authorization !== `Bearer ${token}`) return reject(401, "unexpected-credential");
     let pathname;
     try { pathname = new URL(request.url, "http://127.0.0.1").pathname; }
     catch { return reject(400, "invalid-request-url"); }
+    if (request.headers["x-api-key"] !== token && request.headers.authorization !== `Bearer ${token}`) {
+      // Record only bounded classifications, never unauthorised bodies, URLs,
+      // query strings or credential values. Unknown traffic still blocks acceptance.
+      const endpoint = ({ "/": "root", "/v1/messages": "messages", "/v1/messages/count_tokens": "count-tokens", "/v1/models": "models" })[pathname] || "unknown-path";
+      const method = ["GET", "HEAD", "POST", "OPTIONS"].includes(request.method) ? request.method : "other-method";
+      const credential = request.headers["x-api-key"] || request.headers.authorization ? "supplied" : "absent";
+      return reject(401, `unexpected-credential:${method}:${endpoint}:${credential}`);
+    }
     if (request.method !== "POST" || !["/v1/messages", "/v1/messages/count_tokens"].includes(pathname)) return reject(404, "unsupported-endpoint");
     if (request.headers["content-encoding"] && request.headers["content-encoding"] !== "identity") return reject(415, "unsupported-content-encoding");
     if (!/^application\/json(?:;|$)/i.test(request.headers["content-type"] || "")) return reject(415, "unsupported-content-type");
