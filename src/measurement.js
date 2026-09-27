@@ -86,25 +86,26 @@ export function createSizeScanner({ maxEntries = DEFAULT_SCAN_LIMITS.maxEntries,
           visited += 1;
           result.entriesVisited += 1;
           const target = path.join(item.file, entry.name);
+          let stat;
+          validate(item);
           try {
-            validate(item);
-            const stat = fs.lstatSync(target, { bigint: true });
-            validate(item);
-            if (stat.isSymbolicLink()) { result.symlinksSkipped += 1; continue; }
-            if (stat.dev !== rootStat.dev) { issue("different-device", target); continue; }
-            if (stat.isDirectory()) { pending.push({ file: target, stat }); continue; }
-            if (!stat.isFile()) { result.specialFilesSkipped += 1; continue; }
-            result.files += 1;
-            logical += stat.size;
-            // Logical bytes count file names; allocated bytes count each inode
-            // once within this root. Neither is a reclaimable-space guarantee.
-            const identity = `${stat.dev}:${stat.ino}`;
-            if (stat.ino === 0n) allocationKnown = false;
-            if (stat.ino !== 0n && seen.has(identity)) { result.hardlinkDuplicates += 1; continue; }
-            seen.add(identity);
-            if (typeof stat.blocks === "bigint" && stat.blocks >= 0n) allocated += stat.blocks * 512n;
-            else allocationKnown = false;
-          } catch (error) { issue(errorCode(error), target); }
+            stat = fs.lstatSync(target, { bigint: true });
+          } catch (error) { issue(errorCode(error), target); continue; }
+          validate(item);
+          if (stat.isSymbolicLink()) { result.symlinksSkipped += 1; continue; }
+          if (stat.dev !== rootStat.dev) { issue("different-device", target); continue; }
+          if (stat.isDirectory()) { pending.push({ file: target, stat }); continue; }
+          if (!stat.isFile()) { result.specialFilesSkipped += 1; continue; }
+          result.files += 1;
+          logical += stat.size;
+          // Logical bytes count file names; allocated bytes count each inode
+          // once within this root. Neither is a reclaimable-space guarantee.
+          const identity = `${stat.dev}:${stat.ino}`;
+          if (stat.ino === 0n) allocationKnown = false;
+          if (stat.ino !== 0n && seen.has(identity)) { result.hardlinkDuplicates += 1; continue; }
+          seen.add(identity);
+          if (typeof stat.blocks === "bigint" && stat.blocks >= 0n) allocated += stat.blocks * 512n;
+          else allocationKnown = false;
         }
         const after = validate(item);
         if (after.mtimeNs !== item.stat.mtimeNs || after.ctimeNs !== item.stat.ctimeNs) issue("directory-changed-during-scan", item.file);

@@ -140,6 +140,37 @@ test("partial permission failures and disappeared entries do not become exact to
   assert.deepEqual(new Set(result.issues.map((issue) => issue.code)), new Set(["EACCES", "ENOENT"]));
 });
 
+test("parent validation and child lstat failures retain their respective paths", (t) => {
+  const root = fixture(t);
+  const first = path.join(root, "first"), second = path.join(root, "second");
+  fs.writeFileSync(first, "data"); fs.writeFileSync(second, "more");
+  const entries = fs.readdirSync(root, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name));
+  const lstat = fs.lstatSync, open = fs.opendirSync;
+  let phase = "parent", rootStats = 0;
+  let reads = 0;
+  t.mock.method(fs, "opendirSync", (file, ...args) => {
+    if (String(file) !== root) return open(file, ...args);
+    let index = 0;
+    return { readSync() { reads += 1; return entries[index++] || null; }, closeSync() {} };
+  });
+  t.mock.method(fs, "lstatSync", (file, ...args) => {
+    if (phase === "parent" && String(file) === root && ++rootStats === 4) {
+      throw Object.assign(new Error("parent changed"), { code: "EIO" });
+    }
+    if (phase === "child" && String(file) === first) {
+      throw Object.assign(new Error("child disappeared"), { code: "ENOENT" });
+    }
+    return lstat(file, ...args);
+  });
+  const parentFailure = measureDirectory(root);
+  assert.ok(parentFailure.issues.some((issue) => issue.code === "EIO" && issue.path === "."));
+  assert.equal(reads, 1, "parent validation failure stops the directory scan");
+  phase = "child";
+  reads = 0;
+  const childFailure = measureDirectory(root);
+  assert.ok(childFailure.issues.some((issue) => issue.code === "ENOENT" && issue.path === "first"));
+});
+
 test("different devices are not traversed", (t) => {
   const root = fixture(t);
   const child = path.join(root, "mounted"); fs.mkdirSync(child);
