@@ -72,14 +72,33 @@ function usableCandidate(file, rejectedFiles) {
   }
 }
 
+/** Decode whole-entry double quotes in Windows PATH, not shell expressions. */
+export function windowsPathEntries(value) {
+  const entries = [];
+  let start = 0, quoted = false;
+  for (let index = 0; index <= value.length; index += 1) {
+    if (value[index] === '"') quoted = !quoted;
+    if (index < value.length && (value[index] !== ";" || quoted)) continue;
+    const raw = value.slice(start, index);
+    const entry = raw.startsWith('"') && raw.endsWith('"') ? raw.slice(1, -1) : raw;
+    // Quotes cannot be literal Windows filename characters. Skip malformed
+    // entries rather than guessing paths from their semicolon-separated pieces.
+    if (entry && !entry.includes('"')) entries.push(entry);
+    start = index + 1;
+  }
+  return entries;
+}
+
 /** Read-only executable discovery. Explicit paths remain caller-selected.
  * Relative PATH entries are resolved against the child's cwd, never the caller's.
+ * Windows PATH permits whole-entry double quotes, including literal semicolons.
  * Empty PATH entries remain ignored; use an explicit '.' to search the cwd.
  */
 export function resolveExecutable(executable, env, excludedDirectory, cwd = process.cwd()) {
   if (executable.includes(path.sep) || (path.sep === "\\" && executable.includes("/"))) return path.resolve(cwd, executable);
   const excluded = excludedDirectory ? canonicalizePotentialPath(excludedDirectory) : null;
-  const directories = (environmentValue(env, "PATH") || "").split(path.delimiter).filter(Boolean);
+  const pathValue = environmentValue(env, "PATH") || "";
+  const directories = process.platform === "win32" ? windowsPathEntries(pathValue) : pathValue.split(path.delimiter).filter(Boolean);
   const attemptedPaths = new Set(), rejectedFiles = new Set();
   for (const directory of directories) {
     const absolute = path.resolve(cwd, directory);

@@ -6,6 +6,7 @@ import test from "node:test";
 import { spawnSync } from "node:child_process";
 import { resolveExecutable, spawnInherited, windowsBatchInvocation } from "../src/runtime.js";
 import { setEnvironmentValue } from "../src/platform.js";
+import { windowsPathEntries } from "../src/executable.js";
 
 const variants = [
   "spaces and & ampersand", "round (brackets) and [square]", "caret ^ and bang !",
@@ -56,7 +57,6 @@ test("batch invocation construction does not mutate the provided environment or 
   assert.equal(JSON.stringify({ env, input }), before);
 });
 
-
 for (const variant of ["tools with spaces", "semi;colon", "comma,only", "equal=only", "plus+only", "semi;comma,equal=plus+"]) {
   test(`quoted Windows PATH preserves tool selection, cwd and batch argv: ${variant}`, { skip: process.platform !== "win32" }, (t) => {
     const item = fixture(t), cwd = path.join(item.root, "child;cwd,=+");
@@ -99,3 +99,45 @@ for (const variant of ["tools with spaces", "semi;colon", "comma,only", "equal=o
     }
   });
 }
+
+test("Windows PATH decoding keeps quoted semicolons and other punctuation literal", () => {
+  const entries = [String.raw`C:\first`, String.raw`C:\semi;comma,equal=plus+`, "relative;tools", String.raw`C:\last`];
+  assert.deepEqual(windowsPathEntries(`${entries[0]};"${entries[1]}";"${entries[2]}";${entries[3]}`), entries);
+  assert.deepEqual(windowsPathEntries(';;"";".";;'), ["."]);
+  assert.deepEqual(windowsPathEntries(''), []);
+  assert.deepEqual(windowsPathEntries(String.raw`"C:\trailing\";";";next`), [String.raw`C:\trailing` + "\\", ";", "next"]);
+  assert.deepEqual(windowsPathEntries(' leading ;" inside ";trailing '), [" leading ", " inside ", "trailing "]);
+  assert.deepEqual(windowsPathEntries(`apostrophe's directory;%PATH%;!PATH!;caret^;plus+;comma,;key=value`),
+    ["apostrophe's directory", "%PATH%", "!PATH!", "caret^", "plus+", "comma,", "key=value"]);
+});
+
+test("Windows PATH decoding does not repair malformed quotes into different directories", () => {
+  assert.deepEqual(windowsPathEntries('first;"unclosed;not-a-separate-entry'), ["first"]);
+  assert.deepEqual(windowsPathEntries('first;bad";fragment"tail;last'), ["first", "last"]);
+  assert.deepEqual(windowsPathEntries('first;"""";last'), ["first", "last"]);
+});
+
+test("POSIX PATH quotes and semicolons remain filename characters", { skip: process.platform === "win32" }, (t) => {
+  const item = fixture(t), directory = path.join(item.root, 'literal";comma,equal=plus+');
+  fs.mkdirSync(directory);
+  const command = path.join(directory, "capture");
+  fs.writeFileSync(command, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+  setEnvironmentValue(item.env, "PATH", directory);
+  assert.equal(resolveExecutable("capture", item.env, null, item.root), command);
+});
+
+test("quoted Windows PATH preserves runtime exclusions and the empty-entry policy", { skip: process.platform !== "win32" }, (t) => {
+  const item = fixture(t), excluded = path.join(item.root, "runtime;bin,=+");
+  const shim = path.join(item.root, "copied;shim"), real = path.join(item.root, "real;tool");
+  for (const directory of [item.root, excluded, shim, real]) {
+    fs.mkdirSync(directory, { recursive: true });
+    fs.writeFileSync(path.join(directory, "capture.cmd"), directory === shim ? "rem clean-development-shim.js\r\n" : "@exit /b 0\r\n");
+  }
+  setEnvironmentValue(item.env, "PATHEXT", ".CMD");
+  setEnvironmentValue(item.env, "PATH", `;"";"${excluded}";"${shim}";"${real}";`);
+  assert.equal(resolveExecutable("capture", item.env, excluded, item.root), path.join(real, "capture.cmd"));
+  setEnvironmentValue(item.env, "PATH", ';"";;');
+  assert.equal(resolveExecutable("capture", item.env, null, item.root), null);
+  setEnvironmentValue(item.env, "PATH", '"."');
+  assert.equal(resolveExecutable("capture", item.env, null, item.root), path.join(item.root, "capture.cmd"));
+});
