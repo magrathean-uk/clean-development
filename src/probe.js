@@ -155,17 +155,4 @@ export async function probeTool(tool, { cwd = process.cwd(), env = process.env, 
   return report;
 }
 
-const display = (value) => JSON.stringify(String(value)).slice(1, -1).replace(/[\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g,
-  (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`);
-export function formatProbe(report) {
-  const lines = [`Clean Development — ${report.executed ? "isolated probe" : "probe plan (read-only)"}`,
-    `Tool: ${display(report.tool)} | Status: ${display(report.status)}`,
-    `Executable: ${display(report.executable.path || "not found")}`];
-  if (report.toolVersion) lines.push(`Version: ${display(report.toolVersion)}`);
-  for (const item of report.observations) lines.push(`${display(item.name)}: ${item.matches ? "matched" : "MISMATCH"} (disposable storage)`);
-  if (report.reason) lines.push(`Reason: ${display(report.reason)}`);
-  lines.push(`Cleanup: ${display(report.cleanup)}`, `Scope: ${display(report.scope)}`);
-  if (report.retainedFixture) lines.push(`Retained fixture: ${display(report.retainedFixture)}`);
-  if (!report.executed && report.status === "not-tested") lines.push("Use --execute to run the displayed fixed query in disposable storage.");
-  return lines.join("\n");
-}
+export { formatProbe } from "./diagnostic-formatters.js";

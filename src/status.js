@@ -90,38 +90,4 @@ export function storageStatus(config, { workspaces = false, sizes = false, build
   return result;
 }
 
-function display(value) {
-  return JSON.stringify(String(value)).slice(1, -1).replace(/[\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g,
-    (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`);
-}
-function bytes(value) {
-  if (!Number.isSafeInteger(value)) return "unknown";
-  const units = ["B", "KiB", "MiB", "GiB", "TiB", "PiB"];
-  let index = 0;
-  while (value >= 1024 && index < units.length - 1) { value /= 1024; index += 1; }
-  return `${index ? value.toFixed(2) : value} ${units[index]}`;
-}
-
-export function formatStorageStatus(report) {
-  const lines = [`Clean Development ${report.version} — read-only storage status`, `Build root: ${display(report.buildRoot)}`];
-  if (report.workspaceDetails) {
-    lines.push(`Retention: ${report.retentionBuildDays} days. Valid registered records: ${report.workspaces}.`, "");
-    for (const row of report.workspaceDetails) {
-      const measured = row.size.status === "not-measured" ? "not measured" : `${bytes(row.size.logicalBytes)} (${row.size.status})`;
-      const protection = [row.reason, row.pinned && row.reason !== "pinned" ? "pinned" : null,
-        row.activeOrUncertain ? "active/uncertain lease" : null].filter(Boolean).join("; ");
-      lines.push(`${display(row.workspaceId)}  ${measured}  ${display(protection)}`,
-        `  Source: ${display(row.workspace)} | Last used: ${display(row.lastUsedAt)}`, `  Build: ${display(row.path)}`);
-    }
-    if (!report.workspaceDetails.length) lines.push("No valid registered build records. Unregistered files are not cleanup candidates.");
-  }
-  if (report.sizeMeasurements) {
-    lines.push("", "Managed roots (logical bytes; overlapping roots are not additive):");
-    for (const [name, size] of Object.entries(report.sizeMeasurements)) lines.push(`  ${name}: ${bytes(size.logicalBytes)} (${size.status})`);
-    if (report.registeredBuilds) lines.push(`Registered builds: ${bytes(report.registeredBuilds.observedLogicalBytes)} (${report.registeredBuilds.status})`,
-      `Eligible under current retention: ${bytes(report.eligibleBuilds.observedLogicalBytes)} (${report.eligibleBuilds.status}); actual reclaimable space unknown.`);
-  }
-  if (report.buildBudget) lines.push(`Build budget: ${bytes(report.buildBudget.limitBytes)} — ${report.buildBudget.status}. Advisory only; pins, leases and retention unchanged.`);
-  lines.push("", "Nothing changed. Use prune --json to review a fresh plan before explicitly applying it.");
-  return lines.join("\n");
-}
+export { formatStorageStatus } from "./diagnostic-formatters.js";
