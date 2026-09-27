@@ -52,3 +52,6 @@ jobs:
       - name: Effective-project routing boundaries and warning regressions
         if: ${{ !cancelled() }}
         run: node --test test/routing-context.test.js test/explain-cache-warnings.test.js
+      - name: Probe process errors and uncertain cleanup
+        if: ${{ !cancelled() }}
+        run: node --test test/probe-error-lifecycle.test.js
