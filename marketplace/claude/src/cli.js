@@ -14,6 +14,7 @@ import { explainCommand, formatExplanation } from "./explain.js";
 import { storageStatus, formatStorageStatus, parseByteSize } from "./status.js";
 import { probeTool, formatProbe } from "./probe.js";
 import { preflightToolRouting, assertRoutingBoundary } from "./routing-context.js";
+import { applyRecovery, beginLifecycleRecovery, checkpointLifecycleRecovery, formatRecovery, planRecovery } from "./recovery.js";
 
 const HELP = `clean-development ${VERSION}
 
@@ -36,6 +37,8 @@ Usage:
   clean-development prune [--older-than DAYS] [--apply] [--json]
   clean-development pin WORKSPACE_ID | unpin WORKSPACE_ID
   clean-development uninstall [--dry-run] [--json]
+  clean-development recover [--dry-run] [--json]
+  clean-development recover --apply --plan-id HASH [--json]
 
 Use COMMAND --help for help. Put child command options after --.
 Interactive launches offer session only (Enter), save project settings, or skip.
@@ -67,7 +70,8 @@ const COMMAND_OPTIONS = Object.freeze({
   prune: { "older-than": "value", apply: "boolean", json: "boolean" },
   pin: { json: "boolean" },
   unpin: { json: "boolean" },
-  uninstall: { "dry-run": "boolean", json: "boolean" }
+  uninstall: { "dry-run": "boolean", json: "boolean" },
+  recover: { "dry-run": "boolean", apply: "boolean", "plan-id": "value", json: "boolean" }
 });
 
 function parse(argv, optionTypes) {
@@ -105,7 +109,7 @@ function parse(argv, optionTypes) {
 
 function validateArguments(command, parsed) {
   const { positionals, passthrough } = parsed;
-  const noArguments = ["help", "version", "setup", "update", "prepare", "session", "init", "env", "status", "doctor", "probe", "prune", "uninstall"];
+  const noArguments = ["help", "version", "setup", "update", "prepare", "session", "init", "env", "status", "doctor", "probe", "prune", "uninstall", "recover"];
   if (noArguments.includes(command) && (positionals.length > 0 || passthrough.length > 0)) {
     throw new Error(`${command} does not accept positional arguments`);
   }
@@ -166,7 +170,7 @@ function ensureManagedBase(directory) {
   validate();
 }
 
-async function setup(options, env) {
+async function setup(options, env, operation = "setup") {
   const { config, agents } = setupPlan(options, env);
   const summary = {
     root: config.root,
@@ -181,12 +185,15 @@ async function setup(options, env) {
   try {
     for (const directory of [...new Set([config.root, config.cacheRoot, config.buildRoot, config.scratchRoot])]) ensureManagedBase(directory);
     fs.mkdirSync(config.locations.stateDir, { recursive: true });
+    const recovery = beginLifecycleRecovery(config, operation);
     config.agents = agents;
     summary.configFile = writeUserConfig(config, env);
     const persisted = resolveConfig({ env, includeProject: false });
     const runtime = ensureRuntime(persisted);
+    checkpointLifecycleRecovery(persisted, recovery, "runtime-published");
     summary.runtime = { version: VERSION, binDir: runtime.binDir };
     summary.integrations = installAgentIntegrations(persisted, runtime, agents, env);
+    checkpointLifecycleRecovery(persisted, recovery, "complete");
     return summary;
   } finally {
     releaseLock();
@@ -203,7 +210,7 @@ async function update(options, env) {
     ? current.agents
     : Object.keys(SUPPORTED_AGENTS);
   const agents = options.agents ? splitAgents(options.agents) : configuredAgents;
-  const summary = await setup({ ...options, agents: agents.join(",") }, env);
+  const summary = await setup({ ...options, agents: agents.join(",") }, env, "update");
   return { ...summary, command: "update" };
 }
 
@@ -405,8 +412,10 @@ async function uninstallCommand(options, config, env) {
   if (result.dryRun) return result;
   const releaseLock = await acquireDirectoryLock(path.join(config.locations.stateDir, "setup.lock"));
   try {
+    const recovery = beginLifecycleRecovery(config, "uninstall");
     result.integrationsRemoved = removeOwnedAgentIntegrations(config, env);
     result.runtime = removeRuntime(config);
+    checkpointLifecycleRecovery(config, recovery, "complete");
     return result;
   } finally {
     releaseLock();
@@ -465,6 +474,15 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
     output(json ? report : formatExplanation(report), json);
     return 0;
   }
+  if (command === "recover") {
+    if (parsed.options.apply && parsed.options["dry-run"]) throw new Error("recover --apply and --dry-run are mutually exclusive");
+    if (!parsed.options.apply && parsed.options["plan-id"]) throw new Error("--plan-id requires explicit --apply");
+    const report = parsed.options.apply
+      ? await applyRecovery({ env, apply: true, planId: parsed.options["plan-id"] })
+      : planRecovery({ env });
+    output(json ? report : formatRecovery(report), json);
+    return parsed.options.apply && report.blocked ? 1 : 0;
+  }
   if (command === "probe") {
     const timeout = parsed.options["timeout-ms"];
     if (timeout !== undefined && !/^\d+$/.test(timeout)) throw new Error("Invalid --timeout-ms; use an integer from 100 to 30000");
@@ -502,7 +520,7 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
     } catch {
       config = resolveConfig({ env, includeProject: false });
     }
-  } else config = resolveConfig({ env });
+  } else config = resolveConfig({ env, includeProject: command !== "uninstall" });
   if (command === "run") {
     const [executable, ...args] = parsed.passthrough.length ? parsed.passthrough : parsed.positionals;
     if (!executable) throw new Error("run requires a command after --");

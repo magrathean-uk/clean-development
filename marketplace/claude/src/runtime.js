@@ -120,6 +120,12 @@ function runtimeReceipt(config) {
   const details = fs.lstatSync(file);
   if (!details.isFile() || details.isSymbolicLink()) throw new Error(`Runtime receipt is not a real file: ${file}`);
   const receipt = readJson(file, null);
+  return validateRuntimeReceipt(config, receipt, file);
+}
+
+// Recovery uses the same path/schema checks without assuming the installed
+// version was built from the package currently running the recovery command.
+export function validateRuntimeReceipt(config, receipt, file = "recovery snapshot", { verifyPackage = true } = {}) {
   if (
     receipt?.schemaVersion !== 2
     || typeof receipt.version !== "string"
@@ -162,7 +168,7 @@ function runtimeReceipt(config) {
     throw new Error(`Runtime receipt contains an unsafe runtime inventory: ${file}`);
   }
 
-  if (receipt.version === VERSION) {
+  if (verifyPackage && receipt.version === VERSION) {
     const expectedLaunchers = launcherSpecifications(versionRoot, config.locations.binDir, receipt.node).specifications;
     const expectedLauncherMap = new Map(expectedLaunchers.map((entry) => [path.resolve(entry.path), entry.sha256]));
     if (receipt.ownedFiles.length !== expectedLauncherMap.size || receipt.ownedFiles.some((entry) => expectedLauncherMap.get(path.resolve(entry.path)) !== entry.sha256)) {
@@ -265,7 +271,7 @@ function writeExecutable(file, contents) {
   fs.renameSync(temporary, file);
 }
 
-function launcherSpecifications(versionRoot, binDir, node = process.execPath) {
+export function launcherSpecifications(versionRoot, binDir, node = process.execPath) {
   const cli = path.join(versionRoot, "bin", "clean-development.js");
   const shim = path.join(versionRoot, "bin", "clean-development-shim.js");
   const specifications = [];

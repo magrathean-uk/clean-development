@@ -8,3 +8,4 @@ export { explainCommand, formatExplanation } from "./explain.js";
 export { storageStatus, formatStorageStatus, parseByteSize } from "./status.js";
 export { measureDirectory, createSizeScanner, DEFAULT_SCAN_LIMITS } from "./measurement.js";
 export { planProbe, probeTool, formatProbe, PROBE_TOOLS } from "./probe.js";
+export { planRecovery, applyRecovery, formatRecovery } from "./recovery.js";
