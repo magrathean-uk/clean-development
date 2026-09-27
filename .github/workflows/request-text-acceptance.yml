@@ -38,6 +38,22 @@ jobs:
           node -e 'const fs=require("fs"),c=require("crypto"),p=process.argv[1];const b=fs.readFileSync(p);const m=JSON.parse(b);if(m.name!=="@anthropic-ai/claude-code"||m.version!=="2.1.283")process.exit(1);console.log(JSON.stringify({package:m.name,version:m.version,manifestSha256:c.createHash("sha256").update(b).digest("hex")}));' \
             "$RUNNER_TEMP/request-host/node_modules/@anthropic-ai/claude-code/package.json"
           sha256sum "$RUNNER_TEMP/request-host/package-lock.json"
+      - name: Version-only startup diagnostics (not a request capture)
+        env:
+          HOST_BINARY: ${{ runner.temp }}/request-host/node_modules/.bin/claude
+          VERSION_LAB: ${{ runner.temp }}/request-version-diagnostic
+        run: |
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          import {isolatedEnvironment,prepareDirectories,runChild} from './scripts/request-acceptance/run.mjs';
+          import {redact} from './scripts/request-acceptance/capture.mjs';
+          const binary=fs.realpathSync(process.env.HOST_BINARY),lab=process.env.VERSION_LAB;
+          const env=isolatedEnvironment(lab,path.dirname(process.env.HOST_BINARY));prepareDirectories(lab,env);
+          const result=await runChild(binary,['--version'],{cwd:lab,env,timeoutMs:10000,maxBytes:16384});
+          const value=redact(result,[[lab,'<VERSION_LAB>'],[path.dirname(binary),'<HOST_PACKAGE>'],[process.env.RUNNER_TEMP,'<RUNNER_TEMP>']]).value;
+          console.log(JSON.stringify({exitCode:value.code,signal:value.signal,failure:value.failure,stdout:value.stdout.slice(0,512),stderr:value.stderr.slice(0,1024)},null,2));
+          JS
       - name: Actual Claude requests to documented loopback gateway (no provider account)
         run: |
           node scripts/request-acceptance/run.mjs \
