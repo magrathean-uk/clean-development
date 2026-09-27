@@ -8,6 +8,7 @@ import { environmentForTool } from "../src/adapters.js";
 import { SHIM_TOOLS } from "../src/constants.js";
 import { canonicalizePotentialPath } from "../src/platform.js";
 import { identifyWorkspace } from "../src/workspace.js";
+import { isolatedEnvironment } from "../scripts/harness-utils.mjs";
 
 function fixture() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "clean-development-config-"));
@@ -16,8 +17,10 @@ function fixture() {
   fs.mkdirSync(home, { recursive: true });
   fs.mkdirSync(project, { recursive: true });
   fs.writeFileSync(path.join(project, "Cargo.toml"), "[package]\nname='fixture'\nversion='0.1.0'\n");
+  const inherited = isolatedEnvironment(root);
+  delete inherited.CLEAN_DEVELOPMENT_ROOT;
   const env = {
-    ...process.env,
+    ...inherited,
     CLEAN_DEVELOPMENT_HOME: home,
     CLEAN_DEVELOPMENT_DATA_HOME: path.join(root, "data"),
     CLEAN_DEVELOPMENT_CONFIG_HOME: path.join(root, "config")
@@ -113,13 +116,14 @@ test("workspace identity is stable per path and distinct for another checkout", 
   assert.notEqual(identifyWorkspace("cargo", [], item.project).id, identifyWorkspace("cargo", [], second).id);
 });
 
-test("npm's injected default cache is routed while a custom cache is preserved", (t) => {
+test("npm cache values are explicit even when they match npm defaults", (t) => {
   const item = fixture();
   t.after(() => fs.rmSync(item.root, { recursive: true, force: true }));
   const config = resolveConfig({ cwd: item.project, env: { ...item.env, CLEAN_DEVELOPMENT_ROOT: path.join(item.root, "managed") } });
   const npmDefault = path.join(item.home, ".npm");
   const routed = environmentForTool("npm", [], { config, cwd: item.project, env: { ...item.env, npm_config_cache: npmDefault }, create: false });
-  assert.equal(routed.applied.npm_config_cache, path.join(config.cacheRoot, "node", "npm"));
+  assert.equal(routed.preserved.npm_config_cache, npmDefault);
+  assert.equal(routed.applied.npm_config_cache, undefined);
   const custom = path.join(item.root, "deliberate-npm-cache");
   const preserved = environmentForTool("npm", [], { config, cwd: item.project, env: { ...item.env, npm_config_cache: custom }, create: false });
   assert.equal(preserved.preserved.npm_config_cache, custom);

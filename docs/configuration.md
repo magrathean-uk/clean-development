@@ -109,3 +109,20 @@ The ID does not include the session, current commit, or branch. Warm builds rema
 Run setup again with the new root. New routed work uses the new destination. Existing data is not migrated, adopted, or deleted automatically. This avoids treating unknown prior files as product-owned.
 
 If the root is on an external volume, mount it before running `setup`, `prepare`, or a routed session. Session preparation uses the same direct-parent requirement as `prepare`. A missing or unwritable volume is an error; normal tool runs never recreate a missing cache or build base and there is no hidden fallback that starts filling the home directory.
+
+## Inherited environment provenance
+
+Session overlays and command shims record the exact adapter values they inject in
+`CLEAN_DEVELOPMENT_SESSION_ENV`. On a later supported command, an unchanged
+recorded value may be rerouted for the current project. A value changed by the
+user is preserved, including independently changed upper-case npm variables.
+`skip` removes only unchanged injected values, not independent overrides.
+
+An explicit non-empty value such as `npm_config_cache=$HOME/.npm` is preserved
+without guessing whether npm or the user set it. The same conservative rule
+applies to npm/npx launch environments when provenance is unavailable. Unset or
+empty variables remain eligible for routing; `CLEAN_DEVELOPMENT_FORCE=1` explicitly
+overrides non-empty values. To opt into routing from an npm-injected environment,
+unset its cache variable or deliberately use force mode. Older shared-cache
+values without provenance are treated as explicit; older Cargo markers remain
+recognised. The marker authorises no file creation or deletion by itself.

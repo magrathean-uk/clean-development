@@ -6,10 +6,11 @@ import { writeProjectConfig } from "./config.js";
 import { CONFIG_FILE } from "./constants.js";
 import { canonicalizePotentialPath, environmentValue, isPathInside, prependUniquePath, setEnvironmentValue } from "./platform.js";
 import { detectStack } from "./workspace.js";
+import { recordInjectedEnvironment, removeInjectedEnvironment, SESSION_ENV_MARKER } from "./routing-environment.js";
 
 export const SESSION_MODES = Object.freeze(["session-only", "persist", "skip"]);
 export const SESSION_MODE_ENV = "CLEAN_DEVELOPMENT_SESSION_MODE";
-export const SESSION_ENV_MARKER = "CLEAN_DEVELOPMENT_SESSION_ENV";
+export { SESSION_ENV_MARKER };
 
 const PROJECT_SCHEMA = "https://raw.githubusercontent.com/magrathean-uk/clean-development/main/schemas/project-config.schema.json";
 
@@ -58,17 +59,6 @@ function repositoryManagedPaths(projectRoot, managed) {
   return [...new Set([managed.root, managed.cacheRoot, managed.buildRoot, managed.scratchRoot]
     .map((value) => canonicalizePotentialPath(value))
     .filter((value) => value === root || isPathInside(root, value)))];
-}
-
-function parsedSessionEnvironment(value) {
-  try {
-    const parsed = JSON.parse(value || "{}");
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
-    if (Object.entries(parsed).some(([name, item]) => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(name) || typeof item !== "string")) return {};
-    return parsed;
-  } catch {
-    return {};
-  }
 }
 
 function proposedProjectConfig(detection, config) {
@@ -224,32 +214,21 @@ export function applySessionPlan(plan, mode, env = process.env) {
   }
 
   prepareManagedDirectories(plan);
-  const inherited = parsedSessionEnvironment(environmentValue(childEnv, SESSION_ENV_MARKER));
-  const injected = Object.fromEntries(Object.entries(inherited)
-    .filter(([name, value]) => environmentValue(childEnv, name) === value));
+  const applied = {};
   const preservedNames = new Set(Object.keys(plan.managed.preserved).map((name) => name.toLowerCase()));
   for (const [name, value] of Object.entries(plan.managed.environment)) {
     if (preservedNames.has(name.toLowerCase())) continue;
     setEnvironmentValue(childEnv, name, value);
-    injected[name] = value;
+    applied[name] = value;
   }
-  setEnvironmentValue(childEnv, SESSION_ENV_MARKER, JSON.stringify(injected));
+  recordInjectedEnvironment(childEnv, applied);
   const projectConfig = selected === "persist" ? persistSessionPlan(plan) : null;
   return { mode: selected, env: childEnv, projectConfig };
 }
 
 export function environmentWithoutSessionRouting(env = process.env, binDir = null) {
   const result = { ...env };
-  const injected = parsedSessionEnvironment(environmentValue(result, SESSION_ENV_MARKER));
-  for (const [name, value] of Object.entries(injected)) {
-    if (environmentValue(result, name) === value) {
-      for (const key of Object.keys(result)) if (key.toLowerCase() === name.toLowerCase()) delete result[key];
-    }
-  }
-  const injectedCargo = environmentValue(result, "CLEAN_DEVELOPMENT_CARGO_TARGET_DIR");
-  if (injectedCargo && environmentValue(result, "CARGO_TARGET_DIR") === injectedCargo) {
-    for (const key of Object.keys(result)) if (key.toLowerCase() === "cargo_target_dir") delete result[key];
-  }
+  removeInjectedEnvironment(result);
   for (const name of [
     "CLEAN_DEVELOPMENT_ACTIVE", "CLEAN_DEVELOPMENT_RESOLVED_ROOT", "CLEAN_DEVELOPMENT_WORKSPACE_ID",
     "CLEAN_DEVELOPMENT_WORKSPACE", "CLEAN_DEVELOPMENT_CARGO_TARGET_DIR", SESSION_ENV_MARKER
