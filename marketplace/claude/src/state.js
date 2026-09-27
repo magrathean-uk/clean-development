@@ -67,7 +67,7 @@ export function acquireWorkspaceLock(config, workspaceId, buildRoot = config.bui
   return acquireDirectoryLock(path.join(directory, `${key}.lock`));
 }
 
-function ownedBuildReason(config, value) {
+function ownedBuildReasonUnchecked(config, value) {
   if (!value?.workspaceId || !value?.workspace || !value?.ownershipId || !value?.buildRoot || !value?.path) return "invalid-record";
   const configuredRoot = path.resolve(config.buildRoot);
   const recordedRoot = path.resolve(value.buildRoot);
@@ -88,6 +88,15 @@ function ownedBuildReason(config, value) {
   const marker = readStateJson(markerFile);
   if (marker?.owner !== "clean-development" || marker?.ownershipId !== value.ownershipId || marker?.workspaceId !== value.workspaceId || marker?.workspace !== value.workspace) return "unowned";
   return null;
+}
+
+function ownedBuildReason(config, value) {
+  try {
+    return ownedBuildReasonUnchecked(config, value);
+  } catch (error) {
+    // An inspection race or permission failure is not evidence of ownership.
+    return error.code === "ENOENT" ? "missing" : "unreadable";
+  }
 }
 
 export function recordWorkspace(config, workspace, ownedBuild) {
@@ -149,7 +158,9 @@ function processIsAlive(pid) {
     process.kill(pid, 0);
     return true;
   } catch (error) {
-    return error.code === "EPERM";
+    // Only ESRCH proves the process absent. Permission and unexpected errors
+    // must retain protection instead of interpreting uncertainty as idleness.
+    return error.code !== "ESRCH";
   }
 }
 
@@ -168,7 +179,16 @@ export function activeWorkspaceIds(config) {
     const match = name.match(/^(\d+)-([a-z0-9-]+)-([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.json$/i);
     if (!match) continue;
     const file = path.join(directory, name);
-    if (!regularJsonFile(file)) continue;
+    try {
+      const stat = fs.lstatSync(file);
+      if (!stat.isFile() || stat.isSymbolicLink()) {
+        active.add(match[2]);
+        continue;
+      }
+    } catch (error) {
+      if (error.code !== "ENOENT") active.add(match[2]);
+      continue;
+    }
     let lease;
     try {
       lease = readJson(file, null);
@@ -196,13 +216,8 @@ export function activeWorkspaceIds(config) {
       continue;
     }
     if (processIsAlive(lease.pid)) active.add(lease.workspaceId);
-    else {
-      try {
-        fs.unlinkSync(file);
-      } catch {
-        // A concurrent process may already have removed its lease.
-      }
-    }
+    // Inspection is strictly read-only, including stale leases. Deleting one
+    // here could also race with the wrapper transferring it to its live child.
   }
   return active;
 }
