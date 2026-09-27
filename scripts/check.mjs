@@ -53,8 +53,11 @@ for (const file of javascript) {
 }
 
 for (const executable of ["bin/clean-development.js", "bin/clean-development-shim.js", "hooks/session-start"]) {
-  const mode = fs.statSync(path.join(root, executable)).mode & 0o111;
-  if (!mode) throw new Error(`${executable} is not executable`);
+  const stat = fs.lstatSync(path.join(root, executable));
+  if (!stat.isFile() || stat.isSymbolicLink()) throw new Error(`${executable} must be a regular file`);
+  // Windows ACLs do not expose POSIX executable bits. Native .cmd execution is
+  // covered by the Windows contract gate; retain Unix mode checks on Unix.
+  if (process.platform !== "win32" && !(stat.mode & 0o111)) throw new Error(`${executable} is not executable`);
 }
 
 const codexSkill = fs.readFileSync(path.join(root, "skills/clean-development/SKILL.md"), "utf8");

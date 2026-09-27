@@ -138,7 +138,9 @@ function compare(files) {
       continue;
     }
     if (!fs.readFileSync(target).equals(contents(entry))) errors.push(`Stale bundle file: ${relative}`);
-    if ((status.mode & 0o777) !== entry.mode) errors.push(`Bundle mode differs: ${relative}`);
+    // NTFS permissions cannot represent the Unix modes stored by Git. Content
+    // and regular-file checks remain mandatory on every platform.
+    if (process.platform !== "win32" && (status.mode & 0o777) !== entry.mode) errors.push(`Bundle mode differs: ${relative}`);
   }
   return errors;
 }

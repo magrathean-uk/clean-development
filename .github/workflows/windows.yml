@@ -32,6 +32,8 @@ jobs:
       - name: Native lifecycle, launchers, real tools and process-tree cleanup
         run: node --test test/windows-contract.test.js
       - name: Existing native batch argument contract
+        if: ${{ !cancelled() }}
         run: node --test --test-name-pattern="Windows batch" test/runtime-regressions.test.js
       - name: Portable inspection, storage and probe contracts
+        if: ${{ !cancelled() }}
         run: node --test test/measurement.test.js test/status.test.js test/inspection.test.js test/bounded-leases.test.js test/probe.test.js test/probe-process.test.js

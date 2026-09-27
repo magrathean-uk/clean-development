@@ -20,7 +20,13 @@ certified. It runs:
 
 All fixture homes, roots, state and integration files are temporary. No live
 agent, account, registry publication, real user configuration or managed data is
-used. Workflow permissions are read-only. The test suite deliberately retains
+used. Workflow permissions are read-only. POSIX executable/mode checks remain enabled on Unix, but are not applied to
+Windows ACL-derived stat modes. Regular-file, content, syntax and generated-bundle
+checks still run on all platforms; the native job exercises actual .cmd launchers.
+Independent test steps still run after a prior test failure to expose additional
+failures without making the workflow successful.
+
+The test suite deliberately retains
 unknown/partial states rather than weakening path or ownership checks to obtain a
 passing result.
 
