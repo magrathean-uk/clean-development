@@ -32,7 +32,9 @@ function fixture(t, { spawned = true, denyTermination = false, errorDuringTermin
   };
   child.kill = () => { killing(); return true; };
   t.mock.method(process, "kill", (pid, signal) => {
-    assert.equal(pid, -child.pid); assert.equal(signal, "SIGKILL"); killing(); return true;
+    assert.equal(pid, -child.pid);
+    if (signal === 0) throw Object.assign(new Error("fixture group is gone"), { code: "ESRCH" });
+    assert.equal(signal, "SIGKILL"); killing(); return true;
   });
   const spawnProcess = (command, _args, options) => {
     if (command.endsWith("taskkill.exe")) {

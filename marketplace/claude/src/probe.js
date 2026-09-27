@@ -118,7 +118,7 @@ export async function probeTool(tool, { cwd = process.cwd(), env = process.env, 
     report.executed = true;
     const query = await capture(QUERIES[tool]);
     cleanupSafe = query.cleanupComplete;
-    if (!query.ok) { report.status = "failed"; report.reason = query.failure; report.interruptedSignal = query.interruptedSignal; return report; }
+    if (!query.ok || !cleanupSafe) { report.status = "failed"; report.reason = query.failure || "cleanup-uncertain"; report.interruptedSignal = query.interruptedSignal; return report; }
     const observed = observedVariables(tool, query.stdout);
     if (tool === "go") report.fixtureTelemetry = "off";
     for (const [name, expected] of Object.entries(route.applied)) {
@@ -129,7 +129,7 @@ export async function probeTool(tool, { cwd = process.cwd(), env = process.env, 
     }
     const capturedVersion = await capture(tool === "go" ? ["version"] : ["--version"]);
     cleanupSafe = capturedVersion.cleanupComplete;
-    if (!capturedVersion.ok) { report.status = "failed"; report.reason = capturedVersion.failure; report.interruptedSignal = capturedVersion.interruptedSignal; return report; }
+    if (!capturedVersion.ok || !cleanupSafe) { report.status = "failed"; report.reason = capturedVersion.failure || "cleanup-uncertain"; report.interruptedSignal = capturedVersion.interruptedSignal; return report; }
     report.toolVersion = version(tool, capturedVersion.stdout);
     if (!report.toolVersion) throw new Error("invalid native version response");
     report.status = report.observations.every((item) => item.matches) ? "observed-working" : "mismatch";
