@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { performance } from "node:perf_hooks";
 import { createSizeScanner, measureDirectory } from "../src/measurement.js";
 
 function fixture(t) {
@@ -108,6 +109,57 @@ test("zero time budget does no filesystem work and invalid budgets are rejected"
   for (const value of [-1, NaN, Infinity, 1.5, "2", Number.MAX_SAFE_INTEGER + 1]) {
     assert.throws(() => createSizeScanner({ maxEntries: value }), /non-negative safe integer/);
     assert.throws(() => createSizeScanner({ maxDurationMs: value }), /non-negative safe integer/);
+  }
+});
+
+test("time limits stop metadata work at every filesystem boundary and still close handles", async (t) => {
+  const root = fixture(t);
+  fs.writeFileSync(path.join(root, "file"), "observed bytes");
+  let now = 0, expireAt = Infinity, opened = 0, closed = 0;
+  let calls = [], readsAfterDeadline = [];
+  t.mock.method(performance, "now", () => now);
+  const observe = (name, operation) => {
+    if (now >= 10 && name !== "closeSync") readsAfterDeadline.push(name);
+    calls.push(name);
+    const value = operation();
+    if (calls.length === expireAt) now = 10;
+    return value;
+  };
+  const lstat = fs.lstatSync, realpath = fs.realpathSync.native, open = fs.opendirSync;
+  t.mock.method(fs, "lstatSync", (...args) => observe("lstatSync", () => lstat(...args)));
+  t.mock.method(fs.realpathSync, "native", (...args) => observe("realpathSync.native", () => realpath(...args)));
+  t.mock.method(fs, "opendirSync", (...args) => {
+    const directory = observe("opendirSync", () => open(...args));
+    opened += 1;
+    return {
+      readSync() { return observe("readSync", () => directory.readSync()); },
+      closeSync() { return observe("closeSync", () => { directory.closeSync(); closed += 1; }); }
+    };
+  });
+  const baseline = measureDirectory(root, { maxDurationMs: 10 });
+  assert.equal(baseline.status, "complete");
+  assert.equal(baseline.logicalBytes, 14);
+  const boundaries = [...calls];
+  // Advance a fake monotonic clock as each real filesystem operation returns.
+  // This covers EOF, validation and close without timing-sensitive sleeps.
+  for (const [index, name] of boundaries.entries()) {
+    await t.test(`deadline reached after operation ${index + 1}: ${name}`, () => {
+      now = 0; expireAt = index + 1; opened = 0; closed = 0;
+      calls = []; readsAfterDeadline = [];
+      const scanner = createSizeScanner({ maxDurationMs: 10 });
+      const result = scanner.measure(root);
+      assert.equal(result.status, "partial");
+      assert.equal(result.issues.filter((issue) => issue.code === "time-limit").length, 1);
+      assert.deepEqual(readsAfterDeadline, [], "only handle cleanup may start after the deadline");
+      assert.equal(closed, opened, "every opened directory must be closed");
+      const callCount = calls.length;
+      assert.equal(scanner.measure(root), result, "repeated roots reuse the partial observation");
+      const next = scanner.measure(path.join(root, "unscanned"));
+      assert.equal(next.status, "partial");
+      assert.equal(next.entriesVisited, 0);
+      assert.equal(next.issues[0].code, "time-limit");
+      assert.equal(calls.length, callCount, "later roots share the exhausted deadline");
+    });
   }
 });
 

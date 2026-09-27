@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { performance } from "node:perf_hooks";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { resolveConfig } from "../src/config.js";
@@ -115,6 +116,44 @@ test("incomplete scans expose observed bytes but legacy totals and budget verdic
   assert.equal(report.registeredBuilds.observedLogicalBytes, 0);
   assert.deepEqual(report.bytes, { caches: null, builds: null, scratch: null });
   assert.equal(report.sizeMeasurements.builds.status, "partial");
+});
+
+test("a deadline reached at workspace EOF leaves advisory budgets unknown and storage unchanged", (t) => {
+  const item = fixture(t);
+  const workspace = owned(item, "old-a");
+  const expected = measureDirectory(workspace.path).logicalBytes;
+  const before = snapshot(item.root);
+  let now = 0, closed = false;
+  t.mock.method(performance, "now", () => now);
+  const open = fs.opendirSync;
+  t.mock.method(fs, "opendirSync", (file, ...args) => {
+    const directory = open(file, ...args);
+    if (String(file) !== workspace.path) return directory;
+    return {
+      readSync() {
+        const entry = directory.readSync();
+        if (!entry) now = 10;
+        return entry;
+      },
+      closeSync() { directory.closeSync(); closed = true; }
+    };
+  });
+  const report = storageStatus(item.config, { buildBudgetBytes: expected, maxDurationMs: 10, env: item.env });
+  assert.equal(report.workspaceDetails[0].size.status, "partial");
+  assert.deepEqual(report.workspaceDetails[0].size.issues, [{ code: "time-limit", path: "." }]);
+  assert.equal(report.registeredBuilds.status, "partial");
+  assert.equal(report.registeredBuilds.incompleteEntries, 1);
+  assert.equal(report.registeredBuilds.observedLogicalBytes, expected, "already observed bytes remain visible");
+  assert.equal(report.eligibleBuilds.status, "partial");
+  assert.equal(report.buildBudget.status, "unknown");
+  assert.equal(report.buildBudget.overByBytes, null);
+  assert.equal(report.buildBudget.advisoryOnly, true);
+  assert.equal(report.buildBudget.retentionUnchanged, true);
+  assert.deepEqual(report.bytes, { caches: null, builds: null, scratch: null });
+  assert.match(formatStorageStatus(report), /Build budget: .*unknown/);
+  assert.equal(JSON.parse(JSON.stringify(report)).buildBudget.status, "unknown");
+  assert.equal(closed, true);
+  assert.deepEqual(snapshot(item.root), before);
 });
 
 test("missing storage is unknown rather than zero and remains missing", (t) => {
