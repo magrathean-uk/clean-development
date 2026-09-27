@@ -13,8 +13,9 @@ import { identifyWorkspace } from "./workspace.js";
 import { cargoInvocationCwd, resolveCargoWorkspace } from "./cargo-workspace.js";
 import { windowsBatchInvocation } from "./windows-command.js";
 import { spawnInherited } from "./process-runner.js";
+import { resolveExecutable } from "./executable.js";
 
-export { windowsBatchInvocation, spawnInherited };
+export { windowsBatchInvocation, spawnInherited, resolveExecutable };
 
 const RUNTIME_MARKER = ".clean-development-runtime.json";
 const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
@@ -536,62 +537,6 @@ function removeVersionedRuntime(config, receipt, result) {
   }
 }
 
-function candidateNames(executable, env) {
-  if (process.platform !== "win32") return [executable];
-  const extension = path.extname(executable);
-  if (extension) return [executable];
-  const pathExt = (environmentValue(env, "PATHEXT") || ".EXE;.CMD;.BAT;.COM").split(";");
-  return [...pathExt.map((item) => `${executable}${item.toLowerCase()}`), ...pathExt.map((item) => `${executable}${item.toUpperCase()}`), executable];
-}
-
-function sameFile(left, right) {
-  try {
-    const a = fs.statSync(left);
-    const b = fs.statSync(right);
-    return a.dev === b.dev && a.ino === b.ino;
-  } catch {
-    return false;
-  }
-}
-
-function isGeneratedShim(file) {
-  let descriptor;
-  try {
-    descriptor = fs.openSync(file, "r");
-    const prefix = Buffer.alloc(4096);
-    const bytes = fs.readSync(descriptor, prefix, 0, prefix.length, 0);
-    const contents = prefix.toString("utf8", 0, bytes);
-    return contents.includes("clean-development-shim.js")
-      || (contents.includes("import { runTool }") && contents.includes("import { resolveConfig }"));
-  } catch {
-    return false;
-  } finally {
-    if (descriptor !== undefined) fs.closeSync(descriptor);
-  }
-}
-
-export function resolveExecutable(executable, env, excludedDirectory) {
-  if (executable.includes(path.sep) || (path.sep === "\\" && executable.includes("/"))) return path.resolve(executable);
-  const excluded = excludedDirectory ? canonicalizePotentialPath(excludedDirectory) : null;
-  const directories = (environmentValue(env, "PATH") || "").split(path.delimiter).filter(Boolean);
-  for (const directory of directories) {
-    if (excluded && canonicalizePotentialPath(directory) === excluded) continue;
-    for (const name of candidateNames(executable, env)) {
-      const candidate = path.join(directory, name);
-      try {
-        fs.accessSync(candidate, fs.constants.X_OK);
-        if (excluded && isPathInside(excluded, candidate)) continue;
-        if (excluded && sameFile(candidate, path.join(excluded, name))) continue;
-        if (isGeneratedShim(candidate)) continue;
-        return candidate;
-      } catch {
-        // Keep searching PATH.
-      }
-    }
-  }
-  return null;
-}
-
 function managedCargoTargetOwners(config, target, cwd) {
   if (!target) return [];
   const resolvedTarget = canonicalizePotentialPath(path.resolve(cwd, target));
@@ -645,7 +590,7 @@ export async function runTool(tool, args, { config, cwd = process.cwd(), env = p
   const sessionMode = normalizeSessionMode(environmentValue(env, SESSION_MODE_ENV));
   if (sessionMode === "skip") {
     const childEnv = environmentWithoutSessionRouting(env, config.locations.binDir);
-    const executable = resolveExecutable(tool, childEnv, config.locations.binDir);
+    const executable = resolveExecutable(tool, childEnv, config.locations.binDir, cwd);
     if (!executable) throw new Error(`Cannot find the real '${tool}' executable outside ${config.locations.binDir}`);
     return spawnInherited(executable, args, { cwd, env: childEnv });
   }
@@ -655,11 +600,11 @@ export async function runTool(tool, args, { config, cwd = process.cwd(), env = p
     : resolveConfig({ cwd: workspace.effectiveCwd, env });
   if (effectiveConfig.enabled === false || effectiveConfig.tools?.[tool] === false) {
     const childEnv = environmentWithoutSessionRouting(env, effectiveConfig.locations.binDir);
-    const executable = resolveExecutable(tool, childEnv, effectiveConfig.locations.binDir);
+    const executable = resolveExecutable(tool, childEnv, effectiveConfig.locations.binDir, cwd);
     if (!executable) throw new Error(`Cannot find the real '${tool}' executable outside ${effectiveConfig.locations.binDir}`);
     return spawnInherited(executable, args, { cwd, env: childEnv });
   }
-  const executable = resolveExecutable(tool, env, effectiveConfig.locations.binDir);
+  const executable = resolveExecutable(tool, env, effectiveConfig.locations.binDir, cwd);
   if (!executable) throw new Error(`Cannot find the real '${tool}' executable outside ${effectiveConfig.locations.binDir}`);
   if (tool === "cargo") {
     workspace = resolveCargoWorkspace(args, {
@@ -748,7 +693,7 @@ export async function runWithShims(command, args, { config, cwd = process.cwd(),
   const sessionMode = normalizeSessionMode(environmentValue(env, SESSION_MODE_ENV));
   if (sessionMode === "skip") {
     const childEnv = environmentWithoutSessionRouting(env, config.locations.binDir);
-    const executable = resolveExecutable(command, childEnv, config.locations.binDir);
+    const executable = resolveExecutable(command, childEnv, config.locations.binDir, cwd);
     if (!executable) throw new Error(`Cannot find executable: ${command}`);
     return spawnInherited(executable, args, { cwd, env: childEnv });
   }
@@ -756,7 +701,7 @@ export async function runWithShims(command, args, { config, cwd = process.cwd(),
   const childEnv = { ...env, CLEAN_DEVELOPMENT_ACTIVE: "1" };
   setEnvironmentValue(childEnv, "PATH", prependUniquePath(environmentValue(childEnv, "PATH"), runtime.binDir));
   if (SHIM_TOOLS.includes(command)) return runTool(command, args, { config, cwd, env: childEnv });
-  const executable = resolveExecutable(command, childEnv, runtime.binDir);
+  const executable = resolveExecutable(command, childEnv, runtime.binDir, cwd);
   if (!executable) throw new Error(`Cannot find executable: ${command}`);
   let forwarded = args;
   if (command === SUPPORTED_AGENTS.codex) {

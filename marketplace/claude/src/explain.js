@@ -11,7 +11,7 @@ import { identifyWorkspace } from "./workspace.js";
 
 function executablePlan(command, env, binDir, cwd) {
   const hasPath = command.includes(path.sep) || (process.platform === "win32" && command.includes("/"));
-  const selected = resolveExecutable(hasPath ? path.resolve(cwd, command) : command, env, binDir);
+  const selected = resolveExecutable(hasPath ? path.resolve(cwd, command) : command, env, binDir, cwd);
   try {
     if (!selected || !fs.statSync(selected).isFile()) return { path: selected, found: false };
     fs.accessSync(selected, fs.constants.X_OK);
