@@ -192,6 +192,10 @@ test("receiver rejects malformed bodies, unexpected credentials, endpoints and e
     const response = await post(capture, payload(), options); await response.text(); assert.equal(response.status, expected);
   }
   assert.equal(capture.requests.length, 0);
+  assert.ok(capture.errors.includes("unexpected-credential:POST:messages:supplied"));
+  const rootProbe = await fetch(capture.url); await rootProbe.text();
+  assert.equal(rootProbe.status, 401);
+  assert.ok(capture.errors.includes("unexpected-credential:GET:root:absent"));
   assert.equal(JSON.stringify(capture.errors).includes("actual-secret"), false);
   const limited = await startCapture({ maxRequests: 1 }); t.after(() => limited.close());
   await (await post(limited, payload())).text();

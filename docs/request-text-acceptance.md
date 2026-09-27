@@ -6,9 +6,28 @@ This is an opt-in measurement protocol, not a runtime feature. No capture code i
 
 The automated adapter targets **Claude Code 2.1.283** and the current shipped `marketplace/claude` bundle. It uses the real host's documented gateway setting to receive requests locally. Responses are synthetic, no request is forwarded to a model provider, and the fixture's zero-valued usage fields are protocol placeholders. This establishes request construction only when actually executed on that host. It never establishes inference quality, provider-side final prompts, or billed-token neutrality.
 
-See [skill compatibility](skill-compatibility.md) and [the verification ledger](verification.md) for historical observations, which are not results of this experiment. The dated [local availability record](evidence/request-text-2026-09-27.json) records **no installed supported host and no captured host requests** in the local execution container. A requested version is not an observed version. A separate credential-free CI job attempts the pinned real host; its completed logs, source SHA and verdict must be recorded separately before using them as evidence.
+See [skill compatibility](skill-compatibility.md) and [the verification ledger](verification.md) for historical observations, which are not results of this experiment. The dated [local availability record](evidence/request-text-2026-09-27.json) records **no installed supported host and no captured host requests** in the local execution container. A requested version is not an observed version. The separate [CI evidence record](evidence/request-text-ci-2026-09-27.json) contains real Claude Code 2.1.283 observations, source revisions and linked job logs; its overall acceptance verdict remains inconclusive, as detailed below.
 
-No production context-injection defect has been confirmed by the local apparatus tests. Do not change a host's invocation policy or remove functionality just to manufacture an equal payload.
+No unintended automatic product context injection has been confirmed by these observations; no production integration or skill policy was changed. Do not change a host's invocation policy or remove functionality just to manufacture an equal payload.
+
+## Recorded real-host evidence, 27 September 2026
+
+[Run 3](https://github.com/magrathean-uk/clean-development/actions/runs/36349261567/job/108704589664) and [run 4](https://github.com/magrathean-uk/clean-development/actions/runs/36349404074/job/108705002656) each executed the full nine-lane matrix twice using **real Claude Code 2.1.283**, Ubuntu 24.04.5, Node 22.23.2 and npm 10.9.8. The host's `--version` returned the exact requested version, and its invoked-file SHA-256 was `1859583ce32920595c61ef868bee52e1b1594f7486db209935e01f1e5e804ae2`. Run 4 tested PR head `fcbb50db435b4e0d426799f32711e65da6a97563` as merge commit `c6f01f585bec848fcfddfb9b1d6a96538bec4486`, tree `c9b302864a358da372251afa9984bce06e37efde`.
+
+Across these two runs, **36 authenticated generation payloads were captured from 36 fresh host sessions**. All host processes exited 0 and both source and binary fingerprints remained unchanged. Each native lane also produced a successful host SessionStart response event. Per-request hashes, byte counts, control observations and package hashes are retained in the CI ledger.
+
+| Observed generation request | Actual observation in both repetitions of both runs |
+| --- | --- |
+| Absent, installed skill inactive, native inactive, combined inactive, explicit native session-only | No exact shipped management body, description or product-reference detector match |
+| Explicit skill invocation | Exact shipped Claude skill body present |
+| Deliberately automatic description control | Description canary present |
+| Deliberate SessionStart stdout control | Hook canary present |
+
+**These are bounded payload observations, not a complete equality pass.** Each lane also sent one unauthenticated request that the receiver rejected. Run 4 identified its method as `HEAD` and its target as an unclassified path, without logging its URL or private contents. Its purpose and exact target are not established. The completeness gate therefore stayed closed, the whole-request comparator did not run, and both workflows returned exit 1. Neither the visible absence of known product strings nor small raw-byte differences establish equality of all system/tool/other text. Do not suppress this rejection or assume it is harmless merely to obtain a pass.
+
+The first two CI attempts installed the exact npm package but could not start its native binary because the harness used `--ignore-scripts`. The subsequent bounded diagnostic exposed that installation error. The protocol now explicitly runs only the pinned host's prescribed `install.cjs` under the disposable environment. This is an apparatus fix, not a Clean Development injection fix. The earlier failed attempts remain in the ledger.
+
+Local unit tests and the separate-process HTTP client validate the apparatus only. CI publishes observation indexes, not request bodies; the ledger is explicitly a transcription of those indexes, not an independently replayable capture. A future complete acceptance run must classify the rejected traffic through the same authorised host interface, retain reviewed capture evidence, rerun the complete comparison and preserve the positive controls. Billing and the other host/lifecycle claims remain unproven.
 
 ## Questions kept separate
 
@@ -87,6 +106,9 @@ mkdir "$HOST_ROOT/home" "$HOST_ROOT/cache"
 env -i PATH="$PATH" HOME="$HOST_ROOT/home" npm_config_cache="$HOST_ROOT/cache" \
   npm install --prefix "$HOST_ROOT/package" --ignore-scripts --no-audit --no-fund \
   @anthropic-ai/claude-code@2.1.283
+# Run only the pinned host's own required native installer in the same isolation.
+env -i PATH="$PATH" HOME="$HOST_ROOT/home" npm_config_cache="$HOST_ROOT/cache" \
+  node "$HOST_ROOT/package/node_modules/@anthropic-ai/claude-code/install.cjs"
 
 node scripts/request-acceptance/run.mjs \
   --claude "$HOST_ROOT/package/node_modules/.bin/claude" \

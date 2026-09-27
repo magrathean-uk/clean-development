@@ -29,7 +29,7 @@ The skill now distinguishes inspection, setup, routing, and cleanup. Read-only d
 
 ## Repeatable request-text acceptance
 
-Use the [model-facing request protocol](request-text-acceptance.md) for new evidence. It separates absent integration, installed-but-inactive discovery, native setup and explicit invocation, and requires positive capture controls. The [dated local availability record](evidence/request-text-2026-09-27.json) is blocked, not a new host pass. The opt-in real-host workflow records its own exact revision/version and result; metadata, CLI output and fixture usage values never establish billed-token neutrality.
+Use the [model-facing request protocol](request-text-acceptance.md) for new evidence. It separates absent integration, installed-but-inactive discovery, native setup and explicit invocation, and requires positive capture controls. The [dated local availability record](evidence/request-text-2026-09-27.json) is blocked, not a new host pass. The [separate CI record](evidence/request-text-ci-2026-09-27.json) includes real Claude 2.1.283 generation captures, positive controls and an inconclusive completeness verdict; metadata, CLI output and fixture usage values never establish billed-token neutrality.
 
 ## Recorded host evidence, 26 September 2026
 
