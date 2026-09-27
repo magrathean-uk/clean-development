@@ -32,7 +32,8 @@ export const SHIM_TOOLS = Object.freeze([
   "dotnet",
   "composer",
   "ccache",
-  "sccache"
+  "sccache",
+  "swift"
 ]);
 
 export const DEFAULT_CONFIG = Object.freeze({
@@ -41,5 +42,5 @@ export const DEFAULT_CONFIG = Object.freeze({
   retention: {
     buildDays: 30
   },
-  tools: Object.fromEntries(SHIM_TOOLS.map((tool) => [tool, true]))
+  tools: Object.fromEntries(SHIM_TOOLS.map((tool) => [tool, tool !== "swift"]))
 });

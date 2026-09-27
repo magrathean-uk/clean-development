@@ -12,6 +12,7 @@
     "cacheRoot": { "type": "string", "minLength": 1 },
     "buildRoot": { "type": "string", "minLength": 1 },
     "scratchRoot": { "type": "string", "minLength": 1 },
+    "swiftpmWorkspaceRoot": { "type": "string", "minLength": 1, "description": "Explicit retained SwiftPM workspace base; outside disposable storage and source. Not pruned." },
     "retention": {
       "type": "object",
       "additionalProperties": false,
@@ -36,7 +37,8 @@
         "dotnet": { "type": "boolean" },
         "composer": { "type": "boolean" },
         "ccache": { "type": "boolean" },
-        "sccache": { "type": "boolean" }
+        "sccache": { "type": "boolean" },
+        "swift": { "type": "boolean", "default": false, "description": "Opt-in command-local SwiftPM build/test adapter." }
       }
     }
   },

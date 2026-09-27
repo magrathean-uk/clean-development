@@ -21,6 +21,12 @@ export function formatExplanation(report) {
   for (const entry of report.routing.variables) {
     lines.push(`${entry.action === "preserve" ? "Preserve" : "Set"} ${entry.name}=${entry.value}`, `  ${entry.reason}; source: ${entry.source}`);
   }
+  if (report.routing.swiftpm) {
+    for (const [name, value] of Object.entries({ scratch: report.routing.swiftpm.scratch, cache: report.routing.swiftpm.cache })) {
+      lines.push(`SwiftPM ${name}: ${value.path || "native selection"} (${value.disposition})`);
+    }
+    for (const item of report.routing.swiftpm.outputs) lines.push(`SwiftPM output ${item.option}: ${item.path} (${item.disposition})`);
+  }
   const nativeCache = report.routing.nativeCacheOptions;
   if (nativeCache?.declarations?.length) {
     for (const item of nativeCache.declarations) {

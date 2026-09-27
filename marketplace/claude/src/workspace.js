@@ -2,9 +2,11 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { swiftpmWorkspace } from "./swiftpm.js";
 
 export const MANIFESTS = {
   cargo: ["Cargo.toml"],
+  swift: ["Package.swift"],
   go: ["go.work", "go.mod"],
   npm: ["package.json"],
   npx: ["package.json"],
@@ -35,7 +37,7 @@ function directoryNames(directory) {
 
 function projectEvidence(names) {
   return [
-    "Cargo.toml", "go.work", "go.mod", "package.json", "pyproject.toml", "uv.lock",
+    "Cargo.toml", "Package.swift", "go.work", "go.mod", "package.json", "pyproject.toml", "uv.lock",
     "requirements.txt", "setup.py", "global.json", "composer.json", "pnpm-workspace.yaml"
   ].some((name) => names.includes(name)) || names.some((name) => name.endsWith(".sln") || name.endsWith(".csproj"));
 }
@@ -85,6 +87,7 @@ export function detectStack(cwd = process.cwd(), { home = os.homedir() } = {}) {
   };
 
   if (present.has("Cargo.toml")) add("cargo", ["Cargo.toml"]);
+  if (present.has("Package.swift")) add("swift", ["Package.swift"]);
   const goFiles = ["go.work", "go.mod"].filter((name) => present.has(name));
   if (goFiles.length) add("go", goFiles);
 
@@ -220,6 +223,7 @@ function slug(value) {
 }
 
 export function identifyWorkspace(tool, args = [], cwd = process.cwd(), { root: resolvedRoot } = {}) {
+  if (tool === "swift") return swiftpmWorkspace(args, cwd);
   const effectiveCwd = commandCwd(tool, args, cwd);
   const root = safeRealpath(resolvedRoot || (tool === "cargo" ? findCargoRoot(effectiveCwd) : findRoot(effectiveCwd, MANIFESTS[tool])));
   const digest = crypto.createHash("sha256").update(root).digest("hex").slice(0, 10);

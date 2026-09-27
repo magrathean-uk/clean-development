@@ -4,7 +4,7 @@ import { CONFIG_FILE, DEFAULT_CONFIG, SHIM_TOOLS, SUPPORTED_AGENTS } from "./con
 import { readJson, writeJsonAtomic, writeJsonExclusive } from "./io.js";
 import { assertSafeManagedRoot, environmentValue, platformPaths } from "./platform.js";
 
-const PROJECT_KEYS = new Set(["$schema", "schemaVersion", "enabled", "root", "cacheRoot", "buildRoot", "scratchRoot", "retention", "tools"]);
+const PROJECT_KEYS = new Set(["$schema", "schemaVersion", "enabled", "root", "cacheRoot", "buildRoot", "scratchRoot", "swiftpmWorkspaceRoot", "retention", "tools"]);
 
 function isObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -21,7 +21,7 @@ function validateConfig(value, file, { user = false } = {}) {
   if (value.schemaVersion !== 1) invalid(file, "schemaVersion must be 1");
   if (value.$schema !== undefined && (typeof value.$schema !== "string" || !value.$schema.trim())) invalid(file, "$schema must be a non-empty string");
   if (value.enabled !== undefined && typeof value.enabled !== "boolean") invalid(file, "enabled must be a boolean");
-  for (const key of ["root", "cacheRoot", "buildRoot", "scratchRoot"]) {
+  for (const key of ["root", "cacheRoot", "buildRoot", "scratchRoot", "swiftpmWorkspaceRoot"]) {
     if (value[key] !== undefined && (typeof value[key] !== "string" || !value[key].trim())) invalid(file, `${key} must be a non-empty string`);
   }
   if (value.retention !== undefined) {
@@ -132,6 +132,14 @@ export function resolveConfig({ cwd = process.cwd(), env = process.env, override
     buildRoot: pathSource("buildRoot", environmentBuildRoot, "CLEAN_DEVELOPMENT_BUILD_ROOT"),
     scratchRoot: pathSource("scratchRoot", environmentScratchRoot, "CLEAN_DEVELOPMENT_SCRATCH_ROOT")
   };
+  // Unlike disposable buildRoot/scratchRoot, this opt-in root retains SwiftPM
+  // products. It has no default and is never implicitly derived from root.
+  const swiftpmEnvironmentRoot = environmentPath(env, "CLEAN_DEVELOPMENT_SWIFTPM_WORKSPACE_ROOT");
+  const swiftpmRoot = overrides.swiftpmWorkspaceRoot || swiftpmEnvironmentRoot || project?.swiftpmWorkspaceRoot || user?.swiftpmWorkspaceRoot;
+  if (swiftpmRoot) {
+    config.pathSources.swiftpmWorkspaceRoot = pathSource("swiftpmWorkspaceRoot", swiftpmEnvironmentRoot, "CLEAN_DEVELOPMENT_SWIFTPM_WORKSPACE_ROOT");
+    config.swiftpmWorkspaceRoot = assertSafeManagedRoot(resolveConfiguredPath(swiftpmRoot, config.pathSources.swiftpmWorkspaceRoot), env);
+  }
   config.locations = locations;
   return config;
 }
@@ -149,6 +157,7 @@ export function writeUserConfig(config, env = process.env) {
   if (config.cacheRoot && config.cacheRoot !== path.join(persisted.root, "caches")) persisted.cacheRoot = path.resolve(config.cacheRoot);
   if (config.buildRoot && config.buildRoot !== path.join(persisted.root, "builds")) persisted.buildRoot = path.resolve(config.buildRoot);
   if (config.scratchRoot && config.scratchRoot !== path.join(persisted.root, "scratch")) persisted.scratchRoot = path.resolve(config.scratchRoot);
+  if (config.swiftpmWorkspaceRoot) persisted.swiftpmWorkspaceRoot = assertSafeManagedRoot(config.swiftpmWorkspaceRoot, env);
   validateConfig(persisted, locations.configPath, { user: true });
   writeJsonAtomic(locations.configPath, persisted);
   return locations.configPath;

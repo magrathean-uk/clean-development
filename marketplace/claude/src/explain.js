@@ -9,7 +9,7 @@ import { resolveExecutable } from "./runtime.js";
 import { environmentWithoutSessionRouting, normalizeSessionMode, planSession } from "./session.js";
 import { identifyWorkspace } from "./workspace.js";
 import { inspectNativeCacheOptions } from "./native-cache-options.js";
-import { commandStorageConflicts } from "./routing-context.js";
+import { commandStorageConflicts, preflightToolRouting } from "./routing-context.js";
 
 function executablePlan(command, env, binDir, cwd) {
   const hasPath = command.includes(path.sep) || (process.platform === "win32" && command.includes("/"));
@@ -64,6 +64,29 @@ export function explainCommand(command, args = [], { cwd = process.cwd(), env = 
     return report;
   }
   const initialConfig = resolveConfig({ cwd, env });
+  if (command === "swift") {
+    report.executable = executablePlan(command, env, locations.binDir, cwd);
+    try {
+      const context = preflightToolRouting(command, args, { config: initialConfig, cwd, env });
+      const { config, workspace } = context;
+      report.workspace = workspace ? { id: workspace.id, root: workspace.root, effectiveCwd: workspace.effectiveCwd,
+        authority: "canonical nearest Package.swift; manifest not executed" } : null;
+      report.configuration = { projectConfig: config.projectConfigPath, paths: Object.fromEntries(
+        ["root", "cacheRoot", "buildRoot", "scratchRoot", "swiftpmWorkspaceRoot"].filter((key) => config[key])
+          .map((key) => [key, { path: config[key], source: config.pathSources[key] }])) };
+      report.routing.status = context.disabled ? "disabled" : context.repositoryPaths.length ? "blocked" : context.swiftpm.status;
+      if (context.repositoryPaths.length) report.routing.reason = "Managed storage must be outside the project";
+      if (context.swiftpm) {
+        const { scratch, cache, outputs, additions } = context.swiftpm;
+        report.routing.swiftpm = { scratch, cache, outputs, addedArguments: additions };
+      }
+      if (context.disabled) report.routing.reason = "SwiftPM is opt-in; only enabled swift build/test commands receive path flags";
+    } catch (error) { report.routing.status = "blocked"; report.routing.reason = error.message; }
+    report.limitations.push("SwiftPM routing adds command-local path flags, not inherited Swift environment variables.",
+      "Scratch mixes products with intermediates. Relocation requires an explicit retained swiftpmWorkspaceRoot; it is never pruned.",
+      "Native output flags, archives, plugins, compiler invocations and credentials remain outside managed ownership. This is not a sandbox.");
+    return report;
+  }
   const workspace = identifyWorkspace(command, args, cwd);
   const config = initialConfig.enabled !== false && supported && workspace.effectiveCwd !== path.resolve(cwd)
     ? resolveConfig({ cwd: workspace.effectiveCwd, env }) : initialConfig;

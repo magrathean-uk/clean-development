@@ -81,6 +81,7 @@ test("every declared adapter resolves to an explicit managed destination", (t) =
   const config = resolveConfig({ cwd: item.project, env: { ...item.env, CLEAN_DEVELOPMENT_ROOT: path.join(item.root, "managed") } });
   const workspace = identifyWorkspace("cargo", [], item.project);
   const expected = {
+    swift: {}, // Opt-in command-local adapter; no environment-variable route.
     cargo: { CARGO_TARGET_DIR: path.join(config.buildRoot, workspace.id, "cargo", "target") },
     go: { GOCACHE: path.join(config.cacheRoot, "go", "build"), GOMODCACHE: path.join(config.cacheRoot, "go", "modules") },
     npm: { npm_config_cache: path.join(config.cacheRoot, "node", "npm") },
@@ -101,8 +102,14 @@ test("every declared adapter resolves to an explicit managed destination", (t) =
   for (const tool of SHIM_TOOLS) {
     const routed = environmentForTool(tool, [], { config, cwd: item.project, env: item.env, create: false });
     assert.deepEqual(routed.applied, expected[tool], tool);
-    assert.equal(routed.env.CLEAN_DEVELOPMENT_ACTIVE, "1");
-    assert.equal(routed.env.CLEAN_DEVELOPMENT_WORKSPACE, fs.realpathSync(item.project));
+    if (tool === "swift") {
+      assert.equal(routed.commandLocal, true);
+      assert.equal(routed.disabled, true);
+      assert.deepEqual(routed.env, item.env);
+    } else {
+      assert.equal(routed.env.CLEAN_DEVELOPMENT_ACTIVE, "1");
+      assert.equal(routed.env.CLEAN_DEVELOPMENT_WORKSPACE, fs.realpathSync(item.project));
+    }
   }
 });
 

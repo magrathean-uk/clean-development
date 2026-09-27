@@ -131,6 +131,10 @@ export function ensureOwnedBuildRoot(config, workspace, existingRecord = null) {
 
 export function environmentForTool(tool, args, { config, cwd = process.cwd(), env = process.env, create = true, validateBase = false, existingBuildRecord = null, workspace = identifyWorkspace(tool, args, cwd) } = {}) {
   if (!SHIM_TOOLS.includes(tool)) throw new Error(`Unsupported shim tool: ${tool}`);
+  // SwiftPM path flags are command-local. Never put a package's scratch path
+  // into a session environment (which could leak to another checkout).
+  if (tool === "swift") return { env: { ...env }, applied: {}, preserved: {}, workspace,
+    disabled: config.enabled === false || config.tools?.swift !== true, commandLocal: true };
   const desired = definitions(config, workspace)[tool] || {};
   const applied = {};
   const preserved = {};
