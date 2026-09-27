@@ -51,6 +51,8 @@ The session overlay sets shared-cache values for detected, enabled tools once in
 
 A session can change directories and build several repositories. A static session variable such as `CARGO_TARGET_DIR` would send all of them into one target. A shim sees the actual command cwd and flags at execution time, then chooses the correct Cargo workspace or nearest manifest root.
 
+For nontrivial Cargo layouts, command dispatch asks the selected real Cargo executable for `locate-project --workspace` before acquiring workspace locks or creating ownership records. Static previews remain estimates; see [Cargo workspace discovery](cargo-workspaces.md).
+
 The shim resolves the real executable from `PATH` while skipping its own directory. It spawns direct executables without a shell, leaves the shim directory in the child `PATH` for nested supported commands, inherits stdio, forwards termination signals, and returns the child's status. On Windows, `.cmd` and `.bat` tools instead use an explicit `ComSpec` wrapper that escapes metacharacters, rejects multiline or NUL input, and passes the constructed command line verbatim.
 
 ## Runtime installation
