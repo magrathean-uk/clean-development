@@ -4,8 +4,9 @@ import path from "node:path";
 import { environmentForTool } from "./adapters.js";
 import { writeProjectConfig } from "./config.js";
 import { CONFIG_FILE } from "./constants.js";
-import { canonicalizePotentialPath, environmentValue, isPathInside, prependUniquePath, setEnvironmentValue } from "./platform.js";
+import { canonicalizePotentialPath, environmentValue, prependUniquePath, setEnvironmentValue } from "./platform.js";
 import { detectStack } from "./workspace.js";
+import { repositoryManagedPaths } from "./routing-context.js";
 import { recordInjectedEnvironment, removeInjectedEnvironment, SESSION_ENV_MARKER } from "./routing-environment.js";
 
 export const SESSION_MODES = Object.freeze(["session-only", "persist", "skip"]);
@@ -48,17 +49,6 @@ function inspectProjectConfig(file) {
   }
   const contents = fs.readFileSync(file, "utf8");
   return { path: file, status: "existing", sha256: sha256(contents), parentRealpath, parentIdentity };
-}
-
-function repositoryManagedPaths(projectRoot, managed) {
-  const root = canonicalizePotentialPath(projectRoot);
-  const home = managed.locations?.home
-    ? canonicalizePotentialPath(managed.locations.home)
-    : null;
-  if (root === home) return [];
-  return [...new Set([managed.root, managed.cacheRoot, managed.buildRoot, managed.scratchRoot]
-    .map((value) => canonicalizePotentialPath(value))
-    .filter((value) => value === root || isPathInside(root, value)))];
 }
 
 function proposedProjectConfig(detection, config) {

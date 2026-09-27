@@ -9,6 +9,7 @@ import { resolveExecutable } from "./runtime.js";
 import { environmentWithoutSessionRouting, normalizeSessionMode, planSession } from "./session.js";
 import { identifyWorkspace } from "./workspace.js";
 import { inspectNativeCacheOptions } from "./native-cache-options.js";
+import { commandStorageConflicts } from "./routing-context.js";
 
 function executablePlan(command, env, binDir, cwd) {
   const hasPath = command.includes(path.sep) || (process.platform === "win32" && command.includes("/"));
@@ -64,7 +65,7 @@ export function explainCommand(command, args = [], { cwd = process.cwd(), env = 
   }
   const initialConfig = resolveConfig({ cwd, env });
   const workspace = identifyWorkspace(command, args, cwd);
-  const config = supported && workspace.effectiveCwd !== path.resolve(cwd)
+  const config = initialConfig.enabled !== false && supported && workspace.effectiveCwd !== path.resolve(cwd)
     ? resolveConfig({ cwd: workspace.effectiveCwd, env }) : initialConfig;
   report.workspace = { ...workspace, authority: command === "cargo" ? "static estimate; Cargo may resolve a different root at dispatch" : "local manifest discovery" };
   report.configuration = {
@@ -81,7 +82,7 @@ export function explainCommand(command, args = [], { cwd = process.cwd(), env = 
   }
   const plan = planSession({ cwd, env, config: initialConfig });
   report.executable = executablePlan(command, env, locations.binDir, cwd);
-  if (plan.managed.repositoryPaths.length) {
+  if (plan.managed.repositoryPaths.length || (supported && commandStorageConflicts(config, cwd, workspace).length)) {
     report.routing.status = "blocked";
     report.routing.reason = "Managed storage must be outside the project for session-only routing";
     return report;

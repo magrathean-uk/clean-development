@@ -49,3 +49,6 @@ jobs:
       - name: Portable inspection, storage and probe contracts
         if: ${{ !cancelled() }}
         run: node --test test/measurement.test.js test/status.test.js test/inspection.test.js test/bounded-leases.test.js test/probe.test.js test/probe-process.test.js test/marketplace-portability.test.js
+      - name: Effective-project routing boundaries and warning regressions
+        if: ${{ !cancelled() }}
+        run: node --test test/routing-context.test.js test/explain-cache-warnings.test.js

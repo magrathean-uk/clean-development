@@ -3,17 +3,16 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { environmentForTool, OWNERSHIP_MARKER } from "./adapters.js";
-import { resolveConfig } from "./config.js";
 import { SHIM_TOOLS, SUPPORTED_AGENTS, VERSION } from "./constants.js";
 import { acquireDirectoryLockSync, ensureRealDirectory, readJson, writeJsonAtomic } from "./io.js";
 import { canonicalizePotentialPath, environmentValue, isPathInside, prependUniquePath, setEnvironmentValue } from "./platform.js";
 import { environmentWithoutSessionRouting, normalizeSessionMode, SESSION_MODE_ENV } from "./session.js";
 import { acquireWorkspaceLock, createLease, listWorkspaceRecords, recordWorkspace, workspaceRecord } from "./state.js";
-import { identifyWorkspace } from "./workspace.js";
 import { cargoInvocationCwd, resolveCargoWorkspace } from "./cargo-workspace.js";
 import { windowsBatchInvocation } from "./windows-command.js";
 import { spawnInherited } from "./process-runner.js";
 import { resolveExecutable } from "./executable.js";
+import { preflightToolRouting, commandStorageConflicts, assertRoutingBoundary } from "./routing-context.js";
 
 export { windowsBatchInvocation, spawnInherited, resolveExecutable };
 
@@ -594,16 +593,16 @@ export async function runTool(tool, args, { config, cwd = process.cwd(), env = p
     if (!executable) throw new Error(`Cannot find the real '${tool}' executable outside ${config.locations.binDir}`);
     return spawnInherited(executable, args, { cwd, env: childEnv });
   }
-  let workspace = identifyWorkspace(tool, args, cwd);
-  const effectiveConfig = workspace.effectiveCwd === path.resolve(cwd)
-    ? config
-    : resolveConfig({ cwd: workspace.effectiveCwd, env });
-  if (effectiveConfig.enabled === false || effectiveConfig.tools?.[tool] === false) {
+  const context = preflightToolRouting(tool, args, { config, cwd, env });
+  let workspace = context.workspace;
+  const effectiveConfig = context.config;
+  if (context.disabled) {
     const childEnv = environmentWithoutSessionRouting(env, effectiveConfig.locations.binDir);
     const executable = resolveExecutable(tool, childEnv, effectiveConfig.locations.binDir, cwd);
     if (!executable) throw new Error(`Cannot find the real '${tool}' executable outside ${effectiveConfig.locations.binDir}`);
     return spawnInherited(executable, args, { cwd, env: childEnv });
   }
+  assertRoutingBoundary(context.repositoryPaths);
   const executable = resolveExecutable(tool, env, effectiveConfig.locations.binDir, cwd);
   if (!executable) throw new Error(`Cannot find the real '${tool}' executable outside ${effectiveConfig.locations.binDir}`);
   if (tool === "cargo") {
@@ -612,6 +611,7 @@ export async function runTool(tool, args, { config, cwd = process.cwd(), env = p
       invocation: (command, argv, childEnv) => process.platform === "win32" && /\.(cmd|bat)$/i.test(command)
         ? windowsBatchInvocation(command, argv, childEnv) : { command, args: argv }
     });
+    assertRoutingBoundary(commandStorageConflicts(effectiveConfig, cwd, workspace));
   }
   const preview = tool === "cargo" ? environmentForTool(tool, args, { config: effectiveConfig, cwd, env, create: false, workspace }) : null;
   const targetSelection = preview ? cargoTargetSelection(args, preview) : null;
@@ -696,6 +696,11 @@ export async function runWithShims(command, args, { config, cwd = process.cwd(),
     const executable = resolveExecutable(command, childEnv, config.locations.binDir, cwd);
     if (!executable) throw new Error(`Cannot find executable: ${command}`);
     return spawnInherited(executable, args, { cwd, env: childEnv });
+  }
+  if (SHIM_TOOLS.includes(command)) {
+    const context = preflightToolRouting(command, args, { config, cwd, env });
+    assertRoutingBoundary(context.repositoryPaths);
+    if (context.disabled) return runTool(command, args, { config, cwd, env });
   }
   const runtime = ensureRuntime(config);
   const childEnv = { ...env, CLEAN_DEVELOPMENT_ACTIVE: "1" };
