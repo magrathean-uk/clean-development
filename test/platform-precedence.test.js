@@ -15,7 +15,8 @@ function fixture(t) {
 test("home selection: CLEAN_DEVELOPMENT_HOME > HOME > USERPROFILE > os.homedir", async (t) => {
   for (let mask = 0; mask < 8; mask += 1) await t.test(`home layer mask ${mask}`, (t) => {
     const item = fixture(t), names = ["USERPROFILE", "HOME", "CLEAN_DEVELOPMENT_HOME"];
-    const env = {}, values = names.map((name) => path.join(item.root, name));
+    // Do not alias the fallback "home" on case-insensitive filesystems.
+    const env = {}, values = names.map((name) => path.join(item.root, `selected-${name.toLowerCase()}`));
     names.forEach((name, index) => { if (mask & (1 << index)) env[name] = values[index]; });
     const mockedHome = t.mock.method(os, "homedir", () => item.home);
     const winner = [2, 1, 0].find((index) => mask & (1 << index));
