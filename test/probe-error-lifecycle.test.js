@@ -106,8 +106,19 @@ test("a confirmed close before deferred error cleanup does not signal a reusable
   assert.equal(item.killCount(), 0);
 });
 
-test("Windows close during taskkill does not issue a late child signal", async (t) => {
+test("Windows close during successful taskkill does not issue a late child signal", async (t) => {
   const item = fixture(t, { windows: true, closeDuringTaskkill: true });
+  const result = item.capture();
+  item.child.emit("error", new Error("post-launch"));
+  const value = await result;
+  assert.equal(value.failure, "process-failed");
+  assert.equal(value.cleanupComplete, true);
+  assert.equal(item.taskkillCount(), 1);
+  assert.equal(item.killCount(), 0);
+});
+
+test("Windows close during failed taskkill retains uncertain cleanup", async (t) => {
+  const item = fixture(t, { windows: true, closeDuringTaskkill: true, denyTermination: true });
   const result = item.capture();
   item.child.emit("error", new Error("post-launch"));
   const value = await result;

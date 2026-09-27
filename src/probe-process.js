@@ -34,8 +34,7 @@ async function terminate(child, env, closed, platform, spawnProcess) {
         killer.once("close", (code) => { clearTimeout(timer); resolve(code === 0); });
       });
     }
-    if (closed()) complete = false;
-    else {
+    if (!closed()) {
       try { child.kill("SIGKILL"); } catch { complete = false; }
     }
   } else {
