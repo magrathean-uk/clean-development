@@ -23,7 +23,12 @@ fixtures run; every available supported tool is still checked. Missing optional
 tools are reported as skipped. A present but failing optional tool still fails the
 run. A required tool must **pass**, so another tool's success cannot replace it.
 The CI matrix now requires Cargo, Go and npm on each Ubuntu/macOS job; uv runs when
-available and requires an installed Python 3. No tool is downloaded to fill a gap.
+available and requires an installed Python 3. CI explicitly provisions Go 1.27.1
+with the immutable-SHA-pinned official setup-go action before invoking the harness;
+that provisioning may download the toolchain. The harness itself never downloads
+a missing tool. This distinction matters: the first required-coverage run exposed
+that the macOS runner had no Go executable on PATH, despite earlier smoke success
+for the subset of available tools.
 
 ## Scope and isolation
 
