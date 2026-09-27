@@ -1,0 +1,130 @@
+{
+  "schemaVersion": 1,
+  "startedAt": "2026-09-27T20:35:29.035Z",
+  "environment": {
+    "platform": "linux",
+    "arch": "x64",
+    "node": "v22.16.0",
+    "osRelease": "6.18.44"
+  },
+  "source": {
+    "localCommit": "9d805c84565dbc78dae6b743f86eb81e5267b47c",
+    "localTree": "998605cda006d588e9562cabe1eee6c78c2f3a59",
+    "dirty": true,
+    "fingerprint": {
+      "sha256": "0724965a2f12cac1be6f39f5cb4899b4f17c19f2b9197463a7b28e521fff1f74",
+      "fileCount": 70
+    },
+    "verifiedUpstreamBase": "af12577c6596095fdf91f18e840e9433521ea3d2",
+    "localCommitMeaning": "Synthetic archive-import bookkeeping commit; not the upstream commit. Complete baseline tree verified against upstream."
+  },
+  "captureMechanism": "documented ANTHROPIC_BASE_URL, loopback Anthropic-compatible fixture; no upstream forwarding",
+  "targetHostVersion": "2.1.283",
+  "observedHostVersion": null,
+  "hostBinarySha256": null,
+  "hostCasesExecuted": 0,
+  "claims": {
+    "requestText": "unproven",
+    "billedTokens": "unproven",
+    "cliOutput": "not-a-request-capture",
+    "metadata": "not-acceptance-evidence"
+  },
+  "cases": [
+    {
+      "name": "absent-before",
+      "status": "blocked",
+      "reason": "no-host-session",
+      "requests": []
+    },
+    {
+      "name": "skill-inactive",
+      "status": "blocked",
+      "reason": "no-host-session",
+      "requests": []
+    },
+    {
+      "name": "native-inactive",
+      "status": "blocked",
+      "reason": "no-host-session",
+      "requests": []
+    },
+    {
+      "name": "combined-inactive",
+      "status": "blocked",
+      "reason": "no-host-session",
+      "requests": []
+    },
+    {
+      "name": "native-explicit",
+      "status": "blocked",
+      "reason": "no-host-session",
+      "requests": []
+    },
+    {
+      "name": "skill-explicit",
+      "status": "blocked",
+      "reason": "no-host-session",
+      "requests": []
+    },
+    {
+      "name": "description-control",
+      "status": "blocked",
+      "reason": "no-host-session",
+      "requests": []
+    },
+    {
+      "name": "hook-control",
+      "status": "blocked",
+      "reason": "no-host-session",
+      "requests": []
+    },
+    {
+      "name": "absent-after",
+      "status": "blocked",
+      "reason": "no-host-session",
+      "requests": []
+    }
+  ],
+  "preflight": [
+    {
+      "host": "claude",
+      "observedVersion": null,
+      "status": "unavailable",
+      "error": "ENOENT"
+    },
+    {
+      "host": "codex",
+      "observedVersion": null,
+      "status": "unavailable",
+      "error": "ENOENT"
+    },
+    {
+      "host": "grok",
+      "observedVersion": null,
+      "status": "unavailable",
+      "error": "ENOENT"
+    },
+    {
+      "host": "agy",
+      "observedVersion": null,
+      "status": "unavailable",
+      "error": "ENOENT"
+    },
+    {
+      "host": "opencode",
+      "observedVersion": null,
+      "status": "unavailable",
+      "error": "ENOENT"
+    },
+    {
+      "host": "pi",
+      "observedVersion": null,
+      "status": "unavailable",
+      "error": "ENOENT"
+    }
+  ],
+  "blocker": "preflight-only-no-payload-captured",
+  "finishedAt": "2026-09-27T20:35:29.065Z",
+  "sourceUnchanged": true,
+  "scope": "Local preflight only; no supported host launched a session and no host request payload was captured."
+}

@@ -1,0 +1,60 @@
+name: Request text acceptance
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/request-text-acceptance.yml'
+      - 'scripts/request-acceptance/**'
+      - 'test/request-acceptance.test.js'
+      - 'marketplace/claude/**'
+      - 'src/integrations.js'
+      - 'docs/request-text-acceptance.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  claude-request-construction:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+      - name: Measurement apparatus controls (not host acceptance)
+        run: node --test test/request-acceptance.test.js
+      - name: Install the exact real host into disposable storage
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/request-host-home" "$RUNNER_TEMP/request-host-cache"
+          env -i PATH="$PATH" HOME="$RUNNER_TEMP/request-host-home" \
+            npm_config_cache="$RUNNER_TEMP/request-host-cache" \
+            npm install --prefix "$RUNNER_TEMP/request-host" --ignore-scripts --no-audit --no-fund \
+            @anthropic-ai/claude-code@2.1.283
+          node -e 'const fs=require("fs"),c=require("crypto"),p=process.argv[1];const b=fs.readFileSync(p);const m=JSON.parse(b);if(m.name!=="@anthropic-ai/claude-code"||m.version!=="2.1.283")process.exit(1);console.log(JSON.stringify({package:m.name,version:m.version,manifestSha256:c.createHash("sha256").update(b).digest("hex")}));' \
+            "$RUNNER_TEMP/request-host/node_modules/@anthropic-ai/claude-code/package.json"
+          sha256sum "$RUNNER_TEMP/request-host/package-lock.json"
+      - name: Actual Claude requests to documented loopback gateway (no provider account)
+        run: |
+          node scripts/request-acceptance/run.mjs \
+            --claude "$RUNNER_TEMP/request-host/node_modules/.bin/claude" \
+            --expect-version 2.1.283 --repeats 2 \
+            --output "$RUNNER_TEMP/request-text-evidence"
+      - name: Publish only the bounded comparison index, never request bodies or CLI logs
+        if: always()
+        env:
+          EVIDENCE: ${{ runner.temp }}/request-text-evidence/report.json
+        run: |
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          if (!fs.existsSync(process.env.EVIDENCE)) {
+            console.log(JSON.stringify({requestText:'unproven',reason:'host experiment did not produce evidence',billedTokens:'unproven'}));
+          } else {
+            const r=JSON.parse(fs.readFileSync(process.env.EVIDENCE,'utf8'));
+            console.log(JSON.stringify({source:r.source,environment:r.environment,targetHostVersion:r.targetHostVersion,observedHostVersion:r.observedHostVersion,hostBinarySha256:r.hostBinarySha256,hostCasesExecuted:r.hostCasesExecuted,blocker:r.blocker,claims:r.claims,sourceUnchanged:r.sourceUnchanged,binaryUnchanged:r.binaryUnchanged,evaluation:r.evaluation,cases:r.cases.map(c=>({name:c.name,repeat:c.repeat,status:c.status,reason:c.reason,process:c.process,nativeHookObserved:c.nativeHookObserved,captureErrors:c.captureErrors,requests:c.requests.map(q=>({endpoint:q.endpoint,rawSha256:q.rawSha256,rawBytes:q.rawBytes,observation:q.observation}))}))},null,2));
+          }
+          JS

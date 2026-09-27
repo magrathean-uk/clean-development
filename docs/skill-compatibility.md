@@ -27,6 +27,10 @@ The skill now distinguishes inspection, setup, routing, and cleanup. Read-only d
 
 `npm run check` enforces matching workflow bodies, the Claude/Grok manual-invocation field, and Codex's explicit-only policy. The installed-package gate requires both skill variants and Codex's policy file. The launcher regression exercises Codex, Claude, AGY, and Grok command names, both session modes, argv, working directory, environment routing, and child exit status using isolated fake executables.
 
+## Repeatable request-text acceptance
+
+Use the [model-facing request protocol](request-text-acceptance.md) for new evidence. It separates absent integration, installed-but-inactive discovery, native setup and explicit invocation, and requires positive capture controls. The [dated local availability record](evidence/request-text-2026-09-27.json) is blocked, not a new host pass. The opt-in real-host workflow records its own exact revision/version and result; metadata, CLI output and fixture usage values never establish billed-token neutrality.
+
 ## Recorded host evidence, 26 September 2026
 
 - **Repository validation:** `npm run check` and `npm run test:package` passed; the package contains 58 files, including both skill variants and Codex's policy. `npm test` completed with 159 passing tests, one platform-specific skip, and no failures. The four-host launcher matrix uses isolated executables, not live model sessions.
