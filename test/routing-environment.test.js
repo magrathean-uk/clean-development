@@ -88,6 +88,44 @@ test("case variants do not hide or erase independent overrides", (t) => {
     path.join(item.b.config.cacheRoot, "node", "npm"));
 });
 
+test("an unrelated adapter retains provenance for an unchanged cache spelling", (t) => {
+  const item = fixture(t);
+  const first = route("npm", item.a, item.env);
+  const explicit = path.join(item.root, "user-cache");
+  const mixed = { ...first.env, NPM_CONFIG_CACHE: explicit };
+  const intermediate = route("go", item.a, mixed);
+  assert.equal(intermediate.env.npm_config_cache, first.env.npm_config_cache);
+  assert.equal(intermediate.env.NPM_CONFIG_CACHE, explicit);
+  assert.equal(injectedEnvironment(intermediate.env).npm_config_cache, first.env.npm_config_cache);
+
+  const next = route("npm", item.b, intermediate.env);
+  assert.equal(next.env.npm_config_cache, undefined);
+  assert.equal(next.preserved.NPM_CONFIG_CACHE, explicit);
+  assert.equal(injectedEnvironment(next.env).npm_config_cache, undefined);
+  const skipped = environmentWithoutSessionRouting(intermediate.env);
+  assert.equal(skipped.npm_config_cache, undefined);
+  assert.equal(skipped.NPM_CONFIG_CACHE, explicit);
+  assert.deepEqual(mixed, { ...first.env, NPM_CONFIG_CACHE: explicit });
+  assert.equal(fs.existsSync(item.a.config.root), false);
+  assert.equal(fs.existsSync(item.b.config.root), false);
+});
+
+test("an unrelated adapter drops cache provenance when no spelling still matches", (t) => {
+  const item = fixture(t);
+  const first = route("npm", item.a, item.env);
+  const explicit = path.join(item.root, "user-cache");
+  for (const keepLowerCase of [false, true]) {
+    const changed = { ...first.env, NPM_CONFIG_CACHE: explicit };
+    if (keepLowerCase) changed.npm_config_cache = explicit;
+    else delete changed.npm_config_cache;
+    const intermediate = route("go", item.a, changed);
+    assert.equal(injectedEnvironment(intermediate.env).npm_config_cache, undefined);
+    const skipped = environmentWithoutSessionRouting(intermediate.env);
+    assert.equal(skipped.NPM_CONFIG_CACHE, explicit);
+    assert.equal(skipped.npm_config_cache, keepLowerCase ? explicit : undefined);
+  }
+});
+
 test("nested sessions and native-hook environments retain routing provenance", (t) => {
   const item = fixture(t);
   const first = applySessionPlan(planSession({ ...item.a, env: item.env }), "session-only", item.env);

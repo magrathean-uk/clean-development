@@ -44,7 +44,9 @@ export function recordInjectedEnvironment(env, applied) {
   const result = {};
   for (const [name, value] of Object.entries(injected)) {
     const keys = Object.keys(env).filter((key) => key.toLowerCase() === name.toLowerCase());
-    if (keys.length && keys.every((key) => env[key] === value)) result[name] = value;
+    // An independent case variant must not hide a still-injected spelling
+    // from later rerouting or skip, even when a different adapter runs first.
+    if (keys.some((key) => env[key] === value)) result[name] = value;
   }
   for (const [name, value] of Object.entries(applied)) {
     const canonical = ROUTED_NAMES.get(name.toLowerCase());

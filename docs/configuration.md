@@ -96,7 +96,7 @@ From highest to lowest:
 4. User configuration.
 5. Platform defaults.
 
-Tool variables such as `CARGO_TARGET_DIR`, `GOCACHE`, or `npm_config_cache` have a separate rule: an already-set value is preserved. `CLEAN_DEVELOPMENT_FORCE=1` opts into replacing it for that process.
+Tool variables such as `CARGO_TARGET_DIR`, `GOCACHE`, or `npm_config_cache` have a separate rule: an explicit non-empty value takes precedence over managed routing. An unchanged value recorded as injected by Clean Development is not an explicit override and may be rerouted or removed; see [inherited environment provenance](#inherited-environment-provenance). `CLEAN_DEVELOPMENT_FORCE=1` opts into replacing explicit values for that process.
 
 ## Workspace IDs
 
@@ -117,6 +117,14 @@ Session overlays and command shims record the exact adapter values they inject i
 recorded value may be rerouted for the current project. A value changed by the
 user is preserved, including independently changed upper-case npm variables.
 `skip` removes only unchanged injected values, not independent overrides.
+
+Case variants are compared separately. For example, when an inherited
+`npm_config_cache` still points at project A's managed cache and the user sets
+`NPM_CONFIG_CACHE` to another path, the explicit upper-case value wins unless
+force mode is selected. Running an unrelated adapter first must retain
+provenance for the unchanged lower-case value. The next npm route, `skip`, or entry into a disabled project/tool removes
+that injected spelling while preserving the override. A provenance entry is
+forgotten only when no spelling retains its recorded value.
 
 An explicit non-empty value such as `npm_config_cache=$HOME/.npm` is preserved
 without guessing whether npm or the user set it. The same conservative rule

@@ -197,6 +197,33 @@ test("disabled target routing cleans only inherited managed values and does not 
   assert.equal(fs.existsSync(config.root), false);
 });
 
+for (const disabled of [{ enabled: false }, { tools: { npm: false } }]) {
+  test(`disabled target ${JSON.stringify(disabled)} preserves a mixed-case override after another adapter`, async (t) => {
+    const item = fixture(t), fake = fakeTool(item), config = resolved(item);
+    const first = environmentForTool("npm", [], { ...item, config, create: false });
+    const explicit = path.join(item.root, "user-cache");
+    const intermediate = environmentForTool("go", [], {
+      ...item, config, env: { ...first.env, NPM_CONFIG_CACHE: explicit }, create: false
+    });
+    writeConfig(item.b, { ...item.configB, ...disabled });
+    const args = ["--prefix", item.b, "test", "--", "space value"];
+    const env = { ...intermediate.env, BOUNDARY_EXIT: "23" }, before = { ...env };
+    assert.equal(explainCommand("npm", args, { ...item, env }).routing.status, "disabled");
+    assert.equal(await runWithShims("npm", args, { ...item, config, env }), 23);
+    const captured = JSON.parse(fs.readFileSync(fake.capture));
+    assert.equal(captured.cache, explicit);
+    assert.equal(captured.active, null);
+    assert.equal(captured.session, "skip");
+    assert.deepEqual(captured.args, args);
+    assert.equal(captured.cwd, item.a);
+    assert.deepEqual(env, before);
+    assert.equal(fs.existsSync(config.locations.dataDir), false);
+    assert.equal(fs.existsSync(config.root), false);
+    assert.equal(fs.existsSync(item.configB.root), false);
+    assert.equal(fs.existsSync(explicit), false);
+  });
+}
+
 test("selector-looking child arguments after -- do not change the routing project", async (t) => {
   const item = fixture(t), fake = fakeTool(item), config = resolved(item);
   writeConfig(item.b, { root: path.join(item.b, "managed") });
