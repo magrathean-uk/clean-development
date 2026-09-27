@@ -6,6 +6,7 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { planProbe, probeTool, formatProbe } from "../src/probe.js";
+import { environmentValue, setEnvironmentValue } from "../src/platform.js";
 import { isolatedEnvironment } from "../scripts/harness-utils.mjs";
 
 const cli = fileURLToPath(new URL("../bin/clean-development.js", import.meta.url));
@@ -22,14 +23,15 @@ function fake(item, tool = "npm", body = null) {
   const versions = { npm: "10.0.0", go: "go version go1.23.2 test", uv: "uv 0.10.0" };
   const code = body || `if (process.env.SENSITIVE_CANARY || process.env.NODE_OPTIONS || process.env.npm_config_registry) process.exit(88);
 if (process.argv.includes('--version') || process.argv[2] === 'version') console.log(${JSON.stringify(versions[tool])});
-else if (${JSON.stringify(tool)} === 'go') console.log(JSON.stringify({GOCACHE:process.env.GOCACHE,GOMODCACHE:process.env.GOMODCACHE}));
+else if (${JSON.stringify(tool)} === 'go') console.log(JSON.stringify({GOCACHE:process.env.GOCACHE,GOMODCACHE:process.env.GOMODCACHE,GOTELEMETRY:'off'}));
 else console.log(process.env[${JSON.stringify(tool === "npm" ? "npm_config_cache" : "UV_CACHE_DIR")}]);`;
   fs.writeFileSync(script, code);
   const command = path.join(item.bin, tool + (process.platform === "win32" ? ".cmd" : ""));
   fs.writeFileSync(command, process.platform === "win32"
     ? `@echo off\r\n"${process.execPath}" "${script}" %*\r\nexit /b %errorlevel%\r\n`
     : `#!${process.execPath}\n${code}\n`, { mode: 0o755 });
-  item.env.PATH = `${item.bin}${path.delimiter}${item.env.PATH || ""}`;
+  setEnvironmentValue(item.env, "PATH", `${item.bin}${path.delimiter}${environmentValue(item.env, "PATH") || ""}`);
+  assert.equal(planProbe(tool, item).executable.path, command, "fixture must select its fake rather than an installed tool");
   return command;
 }
 function snapshot(root) {
@@ -97,7 +99,8 @@ test("skip, disabled and blocked routes do not allocate or execute probes", asyn
 
 test("missing tools and invalid API options do not masquerade as observed success", async (t) => {
   const item = fixture(t);
-  assert.equal(planProbe("npm", { ...item, env: { ...item.env, PATH: item.bin } }).status, "unavailable");
+  const missingEnv = { ...item.env }; setEnvironmentValue(missingEnv, "PATH", item.bin);
+  assert.equal(planProbe("npm", { ...item, env: missingEnv }).status, "unavailable");
   for (const tool of [undefined, "cargo", "sh", "npm;exit", "/bin/sh"]) assert.throws(() => planProbe(tool, item), /requires --tool/);
   for (const timeoutMs of [0, 99, 30001, NaN, "1000", 1.5]) assert.throws(() => planProbe("npm", { ...item, timeoutMs }), /timeout/);
   await assert.rejects(probeTool("npm", { ...item, execute: "true" }), /boolean/);
@@ -174,3 +177,34 @@ for (const tool of ["npm", "go", "uv"]) {
     t.diagnostic(`${tool} ${report.toolVersion}`);
   });
 }
+
+
+test("Go probe disables fixture telemetry before execution and validates the reported mode", async (t) => {
+  const item = fixture(t);
+  fake(item, "go", `const fs=require('node:fs'),path=require('node:path');
+const config=process.platform==='win32'?process.env.APPDATA:process.platform==='darwin'?path.join(process.env.HOME,'Library','Application Support'):process.env.XDG_CONFIG_HOME;
+if(fs.readFileSync(path.join(config,'go','telemetry','mode'),'utf8').trim()!=='off')process.exit(88);
+console.log(process.argv[2]==='version'?'go version go1.27.1 fixture':JSON.stringify({GOCACHE:process.env.GOCACHE,GOMODCACHE:process.env.GOMODCACHE,GOTELEMETRY:'off'}));`);
+  const report = await probeTool("go", { ...item, execute: true });
+  assert.equal(report.status, "observed-working", JSON.stringify(report));
+  assert.equal(report.fixtureTelemetry, "off");
+  fake(item, "go", `console.log(JSON.stringify({GOCACHE:process.env.GOCACHE,GOMODCACHE:process.env.GOMODCACHE,GOTELEMETRY:'local'}))`);
+  const unsafe = await probeTool("go", { ...item, execute: true });
+  assert.equal(unsafe.status, "failed"); assert.equal(unsafe.cleanup, "removed");
+});
+
+test("a temp directory inside project or managed storage is refused before allocation", async (t) => {
+  const item = fixture(t); fake(item);
+  t.mock.method(fs, "mkdtempSync", () => assert.fail("must not allocate inside protected storage"));
+  for (const directory of [item.cwd, path.join(item.cwd, 'temp'), item.env.CLEAN_DEVELOPMENT_ROOT,
+    path.join(item.env.CLEAN_DEVELOPMENT_ROOT, 'temp'), item.env.CLEAN_DEVELOPMENT_DATA_HOME, item.env.CLEAN_DEVELOPMENT_CONFIG_HOME]) {
+    fs.mkdirSync(directory, { recursive: true });
+    const temp = t.mock.method(os, "tmpdir", () => directory);
+    const before = snapshot(item.root);
+    const report = await probeTool("npm", { ...item, execute: true });
+    assert.equal(report.status, "blocked", JSON.stringify(report));
+    assert.equal(report.reason, "temporary-storage-overlap"); assert.equal(report.executed, false);
+    assert.deepEqual(snapshot(item.root), before);
+    temp.mock.restore();
+  }
+});

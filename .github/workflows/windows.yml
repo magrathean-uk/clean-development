@@ -36,4 +36,4 @@ jobs:
         run: node --test --test-name-pattern="Windows batch" test/runtime-regressions.test.js
       - name: Portable inspection, storage and probe contracts
         if: ${{ !cancelled() }}
-        run: node --test test/measurement.test.js test/status.test.js test/inspection.test.js test/bounded-leases.test.js test/probe.test.js test/probe-process.test.js
+        run: node --test test/measurement.test.js test/status.test.js test/inspection.test.js test/bounded-leases.test.js test/probe.test.js test/probe-process.test.js test/marketplace-portability.test.js

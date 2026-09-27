@@ -41,19 +41,26 @@ override directory. A missing executable is `unavailable`; nothing is installed.
 
 Execution starts only with `--execute` (or API `execute: true`). It uses a new
 private temporary project and home, empty npm user/global configuration, native
-offline controls and the existing environment adapter. Only executable search and
+offline controls and the existing environment adapter. Go fixture telemetry is disabled before the first process starts by seeding the
+documented local telemetry directory with its `off` mode file. The path query
+must confirm `GOTELEMETRY=off`; the real user's telemetry settings are never read
+or changed. This avoids Go's ordinary asynchronous telemetry sidecar writing into
+a fixture after the queried command has exited. The mode-file contract is
+verified against Go 1.27.1; unrecognised native responses fail closed.
+
+Only executable search and
 essential OS variables are copied; secrets, proxies and runtime preload variables
 such as `NODE_OPTIONS` are not forwarded. The native commands are:
 
 | Tool | Path query | Version query |
 | --- | --- | --- |
 | npm | `config get cache` | `--version` |
-| Go | `env -json GOCACHE GOMODCACHE` | `version` |
+| Go | `env -json GOCACHE GOMODCACHE GOTELEMETRY` | `version` |
 | uv | `cache dir --offline --no-config` | `--version` |
 
 Each query has a combined stdout/stderr cap of 64 KiB and a default timeout of
 5,000 ms, configurable from 100 to 30,000 ms. This is per command; execution normally
-uses two commands. Capturing is asynchronous so an exited wrapper leaving an open
+uses two commands. The Go probe requires Go 1.23 or later. Capturing is asynchronous so an exited wrapper leaving an open
 pipe does not defeat the timeout. On interruption, timeout or excess output, POSIX
 process-group termination or Windows OS `taskkill /T /F` is attempted. A failed or
 uncertain termination retains the fixture and reports it rather than pretending
@@ -76,7 +83,8 @@ JSON schema 1 includes `kind: "isolated-routing-probe"`, `tool`, `status`,
 limits, `toolVersion`, `observations`, `cleanup`, `scope` and `limitations`.
 `executed` means execution was attempted, not necessarily that process creation
 succeeded. A failure adds a bounded `reason`; retained fixtures add
-`retainedFixture`. Raw child stderr, arbitrary stdout and stack traces are not
+`retainedFixture`; cleanup errors include only an allowlisted `cleanupErrorCode`,
+not the native error text. A successful Go check also records `fixtureTelemetry: "off"`. Raw child stderr, arbitrary stdout and stack traces are not
 included in the report. Validated observed paths are included for comparison.
 
 `status` is `not-tested`, `observed-working`, `preserved-override`, `skipped`,
@@ -84,7 +92,9 @@ included in the report. Validated observed paths are included for comparison.
 means a matching executed query. A read-only plan or an intentionally inactive route
 returns exit 0; blocked, unavailable, mismatched and failed outcomes return exit 1.
 An interrupted query returns exit 130 for SIGINT or 143 for SIGTERM. Invalid CLI options fail before fixture
-creation. Existing CLI error handling applies to invalid configuration.
+creation. Temporary locations inside the project, managed storage or application
+state/configuration are blocked before allocation, including canonical aliases.
+Existing CLI error handling applies to invalid configuration.
 
 ```js
 import { planProbe, probeTool, formatProbe } from 'clean-development/api';
@@ -98,4 +108,5 @@ Relevant tests: `test/probe.test.js` and `test/probe-process.test.js`.
 Primary contracts: https://docs.npmjs.com/cli/v11/commands/npm-config/,
 https://pkg.go.dev/cmd/go#hdr-Print_Go_environment_information,
 https://docs.astral.sh/uv/reference/cli/#uv-cache-dir, and
-https://nodejs.org/api/child_process.html.
+https://nodejs.org/api/child_process.html, https://go.dev/doc/telemetry and
+https://github.com/golang/go/blob/go1.27.1/src/cmd/vendor/golang.org/x/telemetry/internal/telemetry/dir.go.

@@ -5,11 +5,12 @@ import { environmentForTool } from "./adapters.js";
 import { resolveConfig } from "./config.js";
 import { VERSION } from "./constants.js";
 import { explainCommand } from "./explain.js";
-import { canonicalizePotentialPath, environmentValue } from "./platform.js";
+import { canonicalizePotentialPath, environmentValue, isPathInside } from "./platform.js";
+import { identifyWorkspace } from "./workspace.js";
 import { captureProbeCommand } from "./probe-process.js";
 
 export const PROBE_TOOLS = Object.freeze(["npm", "go", "uv"]);
-const QUERIES = Object.freeze({ npm: ["config", "get", "cache"], go: ["env", "-json", "GOCACHE", "GOMODCACHE"], uv: ["cache", "dir", "--offline", "--no-config"] });
+const QUERIES = Object.freeze({ npm: ["config", "get", "cache"], go: ["env", "-json", "GOCACHE", "GOMODCACHE", "GOTELEMETRY"], uv: ["cache", "dir", "--offline", "--no-config"] });
 
 function validate(tool, timeoutMs) {
   if (!PROBE_TOOLS.includes(tool)) throw new Error(`probe requires --tool ${PROBE_TOOLS.join("|")}`);
@@ -59,9 +60,21 @@ function isolatedProbeEnvironment(root, original) {
     UV_OFFLINE: "1", UV_NO_CONFIG: "1", UV_PYTHON_DOWNLOADS: "never", NO_COLOR: "1" };
 }
 
+function disableFixtureGoTelemetry(env) {
+  // Go reads this local mode file before starting its asynchronous telemetry
+  // sidecar. Seed only the disposable home, never the user's Go settings.
+  // Contract verified against Go 1.27.1's internal/telemetry/dir.go.
+  const directory = process.platform === "win32" ? env.APPDATA
+    : process.platform === "darwin" ? path.join(env.HOME, "Library", "Application Support") : env.XDG_CONFIG_HOME;
+  const telemetry = path.join(directory, "go", "telemetry");
+  fs.mkdirSync(telemetry, { recursive: true });
+  fs.writeFileSync(path.join(telemetry, "mode"), "off\n", { flag: "wx", mode: 0o600 });
+}
+
 function observedVariables(tool, text) {
   if (tool === "go") {
     const value = JSON.parse(text);
+    if (value?.GOTELEMETRY !== "off") throw new Error("Go fixture telemetry was not disabled");
     return { GOCACHE: value?.GOCACHE, GOMODCACHE: value?.GOMODCACHE };
   }
   return { [tool === "npm" ? "npm_config_cache" : "UV_CACHE_DIR"]: text.trim() };
@@ -82,10 +95,17 @@ export async function probeTool(tool, { cwd = process.cwd(), env = process.env, 
   let root = null, rootIdentity = null, cleanupSafe = true;
   try {
     const config = resolveConfig({ cwd, env });
-    root = fs.mkdtempSync(path.join(os.tmpdir(), "clean-development-probe-"));
+    const temporaryBase = canonicalizePotentialPath(os.tmpdir());
+    const protectedRoots = [identifyWorkspace(tool, [], cwd).root, config.root, config.cacheRoot,
+      config.buildRoot, config.scratchRoot, config.locations.dataDir, config.locations.configDir];
+    if (protectedRoots.some((directory) => canonicalizePotentialPath(directory) === temporaryBase || isPathInside(directory, temporaryBase))) {
+      report.status = "blocked"; report.reason = "temporary-storage-overlap"; return report;
+    }
+    root = fs.mkdtempSync(path.join(temporaryBase, "clean-development-probe-"));
     root = fs.realpathSync.native(root);
     rootIdentity = fs.lstatSync(root, { bigint: true });
     const probeEnv = isolatedProbeEnvironment(root, env);
+    if (tool === "go") disableFixtureGoTelemetry(probeEnv);
     const project = path.join(root, "project"); fs.mkdirSync(project);
     fs.writeFileSync(path.join(project, "package.json"), '{"name":"clean-development-probe","private":true}\n');
     fs.writeFileSync(path.join(project, "go.mod"), "module example.invalid/clean-development-probe\n\ngo 1.22\n");
@@ -100,6 +120,7 @@ export async function probeTool(tool, { cwd = process.cwd(), env = process.env, 
     cleanupSafe = query.cleanupComplete;
     if (!query.ok) { report.status = "failed"; report.reason = query.failure; report.interruptedSignal = query.interruptedSignal; return report; }
     const observed = observedVariables(tool, query.stdout);
+    if (tool === "go") report.fixtureTelemetry = "off";
     for (const [name, expected] of Object.entries(route.applied)) {
       const value = observed[name];
       if (typeof value !== "string" || value.length > 8192 || /[\x00-\x1f\x7f]/.test(value) || !path.isAbsolute(value)) throw new Error("invalid native path response");
@@ -123,7 +144,10 @@ export async function probeTool(tool, { cwd = process.cwd(), env = process.env, 
           || current.ino !== rootIdentity?.ino || fs.realpathSync.native(root) !== root) throw new Error("fixture changed");
         fs.rmSync(root, { recursive: true, force: true }); report.cleanup = "removed";
       }
-      catch { report.cleanup = "failed"; report.retainedFixture = root; report.status = "failed"; report.reason = "cleanup-failed"; }
+      catch (error) {
+        report.cleanup = "failed"; report.retainedFixture = root; report.status = "failed"; report.reason = "cleanup-failed";
+        report.cleanupErrorCode = ["ENOENT", "ENOTEMPTY", "EBUSY", "EPERM", "EACCES"].includes(error.code) ? error.code : "unknown";
+      }
     } else if (root) {
       report.cleanup = "retained-process-uncertain"; report.retainedFixture = root; report.status = "failed";
     }
