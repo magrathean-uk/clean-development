@@ -39,19 +39,19 @@ function fakeCargo(item, body) {
 
 test("nested Cargo re-routes inherited managed output and still preserves a changed explicit target", (t) => {
   const item = fixture(t);
-  const first = environmentForTool("cargo", [], { config: item.config, cwd: item.first, env: item.env, create: false });
-  const second = environmentForTool("cargo", [], { config: item.config, cwd: item.second, env: first.env, create: false });
+  const first = environmentForTool("cargo", ["check"], { config: item.config, cwd: item.first, env: item.env, create: false });
+  const second = environmentForTool("cargo", ["check"], { config: item.config, cwd: item.second, env: first.env, create: false });
   assert.notEqual(first.env.CARGO_TARGET_DIR, second.env.CARGO_TARGET_DIR);
   assert.ok(second.env.CARGO_TARGET_DIR.includes(second.workspace.id));
   const explicit = path.join(item.root, "explicit-output");
-  const overridden = environmentForTool("cargo", [], { config: item.config, cwd: item.second, env: { ...first.env, CARGO_TARGET_DIR: explicit }, create: false });
+  const overridden = environmentForTool("cargo", ["check"], { config: item.config, cwd: item.second, env: { ...first.env, CARGO_TARGET_DIR: explicit }, create: false });
   assert.equal(overridden.env.CARGO_TARGET_DIR, explicit);
   assert.equal(overridden.env.CLEAN_DEVELOPMENT_CARGO_TARGET_DIR, undefined);
 });
 
 test("Cargo recognizes lowercased inherited routing markers and emits one canonical marker set", (t) => {
   const item = fixture(t);
-  const first = environmentForTool("cargo", [], { config: item.config, cwd: item.first, env: item.env, create: false });
+  const first = environmentForTool("cargo", ["check"], { config: item.config, cwd: item.first, env: item.env, create: false });
   const inherited = { ...first.env };
   for (const name of [
     "CARGO_TARGET_DIR",
@@ -64,7 +64,7 @@ test("Cargo recognizes lowercased inherited routing markers and emits one canoni
     inherited[name.toLowerCase()] = inherited[name];
     delete inherited[name];
   }
-  const rerouted = environmentForTool("cargo", [], { config: item.config, cwd: item.second, env: inherited, create: false });
+  const rerouted = environmentForTool("cargo", ["check"], { config: item.config, cwd: item.second, env: inherited, create: false });
   assert.notEqual(rerouted.env.CARGO_TARGET_DIR, first.env.CARGO_TARGET_DIR);
   assert.equal(rerouted.env.CLEAN_DEVELOPMENT_CARGO_TARGET_DIR, rerouted.env.CARGO_TARGET_DIR);
   for (const name of [
@@ -83,12 +83,12 @@ test("a Cargo child launched through another workspace shim receives its own reg
   const item = fixture(t);
   const capture = path.join(item.root, "capture.json");
   fakeCargo(item, `
-if (process.argv[2] === 'parent') {
-  const result = require('node:child_process').spawnSync(process.execPath, [process.env.CLI, 'shim', 'cargo', '--', 'child'], { cwd: process.env.SECOND, env: process.env, stdio: 'inherit' });
+if (process.argv[2] === 'run') {
+  const result = require('node:child_process').spawnSync(process.execPath, [process.env.CLI, 'shim', 'cargo', '--', 'check'], { cwd: process.env.SECOND, env: process.env, stdio: 'inherit' });
   process.exit(result.status ?? 1);
 }
 fs.writeFileSync(process.env.CAPTURE, JSON.stringify({ target: process.env.CARGO_TARGET_DIR, workspace: process.env.CLEAN_DEVELOPMENT_WORKSPACE_ID }));`);
-  assert.equal(await runTool("cargo", ["parent"], { config: item.config, cwd: item.first, env: { ...item.env, CLI, SECOND: item.second, CAPTURE: capture } }), 0);
+  assert.equal(await runTool("cargo", ["run"], { config: item.config, cwd: item.first, env: { ...item.env, CLI, SECOND: item.second, CAPTURE: capture } }), 0);
   const observed = JSON.parse(fs.readFileSync(capture, "utf8"));
   const second = identifyWorkspace("cargo", [], item.second);
   assert.equal(observed.workspace, second.id);
@@ -98,16 +98,16 @@ fs.writeFileSync(process.env.CAPTURE, JSON.stringify({ target: process.env.CARGO
 
 test("explicit environment and CLI targets belonging to another managed workspace lease that owner", { skip: process.platform === "win32" }, async (t) => {
   const item = fixture(t);
-  fakeCargo(item, "if (process.argv[2] === 'wait') setTimeout(() => {}, 300);");
-  await runTool("cargo", [], { config: item.config, cwd: item.first, env: item.env });
+  fakeCargo(item, "if (process.argv[2] === 'test') setTimeout(() => {}, 300);");
+  await runTool("cargo", ["check"], { config: item.config, cwd: item.first, env: item.env });
   const first = identifyWorkspace("cargo", [], item.first);
   const second = identifyWorkspace("cargo", [], item.second);
   const target = path.join(item.config.buildRoot, first.id, "cargo", "target");
   for (const options of [
-    { args: ["wait"], env: { ...item.env, CARGO_TARGET_DIR: target } },
-    { args: ["wait"], env: { ...item.env, CARGO_TARGET_DIR: path.join(item.config.buildRoot, first.id, "cargo", "custom") } },
-    { args: ["wait", "--target-dir", target], env: item.env },
-    { args: ["wait", `--target-dir=${target}`], env: item.env }
+    { args: ["test"], env: { ...item.env, CARGO_TARGET_DIR: target } },
+    { args: ["test"], env: { ...item.env, CARGO_TARGET_DIR: path.join(item.config.buildRoot, first.id, "cargo", "custom") } },
+    { args: ["test", "--target-dir", target], env: item.env },
+    { args: ["test", `--target-dir=${target}`], env: item.env }
   ]) {
     const execution = runTool("cargo", options.args, { config: item.config, cwd: item.second, env: options.env });
     const deadline = Date.now() + 3000;
@@ -124,7 +124,7 @@ test("explicit environment and CLI targets belonging to another managed workspac
 test("Cargo rejects an owned build container as its target before cargo clean can remove the marker", { skip: process.platform === "win32" }, async (t) => {
   const item = fixture(t);
   fakeCargo(item, "");
-  await runTool("cargo", [], { config: item.config, cwd: item.first, env: item.env });
+  await runTool("cargo", ["check"], { config: item.config, cwd: item.first, env: item.env });
   const first = identifyWorkspace("cargo", [], item.first);
   const container = path.join(item.config.buildRoot, first.id);
   const invoked = path.join(item.root, "clean-was-invoked");
@@ -138,15 +138,15 @@ test("Cargo rejects an owned build container as its target before cargo clean ca
 
 test("Cargo discovers and leases an owner whose first record appears while waiting for a workspace lock", { skip: process.platform === "win32" }, async (t) => {
   const item = fixture(t);
-  fakeCargo(item, "if (process.argv[2] === 'wait') setTimeout(() => {}, 300);");
+  fakeCargo(item, "if (process.argv[2] === 'test') setTimeout(() => {}, 300);");
   const first = identifyWorkspace("cargo", [], item.first);
   const second = identifyWorkspace("cargo", [], item.second);
   const target = path.join(item.config.buildRoot, first.id, "cargo", "custom");
   const releaseSecond = await acquireWorkspaceLock(item.config, second.id);
-  const execution = runTool("cargo", ["wait"], { config: item.config, cwd: item.second, env: { ...item.env, CARGO_TARGET_DIR: target } });
+  const execution = runTool("cargo", ["test"], { config: item.config, cwd: item.second, env: { ...item.env, CARGO_TARGET_DIR: target } });
   try {
     assert.equal(workspaceRecord(item.config, first.id).value, null);
-    assert.equal(await runTool("cargo", [], { config: item.config, cwd: item.first, env: item.env }), 0);
+    assert.equal(await runTool("cargo", ["check"], { config: item.config, cwd: item.first, env: item.env }), 0);
     assert.ok(workspaceRecord(item.config, first.id).value);
   } finally {
     releaseSecond();
@@ -169,7 +169,7 @@ test("Cargo rejects still-unowned explicit targets inside effective or recorded 
   const second = identifyWorkspace("cargo", [], item.second);
   const target = path.join(item.config.buildRoot, first.id, "cargo", "custom");
   const releaseSecond = await acquireWorkspaceLock(item.config, second.id);
-  const execution = runTool("cargo", [], { config: item.config, cwd: item.second, env: { ...item.env, CARGO_TARGET_DIR: target, INVOKED: invoked } });
+  const execution = runTool("cargo", ["check"], { config: item.config, cwd: item.second, env: { ...item.env, CARGO_TARGET_DIR: target, INVOKED: invoked } });
   const rejected = assert.rejects(execution, /unowned explicit Cargo target inside managed build root/);
   assert.equal(workspaceRecord(item.config, first.id).value, null);
   releaseSecond();
@@ -178,25 +178,25 @@ test("Cargo rejects still-unowned explicit targets inside effective or recorded 
   assert.equal(fs.existsSync(target), false);
   await assert.rejects(runTool("cargo", ["clean", "--target-dir", item.config.buildRoot], { config: item.config, cwd: item.second, env: item.env }), /unowned explicit Cargo target inside managed build root/);
   // The normal injected target still creates the first owned workspace safely.
-  assert.equal(await runTool("cargo", [], { config: item.config, cwd: item.first, env: item.env }), 0);
+  assert.equal(await runTool("cargo", ["check"], { config: item.config, cwd: item.first, env: item.env }), 0);
   assert.ok(workspaceRecord(item.config, first.id).value);
   const alternateRoot = path.join(item.root, "alternate-builds");
   fs.mkdirSync(alternateRoot);
   const alternateConfig = { ...item.config, buildRoot: alternateRoot };
-  await assert.rejects(runTool("cargo", ["build", `--target-dir=${path.join(item.config.buildRoot, "not-yet-owned", "cargo", "custom")}`], { config: alternateConfig, cwd: item.second, env: { ...item.env, INVOKED: invoked } }), /unowned explicit Cargo target inside managed build root/);
+  await assert.rejects(runTool("cargo", ["check", `--target-dir=${path.join(item.config.buildRoot, "not-yet-owned", "cargo", "custom")}`], { config: alternateConfig, cwd: item.second, env: { ...item.env, INVOKED: invoked } }), /unowned explicit Cargo target inside managed build root/);
   assert.equal(fs.existsSync(invoked), false);
 });
 
 test("nested owned roots reject the inner container and protect every containing owner for an inner target", { skip: process.platform === "win32" }, async (t) => {
   const item = fixture(t);
-  fakeCargo(item, "if (process.env.INVOKED) fs.writeFileSync(process.env.INVOKED, 'yes'); if (process.argv[2] === 'wait') setTimeout(() => {}, 300);");
-  assert.equal(await runTool("cargo", [], { config: item.config, cwd: item.first, env: item.env }), 0);
+  fakeCargo(item, "if (process.env.INVOKED) fs.writeFileSync(process.env.INVOKED, 'yes'); if (process.argv[2] === 'test') setTimeout(() => {}, 300);");
+  assert.equal(await runTool("cargo", ["check"], { config: item.config, cwd: item.first, env: item.env }), 0);
   const outer = identifyWorkspace("cargo", [], item.first);
   const outerRecord = workspaceRecord(item.config, outer.id);
   const nestedRoot = path.join(outerRecord.value.path, "nested-builds");
   fs.mkdirSync(nestedRoot);
   const innerConfig = { ...item.config, buildRoot: nestedRoot };
-  assert.equal(await runTool("cargo", [], { config: innerConfig, cwd: item.second, env: item.env }), 0);
+  assert.equal(await runTool("cargo", ["check"], { config: innerConfig, cwd: item.second, env: item.env }), 0);
   const inner = identifyWorkspace("cargo", [], item.second);
   const innerRecord = workspaceRecord(innerConfig, inner.id);
   const third = path.join(item.root, "third");
@@ -212,7 +212,7 @@ test("nested owned roots reject the inner container and protect every containing
   assert.equal(fs.existsSync(path.join(innerRecord.value.path, ".clean-development-owned.json")), true);
   for (const record of [outerRecord, innerRecord]) fs.writeFileSync(record.file, JSON.stringify({ ...record.value, lastUsedAt: "2000-01-01T00:00:00.000Z" }));
   const started = Date.now();
-  const execution = runTool("cargo", ["wait"], { config: item.config, cwd: third, env: { ...item.env, CARGO_TARGET_DIR: path.join(innerRecord.value.path, "cargo", "custom") } });
+  const execution = runTool("cargo", ["test"], { config: item.config, cwd: third, env: { ...item.env, CARGO_TARGET_DIR: path.join(innerRecord.value.path, "cargo", "custom") } });
   const deadline = Date.now() + 3000;
   while (!activeWorkspaceIds(item.config).has(caller.id) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 5));
   const active = activeWorkspaceIds(item.config);
@@ -231,7 +231,7 @@ test("nested owned roots reject the inner container and protect every containing
 test("using another workspace's custom target refreshes its retention age and preserves ownership and pin", { skip: process.platform === "win32" }, async (t) => {
   const item = fixture(t);
   fakeCargo(item, "fs.mkdirSync(process.env.CARGO_TARGET_DIR, { recursive: true }); fs.writeFileSync(require('node:path').join(process.env.CARGO_TARGET_DIR, 'used'), 'built');");
-  await runTool("cargo", [], { config: item.config, cwd: item.first, env: item.env });
+  await runTool("cargo", ["check"], { config: item.config, cwd: item.first, env: item.env });
   const first = identifyWorkspace("cargo", [], item.first);
   const record = workspaceRecord(item.config, first.id);
   const target = path.join(item.config.buildRoot, first.id, "cargo", "custom");
@@ -240,7 +240,7 @@ test("using another workspace's custom target refreshes its retention age and pr
     fs.writeFileSync(record.file, JSON.stringify(stale));
     if (!pinned) assert.equal(prunePlan(item.config).find((entry) => entry.workspaceId === first.id).eligible, true);
     const started = Date.now();
-    assert.equal(await runTool("cargo", [], { config: item.config, cwd: item.second, env: { ...item.env, CARGO_TARGET_DIR: target } }), 0);
+    assert.equal(await runTool("cargo", ["check"], { config: item.config, cwd: item.second, env: { ...item.env, CARGO_TARGET_DIR: target } }), 0);
     const refreshed = workspaceRecord(item.config, first.id).value;
     assert.ok(Date.parse(refreshed.lastUsedAt) >= started);
     assert.deepEqual(refreshed, { ...stale, lastUsedAt: refreshed.lastUsedAt });

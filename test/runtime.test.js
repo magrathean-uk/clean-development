@@ -104,10 +104,10 @@ test("shim executes the real tool with routed environment and exit status", asyn
   fs.chmodSync(fakeCargo, 0o755);
   const env = { ...item.env, CAPTURE: capture };
   const config = resolveConfig({ cwd: item.project, env });
-  const code = await runTool("cargo", ["build", "--locked"], { config, cwd: item.project, env });
+  const code = await runTool("cargo", ["check", "--locked"], { config, cwd: item.project, env });
   assert.equal(code, 7);
   const observed = JSON.parse(fs.readFileSync(capture, "utf8"));
-  assert.deepEqual(observed.args, ["build", "--locked"]);
+  assert.deepEqual(observed.args, ["check", "--locked"]);
   assert.match(observed.target, /managed[/\\]builds[/\\]project-[a-f0-9]{10}[/\\]cargo[/\\]target$/);
   assert.equal(fs.readdirSync(path.join(config.locations.stateDir, "leases")).length, 0);
 });

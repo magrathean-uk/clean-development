@@ -67,7 +67,7 @@ When a routed session is active, the CLI provides adapters for:
 
 | Tool | Managed value |
 | --- | --- |
-| Cargo | Per-workspace `CARGO_TARGET_DIR` |
+| Cargo | Command-checked intermediate `CARGO_TARGET_DIR`; deliverables require explicit external output |
 | Go | `GOCACHE` and `GOMODCACHE` |
 | npm and npx | npm cache |
 | pnpm | npm cache and pnpm store |
@@ -80,6 +80,8 @@ When a routed session is active, the CLI provides adapters for:
 | ccache and sccache | Native compiler cache |
 
 It does not move `node_modules`, virtual environments, final Go binaries, release archives, Xcode archives, Rust toolchains, credentials, or arbitrary framework output. `CARGO_HOME` is not relocated because it can contain configuration, credentials, installed binaries, and caches together.
+
+Cargo `build` (including `--release`) and `package` must select an explicit `--target-dir` outside managed build roots. Unknown Cargo commands fail closed rather than place possible deliverables in disposable storage. See the [command/output matrix and retention boundary](docs/artifact-boundaries.md). Existing mixed targets are not migrated or automatically protected.
 
 The default managed layout is one root with `caches/`, `builds/`, and `scratch/` children. Routed Cargo build workspaces receive ownership records and active-build leases. Scratch storage is reserved; automatic scratch registration and cleanup are not implemented. Pruning is limited to registered direct children of the managed build root and is a dry run unless `--apply` is supplied.
 

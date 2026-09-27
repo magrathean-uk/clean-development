@@ -5,7 +5,9 @@ import { resolveConfig } from "./config.js";
 import { SHIM_TOOLS } from "./constants.js";
 import { environmentValue, platformPaths } from "./platform.js";
 import { isInjectedEnvironmentValue } from "./routing-environment.js";
-import { resolveExecutable } from "./runtime.js";
+import { assertCargoArtifactBoundary, assertFinalOutputPaths, resolveExecutable } from "./runtime.js";
+import { explicitCacheToolOutputs } from "./cargo-artifacts.js";
+import { cargoInvocationCwd } from "./cargo-workspace.js";
 import { environmentWithoutSessionRouting, normalizeSessionMode, planSession } from "./session.js";
 import { identifyWorkspace } from "./workspace.js";
 import { inspectNativeCacheOptions } from "./native-cache-options.js";
@@ -89,6 +91,23 @@ export function explainCommand(command, args = [], { cwd = process.cwd(), env = 
   }
   report.routing.status = supported ? "predicted" : "indirect";
   const preview = supported ? environmentForTool(command, args, { config, cwd, env, create: false }) : null;
+  try { assertFinalOutputPaths(explicitCacheToolOutputs(command, args, env), config, cwd); }
+  catch (error) {
+    if (error.code !== "ERR_ARTIFACT_OUTPUT_BOUNDARY") throw error;
+    report.routing.status = "blocked";
+    report.routing.reason = error.message;
+    return report;
+  }
+  if (preview?.artifactPolicy) {
+    report.routing.artifactPolicy = preview.artifactPolicy;
+    try { assertCargoArtifactBoundary(preview.artifactPolicy, config, cargoInvocationCwd(args, cwd)); }
+    catch (error) {
+      if (error.code !== "ERR_CARGO_ARTIFACT_BOUNDARY") throw error;
+      report.routing.status = "blocked";
+      report.routing.reason = error.message;
+      return report;
+    }
+  }
   const applied = preview?.applied || plan.managed.environment;
   const preserved = preview?.preserved || plan.managed.preserved;
   for (const [name, value] of Object.entries(applied)) {

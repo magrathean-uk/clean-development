@@ -153,11 +153,18 @@ for (const mode of ["baseline", "routed"]) {
       if (language === "rust") {
         run(["test", "--workspace", "--offline"]);
         item.output = run(["run", "--offline", "--quiet", "--bin", "clean-lab"]);
-        const metadata = JSON.parse(run(["metadata", "--offline", "--no-deps", "--format-version=1"]));
-        item.artifacts = { target: inventory(metadata.target_directory), localTarget: inventory(path.join(project, "target")) };
+        // Metadata is now inspection-only, not authority to route build output.
+        // Inspect a real compiler-reported metadata file instead of its prediction.
+        const compiled = run(["check", "--workspace", "--offline", "--message-format=json"]);
+        const artifacts = compiled.split("\n").filter(Boolean).map(line => JSON.parse(line))
+          .filter(entry => entry.reason === "compiler-artifact").flatMap(entry => entry.filenames);
+        const metadataFile = artifacts.find(file => file.endsWith(".rmeta"));
+        assert.ok(metadataFile && fs.statSync(metadataFile).size > 0, "Cargo reported no nonempty compiler metadata");
+        const targetDirectory = path.dirname(path.dirname(path.dirname(metadataFile)));
+        item.artifacts = { target: inventory(targetDirectory), compilerMetadata: inventory(metadataFile), localTarget: inventory(path.join(project, "target")) };
         check(`${mode}: Rust CLI output`, item.output === "total=12");
         check(`${mode}: Rust target contains compiled files`, item.artifacts.target.files > 0);
-        check(`${mode}: Rust target location`, mode === "routed" ? within(path.join(env.CLEAN_DEVELOPMENT_ROOT, "builds"), metadata.target_directory) && !item.artifacts.localTarget.exists : metadata.target_directory === path.join(project, "target"));
+        check(`${mode}: Rust target location`, mode === "routed" ? within(path.join(env.CLEAN_DEVELOPMENT_ROOT, "builds"), targetDirectory) && !item.artifacts.localTarget.exists : targetDirectory === path.join(project, "target"));
       } else if (language === "node") {
         const packages = path.join(project, "packages");
         fs.mkdirSync(packages);

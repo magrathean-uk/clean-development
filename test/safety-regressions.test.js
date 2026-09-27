@@ -111,11 +111,11 @@ test("an explicit Cargo target still leases an existing managed workspace record
   const item = fixture();
   t.after(() => fs.rmSync(item.root, { recursive: true, force: true }));
   cargoManifest(item.project);
-  fakeNodeTool(path.join(item.fakeBin, "cargo"), "setTimeout(() => {}, process.argv[2] === 'slow' ? 400 : 0);");
+  fakeNodeTool(path.join(item.fakeBin, "cargo"), "setTimeout(() => {}, process.argv[2] === 'test' ? 400 : 0);");
   const config = resolveConfig({ cwd: item.project, env: item.env });
-  assert.equal(await runTool("cargo", ["seed"], { config, cwd: item.project, env: item.env }), 0);
+  assert.equal(await runTool("cargo", ["check"], { config, cwd: item.project, env: item.env }), 0);
   const workspace = identifyWorkspace("cargo", [], item.project);
-  const explicit = runTool("cargo", ["slow"], {
+  const explicit = runTool("cargo", ["test"], {
     config,
     cwd: item.project,
     env: { ...item.env, CARGO_TARGET_DIR: path.join(item.root, "external-target") }
@@ -131,11 +131,11 @@ test("overlapping Cargo calls in one process keep independent active leases", as
   const item = fixture();
   t.after(() => fs.rmSync(item.root, { recursive: true, force: true }));
   cargoManifest(item.project);
-  fakeNodeTool(path.join(item.fakeBin, "cargo"), "setTimeout(() => {}, process.argv[2] === 'short' ? 100 : 900);");
+  fakeNodeTool(path.join(item.fakeBin, "cargo"), "setTimeout(() => {}, process.argv[2] === 'check' ? 100 : 900);");
   const config = resolveConfig({ cwd: item.project, env: item.env });
   const workspace = identifyWorkspace("cargo", [], item.project);
-  const long = runTool("cargo", ["long"], { config, cwd: item.project, env: item.env });
-  const short = runTool("cargo", ["short"], { config, cwd: item.project, env: item.env });
+  const long = runTool("cargo", ["test"], { config, cwd: item.project, env: item.env });
+  const short = runTool("cargo", ["check"], { config, cwd: item.project, env: item.env });
   assert.equal(await short, 0);
   assert.equal(activeWorkspaceIds(config).has(workspace.id), true);
   assert.equal(await long, 0);

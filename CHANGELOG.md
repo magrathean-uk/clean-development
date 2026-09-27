@@ -4,6 +4,10 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ## [Unreleased]
 
+### Fixed
+
+- Cargo command routing distinguishes disposable intermediates from deliverables: build/package/export commands require an explicit target outside managed build roots, ambiguous commands fail closed, and explicit targets are never replaced by force mode. Recognised Go/npm/uv final-output flags into prunable storage are refused. Existing artifacts are not moved, pinned or deleted; review old mixed targets before pruning.
+
 ## [0.2.1] - 2026-09-26
 
 Prepared for local runtime rollout; not yet published to npm or tagged.

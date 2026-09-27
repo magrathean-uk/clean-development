@@ -14,6 +14,8 @@ import { spawnInherited } from "./process-runner.js";
 import { resolveExecutable } from "./executable.js";
 import { preflightToolRouting, commandStorageConflicts, assertRoutingBoundary } from "./routing-context.js";
 
+import { cargoArtifactError, inspectCargoArtifacts, explicitCacheToolOutputs } from "./cargo-artifacts.js";
+
 export { windowsBatchInvocation, spawnInherited, resolveExecutable };
 
 const RUNTIME_MARKER = ".clean-development-runtime.json";
@@ -564,11 +566,27 @@ function managedCargoTargetOwners(config, target, cwd) {
 }
 
 function cargoTargetSelection(args, preview) {
-  for (let index = 0; index < args.length && args[index] !== "--"; index += 1) {
-    if (args[index] === "--target-dir") return { directory: args[index + 1], explicit: true };
-    if (args[index].startsWith("--target-dir=")) return { directory: args[index].slice("--target-dir=".length), explicit: true };
+  return { directory: preview.artifactPolicy.target || environmentValue(preview.env, "CARGO_TARGET_DIR"), explicit: !preview.artifactPolicy.routeTarget };
+}
+
+/** Never write final artifacts into a current or historically registered build
+ * root. Refuse an unsafe explicit path rather than replacing it or auto-pinning. */
+export function assertCargoArtifactBoundary(policy, config, cwd) {
+  if (policy.reason) throw cargoArtifactError(policy.reason);
+  if (!policy.requiresExternal) return;
+  assertFinalOutputPaths(policy.outputs, config, cwd, cargoArtifactError);
+}
+
+export function assertFinalOutputPaths(outputs, config, cwd, error = reason => Object.assign(new Error(`Artifact boundary: ${reason}. Choose an output outside managed build roots; no output path was changed.`), { code: "ERR_ARTIFACT_OUTPUT_BOUNDARY" })) {
+  if (!outputs.length) return;
+  const roots = new Set([config.buildRoot, ...listWorkspaceRecords(config).map(({ value }) => value.buildRoot).filter(path.isAbsolute)]);
+  for (const value of outputs) {
+    const target = canonicalizePotentialPath(path.resolve(cwd, value));
+    for (const root of roots) {
+      const managed = canonicalizePotentialPath(root);
+      if (target === managed || isPathInside(managed, target)) throw error("explicit deliverable output intersects managed build storage");
+    }
   }
-  return { directory: environmentValue(preview.env, "CARGO_TARGET_DIR"), explicit: !Object.hasOwn(preview.applied, "CARGO_TARGET_DIR") };
 }
 
 function rejectUnownedManagedTarget(config, target, cwd, owners) {
@@ -603,9 +621,18 @@ export async function runTool(tool, args, { config, cwd = process.cwd(), env = p
     return spawnInherited(executable, args, { cwd, env: childEnv });
   }
   assertRoutingBoundary(context.repositoryPaths);
+  assertFinalOutputPaths(explicitCacheToolOutputs(tool, args, env), effectiveConfig, cwd);
   const executable = resolveExecutable(tool, env, effectiveConfig.locations.binDir, cwd);
   if (!executable) throw new Error(`Cannot find the real '${tool}' executable outside ${effectiveConfig.locations.binDir}`);
   if (tool === "cargo") {
+    const policy = inspectCargoArtifacts(args, { env, cwd, home: effectiveConfig.locations.home });
+    // Before discovery, ownership writes, locks or launching Cargo. The enclosing
+    // session may already have prepared its external bases and installed shims.
+    assertCargoArtifactBoundary(policy, effectiveConfig, cargoInvocationCwd(args, cwd));
+    if (policy.kind === "deliverable" || policy.kind === "inspection" || policy.requiresExternal) {
+      const preview = environmentForTool(tool, args, { config: effectiveConfig, cwd, env, create: false, workspace });
+      return spawnInherited(executable, args, { cwd, env: preview.env });
+    }
     workspace = resolveCargoWorkspace(args, {
       executable, cwd, env,
       invocation: (command, argv, childEnv) => process.platform === "win32" && /\.(cmd|bat)$/i.test(command)

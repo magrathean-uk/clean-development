@@ -47,6 +47,13 @@ Before any routed choice, the planner rejects managed roots equal to or containe
 
 ## Static caches and dynamic Cargo
 
+A command-level [artifact gate](artifact-boundaries.md) runs before Cargo workspace
+discovery and ownership writes. Only allowlisted intermediate commands receive an
+automatic target. Final-output commands require an explicit destination outside
+prune authority; unknown argv fails closed. Native cache-only adapters do not gain
+output ownership. Planning describes eligible future Cargo routing, not approval
+for every command that a later package script might execute.
+
 The session overlay sets shared-cache values for detected, enabled tools once in the child environment. It leaves supported shims available for subsequent commands and preserves explicit tool variables according to configuration precedence.
 
 A session can change directories and build several repositories. A static session variable such as `CARGO_TARGET_DIR` would send all of them into one target. A shim sees the actual command cwd and flags at execution time, then chooses the correct Cargo workspace or nearest manifest root.

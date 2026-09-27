@@ -27,10 +27,31 @@ Persistence retains existing configuration and refuses symlink/non-file targets 
 
 Shared-cache variables are applied at session start. Cargo output remains under command-time workspace selection, ownership validation, and active leases; session approval does not bypass those protections. These choices manage routing and project configuration, not a sandbox: an agent still needs its own permission to write both runtime/state and managed artifacts.
 
+## Intermediate output versus final deliverables
+
+Ownership is not proof that every byte in a directory is disposable. A routed
+Cargo target used to mix intermediate data with release binaries and `.crate`
+packages, so the whole-root prune could remove a deliverable after its lease ended.
+Command dispatch now grants automatic target routing only to recognised
+intermediate invocations. Build/package/export commands require an explicit output
+target outside current and recorded managed build roots; unknown commands, aliases
+and output syntax stop rather than silently select a different destination. A debug
+build may also be a deliverable. Session approval and force mode do not bypass this
+boundary. Native Go/npm/uv routes remain cache-only; recognised final-output flags
+pointing into managed build storage are refused without rewriting them.
+
+The [artifact boundary contract](artifact-boundaries.md) defines the precise command
+allowlist, direct/routed output matrix, explicit overrides, native-configuration
+limits, nested package scripts and real-tool byte/prune fixtures. No artifact is
+moved, copied, pinned or deleted automatically. Prior mixed targets remain unchanged
+and must be reviewed before prune; this change does not retroactively protect their
+contents. Explicit skip, arbitrary scripts and tools bypassing the shim are not a
+filesystem sandbox.
+
 ## Controls
 
 - Broad roots such as `/` and the home directory are rejected.
-- Prune candidates come from state created during an actual routed Cargo build, not a filesystem name scan or cache-only command.
+- Prune candidates come from state created during an actual eligible routed Cargo intermediate command, not a filesystem name scan or cache-only command.
 - A candidate must be a real direct child of the currently configured build root, and its random on-disk ownership marker must match the state receipt.
 - Ownership, age, pin, and active-lease checks are repeated immediately before deletion.
 - Active PID leases and pins block pruning.

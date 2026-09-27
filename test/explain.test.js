@@ -121,7 +121,7 @@ test("Cargo explanation is provisional and never runs the executable or project 
     : `#!/bin/sh\nprintf unexpected > '${sentinel}'\n`, { mode: 0o755 });
   const env = { ...item.env, PATH: `${bin}${path.delimiter}${item.env.PATH}` };
   const before = snapshot(item.root);
-  const report = explainCommand("cargo", ["build", "--target-dir=explicit-target", "--", "secret"], { ...item, env });
+  const report = explainCommand("cargo", ["run", "--target-dir=explicit-target", "--", "secret"], { ...item, env });
   assert.equal(report.executable.path, tool);
   assert.match(report.workspace.authority, /static estimate/);
   assert.equal(report.routing.commandLineTarget, "explicit-target");

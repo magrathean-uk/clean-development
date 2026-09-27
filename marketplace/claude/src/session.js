@@ -71,7 +71,8 @@ function mergePreview(detection, config, env) {
   if (config.enabled === false) return { environment, preserved, dynamic };
   for (const tool of detection.tools) {
     if (config.tools?.[tool] === false) continue;
-    const result = environmentForTool(tool, [], { config, cwd: detection.root, env, create: false });
+    // Preview eligible intermediate routing; every actual Cargo argv is checked at dispatch.
+    const result = environmentForTool(tool, tool === "cargo" ? ["check"] : [], { config, cwd: detection.root, env, create: false });
     for (const [name, value] of Object.entries(result.applied)) {
       if (name === "CARGO_TARGET_DIR") {
         if (!dynamic.includes("CARGO_TARGET_DIR")) dynamic.push("CARGO_TARGET_DIR");

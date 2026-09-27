@@ -65,12 +65,12 @@ test("Cargo routing is workspace-specific and preserves explicit overrides", (t)
   const item = fixture();
   t.after(() => fs.rmSync(item.root, { recursive: true, force: true }));
   const config = resolveConfig({ cwd: item.project, env: { ...item.env, CLEAN_DEVELOPMENT_ROOT: path.join(item.root, "managed") } });
-  const first = environmentForTool("cargo", [], { config, cwd: item.project, env: item.env, create: false });
+  const first = environmentForTool("cargo", ["check"], { config, cwd: item.project, env: item.env, create: false });
   assert.match(first.applied.CARGO_TARGET_DIR, /builds[/\\]project-[a-f0-9]{10}[/\\]cargo[/\\]target$/);
   assert.equal(first.workspace.root, fs.realpathSync(item.project));
 
   const custom = path.join(item.root, "my-target");
-  const second = environmentForTool("cargo", [], { config, cwd: item.project, env: { ...item.env, CARGO_TARGET_DIR: custom }, create: false });
+  const second = environmentForTool("cargo", ["check"], { config, cwd: item.project, env: { ...item.env, CARGO_TARGET_DIR: custom }, create: false });
   assert.deepEqual(second.applied, {});
   assert.equal(second.preserved.CARGO_TARGET_DIR, custom);
 });
@@ -99,7 +99,7 @@ test("every declared adapter resolves to an explicit managed destination", (t) =
 
   assert.deepEqual(Object.keys(expected).sort(), [...SHIM_TOOLS].sort());
   for (const tool of SHIM_TOOLS) {
-    const routed = environmentForTool(tool, [], { config, cwd: item.project, env: item.env, create: false });
+    const routed = environmentForTool(tool, tool === "cargo" ? ["check"] : [], { config, cwd: item.project, env: item.env, create: false });
     assert.deepEqual(routed.applied, expected[tool], tool);
     assert.equal(routed.env.CLEAN_DEVELOPMENT_ACTIVE, "1");
     assert.equal(routed.env.CLEAN_DEVELOPMENT_WORKSPACE, fs.realpathSync(item.project));

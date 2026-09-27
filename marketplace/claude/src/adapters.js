@@ -7,6 +7,8 @@ import { canonicalizePotentialPath, environmentValue, isPathInside, setEnvironme
 import { identifyWorkspace } from "./workspace.js";
 import { injectedEnvironment, isInjectedEnvironmentValue, recordInjectedEnvironment } from "./routing-environment.js";
 
+import { cargoArtifactError, inspectCargoArtifacts } from "./cargo-artifacts.js";
+
 export const OWNERSHIP_MARKER = ".clean-development-owned.json";
 
 function definitions(config, workspace) {
@@ -131,7 +133,6 @@ export function ensureOwnedBuildRoot(config, workspace, existingRecord = null) {
 
 export function environmentForTool(tool, args, { config, cwd = process.cwd(), env = process.env, create = true, validateBase = false, existingBuildRecord = null, workspace = identifyWorkspace(tool, args, cwd) } = {}) {
   if (!SHIM_TOOLS.includes(tool)) throw new Error(`Unsupported shim tool: ${tool}`);
-  const desired = definitions(config, workspace)[tool] || {};
   const applied = {};
   const preserved = {};
   const force = environmentValue(env, "CLEAN_DEVELOPMENT_FORCE") === "1";
@@ -139,7 +140,20 @@ export function environmentForTool(tool, args, { config, cwd = process.cwd(), en
   if (config.enabled === false || config.tools?.[tool] === false) {
     return { env: { ...env }, applied, preserved, workspace, disabled: true };
   }
+  const artifactPolicy = tool === "cargo" ? inspectCargoArtifacts(args, { env, cwd, home: config.locations.home }) : null;
+  const desired = artifactPolicy && !artifactPolicy.routeTarget ? {} : definitions(config, workspace)[tool] || {};
+  if (create && artifactPolicy?.reason) throw cargoArtifactError(artifactPolicy.reason);
   const childEnv = { ...env };
+  if (artifactPolicy && !artifactPolicy.routeTarget) {
+    // A CLI target must not leave a different injected target for nested tools.
+    // Keep independent user values, even in force mode; output is not a cache.
+    for (const key of Object.keys(childEnv)) {
+      if (!["cargo_target_dir", "cargo_build_target_dir"].includes(key.toLowerCase())) continue;
+      if (isInjectedEnvironmentValue(childEnv, key, childEnv[key], injected)) delete childEnv[key];
+      else if (childEnv[key]) preserved[key] = childEnv[key];
+    }
+    deleteEnvironmentValue(childEnv, "CLEAN_DEVELOPMENT_CARGO_TARGET_DIR");
+  }
   let ownedBuild = null;
   let cacheRootChecked = false;
   for (const [name, value] of Object.entries(desired)) {
@@ -182,9 +196,9 @@ export function environmentForTool(tool, args, { config, cwd = process.cwd(), en
   setEnvironmentValue(childEnv, "CLEAN_DEVELOPMENT_RESOLVED_ROOT", config.root);
   setEnvironmentValue(childEnv, "CLEAN_DEVELOPMENT_WORKSPACE_ID", workspace.id);
   setEnvironmentValue(childEnv, "CLEAN_DEVELOPMENT_WORKSPACE", workspace.root);
-  return { env: childEnv, applied, preserved, workspace, disabled: false, ownedBuild };
+  return { env: childEnv, applied, preserved, workspace, disabled: false, ownedBuild, artifactPolicy };
 }
 
 export function allToolEnvironments(config, options = {}) {
-  return Object.fromEntries(SHIM_TOOLS.map((tool) => [tool, environmentForTool(tool, [], { config, create: false, ...options })]));
+  return Object.fromEntries(SHIM_TOOLS.map((tool) => [tool, environmentForTool(tool, tool === "cargo" ? ["check"] : [], { config, create: false, ...options })]));
 }
