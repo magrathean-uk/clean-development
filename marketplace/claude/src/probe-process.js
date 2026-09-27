@@ -61,7 +61,8 @@ export function captureProbeCommand(command, args, { cwd, env, timeoutMs = 5000,
     };
     const stop = (reason) => {
       if (stopping || settled) return;
-      stopping = terminate(child, env);
+      // Set the in-flight guard before termination can emit a child error.
+      stopping = Promise.resolve().then(() => terminate(child, env));
       stopping.then((complete) => finish(reason, complete), () => finish(reason, false));
     };
     const interruptInt = () => { interruptedSignal = "SIGINT"; stop("interrupted"); };
@@ -79,7 +80,13 @@ export function captureProbeCommand(command, args, { cwd, env, timeoutMs = 5000,
     };
     child.stdout.on("data", collect(stdout)); child.stderr.on("data", collect(stderr));
     child.stdout.on("error", () => stop("output-failed")); child.stderr.on("error", () => stop("output-failed"));
-    child.once("error", () => finish("spawn-failed"));
+    child.on("error", () => {
+      if (settled) return;
+      // An error after PID allocation is not evidence that no process exists.
+      // Keep the initiating failure and wait for bounded termination evidence.
+      if (!child.pid) finish("spawn-failed");
+      else stop("process-failed");
+    });
     child.once("close", (code) => {
       if (stopping) return;
       if (code === 0) finish(null);
