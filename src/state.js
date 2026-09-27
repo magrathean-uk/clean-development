@@ -152,6 +152,38 @@ export function createLease(config, workspace, tool) {
   };
 }
 
+const MAX_LEASE_BYTES = 64 * 1024;
+
+function sameLeaseFile(left, right) {
+  return right.isFile() && !right.isSymbolicLink()
+    && left.dev === right.dev && left.ino === right.ino && left.size === right.size
+    && left.mtimeNs === right.mtimeNs && left.ctimeNs === right.ctimeNs;
+}
+
+// Open only the regular file inspected by the caller, bound memory even if it
+// grows after stat, and reject evidence replaced or rewritten during the read.
+function readLease(file, before) {
+  let descriptor;
+  try {
+    descriptor = fs.openSync(file, fs.constants.O_RDONLY
+      | (fs.constants.O_NOFOLLOW || 0) | (fs.constants.O_NONBLOCK || 0));
+    const opened = fs.fstatSync(descriptor, { bigint: true });
+    if (!sameLeaseFile(before, opened) || opened.size > BigInt(MAX_LEASE_BYTES)) throw new Error("invalid lease file");
+    const buffer = Buffer.alloc(MAX_LEASE_BYTES + 1);
+    let length = 0;
+    while (length < buffer.length) {
+      const count = fs.readSync(descriptor, buffer, length, buffer.length - length, length);
+      if (count === 0) break;
+      length += count;
+    }
+    if (length > MAX_LEASE_BYTES || !sameLeaseFile(opened, fs.fstatSync(descriptor, { bigint: true }))
+      || !sameLeaseFile(opened, fs.lstatSync(file, { bigint: true }))) throw new Error("lease changed during read");
+    return JSON.parse(buffer.toString("utf8", 0, length));
+  } finally {
+    if (descriptor !== undefined) fs.closeSync(descriptor);
+  }
+}
+
 function processIsAlive(pid) {
   if (!Number.isInteger(pid) || pid <= 0) return false;
   try {
@@ -179,8 +211,9 @@ export function activeWorkspaceIds(config) {
     const match = name.match(/^(\d+)-([a-z0-9-]+)-([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.json$/i);
     if (!match) continue;
     const file = path.join(directory, name);
+    let stat;
     try {
-      const stat = fs.lstatSync(file);
+      stat = fs.lstatSync(file, { bigint: true });
       if (!stat.isFile() || stat.isSymbolicLink()) {
         active.add(match[2]);
         continue;
@@ -191,7 +224,7 @@ export function activeWorkspaceIds(config) {
     }
     let lease;
     try {
-      lease = readJson(file, null);
+      lease = readLease(file, stat);
     } catch {
       // A matching filename identifies the workspace even when a concurrent
       // write or filesystem fault makes its lease unreadable. Retain it rather
@@ -201,13 +234,14 @@ export function activeWorkspaceIds(config) {
     }
     const valid = lease?.schemaVersion === 1
       && lease.wrapperPid === Number(match[1])
+      && Number.isSafeInteger(lease.wrapperPid) && lease.wrapperPid > 0
       && lease.workspaceId === match[2]
       && lease.tool === "cargo"
       && typeof lease.workspace === "string"
       && path.isAbsolute(lease.workspace)
       && typeof lease.startedAt === "string"
       && Number.isFinite(Date.parse(lease.startedAt))
-      && Number.isInteger(lease.pid)
+      && Number.isSafeInteger(lease.pid)
       && lease.pid > 0;
     if (!valid) {
       // A matching lease that cannot establish it is stale must conservatively
@@ -216,6 +250,13 @@ export function activeWorkspaceIds(config) {
       continue;
     }
     if (processIsAlive(lease.pid)) active.add(lease.workspaceId);
+    else {
+      // A dead PID in an old inode is not proof that its replacement lease is
+      // stale. Recheck after the process lookup before dropping protection.
+      try {
+        if (!sameLeaseFile(stat, fs.lstatSync(file, { bigint: true }))) active.add(match[2]);
+      } catch { active.add(match[2]); }
+    }
     // Inspection is strictly read-only, including stale leases. Deleting one
     // here could also race with the wrapper transferring it to its live child.
   }
