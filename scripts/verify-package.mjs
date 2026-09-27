@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { isolatedEnvironment } from "./harness-utils.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
@@ -84,6 +85,11 @@ try {
     "integrations/claude/hooks.json",
     "src/cli.js",
     "src/session.js",
+    "src/explain.js",
+    "src/status.js",
+    "src/measurement.js",
+    "docs/explain.md",
+    "docs/status.md",
     "plugin.json",
     "skills/clean-development/SKILL.md",
     "skills/clean-development/agents/openai.yaml",
@@ -108,7 +114,9 @@ try {
   const contract = run(process.execPath, ["--input-type=module", "--eval", [
     "const plugin = await import('clean-development');",
     "const api = await import('clean-development/api');",
-    "if (typeof plugin.default !== 'function' || typeof api.resolveConfig !== 'function' || typeof api.planSession !== 'function') process.exit(9);"
+    "if (typeof plugin.default !== 'function') process.exit(9);",
+    "for (const name of ['resolveConfig', 'planSession', 'explainCommand', 'formatExplanation', 'storageStatus', 'formatStorageStatus', 'parseByteSize', 'measureDirectory', 'createSizeScanner']) if (typeof api[name] !== 'function') throw new Error('Missing API export: ' + name);",
+    "if (api.parseByteSize('1KiB') !== 1024 || api.DEFAULT_SCAN_LIMITS.maxEntries !== 200000) process.exit(10);"
   ].join("\n")], { cwd: prefix });
   assert.equal(contract.status, 0);
   const project = path.join(temporary, "session-project");
@@ -117,11 +125,7 @@ try {
   fs.writeFileSync(path.join(project, "Cargo.toml"), "[package]\nname='package-check'\nversion='0.1.0'\n");
   const fakeBin = fakeCargo(path.join(temporary, "fake-bin"));
   const sessionEnv = {
-    ...process.env,
-    CLEAN_DEVELOPMENT_HOME: path.join(temporary, "home"),
-    CLEAN_DEVELOPMENT_DATA_HOME: path.join(temporary, "data"),
-    CLEAN_DEVELOPMENT_CONFIG_HOME: path.join(temporary, "config"),
-    CLEAN_DEVELOPMENT_ROOT: managed,
+    ...isolatedEnvironment(temporary),
     PATH: `${fakeBin}${path.delimiter}${process.env.PATH || ""}`
   };
   const planned = runJson(binary, ["session", "--dry-run", "--json"], { cwd: project, env: sessionEnv });
