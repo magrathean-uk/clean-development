@@ -5,6 +5,7 @@ import { SHIM_TOOLS } from "./constants.js";
 import { readJson, writeJsonAtomic } from "./io.js";
 import { canonicalizePotentialPath, environmentValue, isPathInside, setEnvironmentValue } from "./platform.js";
 import { identifyWorkspace } from "./workspace.js";
+import { injectedEnvironment, isInjectedEnvironmentValue, recordInjectedEnvironment } from "./routing-environment.js";
 
 export const OWNERSHIP_MARKER = ".clean-development-owned.json";
 
@@ -31,28 +32,6 @@ function definitions(config, workspace) {
     ccache: { CCACHE_DIR: path.join(shared, "native", "ccache") },
     sccache: { SCCACHE_DIR: path.join(shared, "native", "sccache") }
   };
-}
-
-function isInjectedDefault(name, value, config, env) {
-  if (name === "CARGO_TARGET_DIR") {
-    return environmentValue(env, "CLEAN_DEVELOPMENT_ACTIVE") === "1"
-      && value === environmentValue(env, "CLEAN_DEVELOPMENT_CARGO_TARGET_DIR");
-  }
-  if (name !== "npm_config_cache") return false;
-  const pathKey = (candidate) => {
-    const canonical = canonicalizePotentialPath(candidate);
-    return process.platform === "win32" ? canonical.toLowerCase() : canonical;
-  };
-  const home = environmentValue(env, "HOME");
-  const userProfile = environmentValue(env, "USERPROFILE");
-  const localAppData = environmentValue(env, "LOCALAPPDATA");
-  const candidates = [
-    path.join(config.locations.home, ".npm"),
-    home ? path.join(home, ".npm") : null,
-    userProfile ? path.join(userProfile, "AppData", "Local", "npm-cache") : null,
-    localAppData ? path.join(localAppData, "npm-cache") : null
-  ].filter(Boolean).map(pathKey);
-  return candidates.includes(pathKey(value));
 }
 
 function matchingEnvironmentKeys(env, name) {
@@ -156,7 +135,8 @@ export function environmentForTool(tool, args, { config, cwd = process.cwd(), en
   const desired = definitions(config, workspace)[tool] || {};
   const applied = {};
   const preserved = {};
-  const force = env.CLEAN_DEVELOPMENT_FORCE === "1";
+  const force = environmentValue(env, "CLEAN_DEVELOPMENT_FORCE") === "1";
+  const injected = injectedEnvironment(env);
   if (config.enabled === false || config.tools?.[tool] === false) {
     return { env: { ...env }, applied, preserved, workspace, disabled: true };
   }
@@ -165,10 +145,10 @@ export function environmentForTool(tool, args, { config, cwd = process.cwd(), en
   let cacheRootChecked = false;
   for (const [name, value] of Object.entries(desired)) {
     const existingKeys = matchingEnvironmentKeys(childEnv, name);
-    const explicitKeys = existingKeys.filter((key) => childEnv[key] && !isInjectedDefault(name, childEnv[key], config, childEnv));
+    const explicitKeys = existingKeys.filter((key) => childEnv[key] && !isInjectedEnvironmentValue(childEnv, name, childEnv[key], injected));
     if (!force && explicitKeys.length > 0) {
       for (const key of existingKeys) {
-        if (!explicitKeys.includes(key) && isInjectedDefault(name, childEnv[key], config, childEnv)) delete childEnv[key];
+        if (!explicitKeys.includes(key) && isInjectedEnvironmentValue(childEnv, name, childEnv[key], injected)) delete childEnv[key];
       }
       for (const key of explicitKeys) preserved[key] = childEnv[key];
       continue;
@@ -194,6 +174,7 @@ export function environmentForTool(tool, args, { config, cwd = process.cwd(), en
       if (tool !== "cargo") managedSubdirectory(config.cacheRoot, value, { create, label: "Managed cache path" });
     }
   }
+  recordInjectedEnvironment(childEnv, applied);
   if (tool === "cargo") {
     if (applied.CARGO_TARGET_DIR) setEnvironmentValue(childEnv, "CLEAN_DEVELOPMENT_CARGO_TARGET_DIR", applied.CARGO_TARGET_DIR);
     else deleteEnvironmentValue(childEnv, "CLEAN_DEVELOPMENT_CARGO_TARGET_DIR");
