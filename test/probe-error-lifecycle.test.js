@@ -13,11 +13,12 @@ import { probeTool } from "../src/probe.js";
 
 // Simulate Node's documented error/exit/close sequences without signalling any
 // real PID. Each test runs with restored builtin exports and listener counts.
-function fixture(t, { spawned = true, denyTermination = false, errorDuringTermination = false } = {}) {
+function fixture(t, { spawned = true, denyTermination = false, errorDuringTermination = false,
+  windows = false, closeDuringTaskkill = false } = {}) {
   const child = Object.assign(new EventEmitter(), { pid: spawned ? 2147483000 : undefined,
     exitCode: null, signalCode: null, stdout: new PassThrough(), stderr: new PassThrough() });
   const before = Object.fromEntries(["SIGINT", "SIGTERM"].map((s) => [s, process.listenerCount(s)]));
-  let kills = 0, captured, commandCwd;
+  let kills = 0, taskkills = 0, captured, commandCwd;
   const finishChild = () => {
     if (child.exitCode !== null || child.signalCode !== null) return;
     child.signalCode = "SIGKILL";
@@ -33,19 +34,27 @@ function fixture(t, { spawned = true, denyTermination = false, errorDuringTermin
   t.mock.method(process, "kill", (pid, signal) => {
     assert.equal(pid, -child.pid); assert.equal(signal, "SIGKILL"); killing(); return true;
   });
-  t.mock.method(childProcess, "spawn", (command, _args, options) => {
+  const spawnProcess = (command, _args, options) => {
     if (command.endsWith("taskkill.exe")) {
+      taskkills += 1;
       const killer = Object.assign(new EventEmitter(), { kill() {} });
-      queueMicrotask(() => killer.emit("close", denyTermination ? 1 : 0));
+      if (closeDuringTaskkill) finishChild();
+      queueMicrotask(() => {
+        killer.emit("close", denyTermination ? 1 : 0);
+      });
       return killer;
     }
     commandCwd = options.cwd;
     return child;
-  });
+  };
+  t.mock.method(childProcess, "spawn", spawnProcess);
   syncBuiltinESMExports();
-  const env = { SystemRoot: process.platform === "win32" ? "C:\\Windows" : "/Windows" };
+  // Use a host-valid absolute path because this unit test simulates Windows
+  // control flow on the current platform.
+  const env = { SystemRoot: "/Windows" };
   const capture = (options = {}) => captured = captureProbeCommand(process.execPath, [], {
-    cwd: path.dirname(process.execPath), env, timeoutMs: 5000, ...options
+    cwd: path.dirname(process.execPath), env, timeoutMs: 5000, platform: windows ? "win32" : process.platform,
+    spawnProcess, ...options
   });
   t.after(async () => {
     finishChild();
@@ -53,7 +62,7 @@ function fixture(t, { spawned = true, denyTermination = false, errorDuringTermin
     t.mock.restoreAll(); syncBuiltinESMExports();
     for (const [s, count] of Object.entries(before)) assert.equal(process.listenerCount(s), count, s);
   });
-  return { child, capture, finishChild, before, killCount: () => kills, commandCwd: () => commandCwd,
+  return { child, capture, finishChild, before, killCount: () => kills, taskkillCount: () => taskkills, commandCwd: () => commandCwd,
     track: (promise) => captured = promise };
 }
 
@@ -85,6 +94,27 @@ test("a post-launch error terminates the child before returning a process failur
   const value = await result;
   assert.equal(value.failure, "process-failed"); assert.equal(value.cleanupComplete, true);
   assert.equal(item.child.signalCode, "SIGKILL"); assert.equal(item.killCount(), 1);
+});
+
+test("a confirmed close before deferred error cleanup does not signal a reusable PID", async (t) => {
+  const item = fixture(t), result = item.capture();
+  item.child.emit("error", new Error("post-launch"));
+  item.finishChild();
+  const value = await result;
+  assert.equal(value.failure, "process-failed");
+  assert.equal(value.cleanupComplete, false, "exited child does not prove its process group is empty");
+  assert.equal(item.killCount(), 0);
+});
+
+test("Windows close during taskkill does not issue a late child signal", async (t) => {
+  const item = fixture(t, { windows: true, closeDuringTaskkill: true });
+  const result = item.capture();
+  item.child.emit("error", new Error("post-launch"));
+  const value = await result;
+  assert.equal(value.failure, "process-failed");
+  assert.equal(value.cleanupComplete, false);
+  assert.equal(item.taskkillCount(), 1);
+  assert.equal(item.killCount(), 0);
 });
 
 test("an error emitted during timeout termination cannot overwrite its reason or settle early", async (t) => {

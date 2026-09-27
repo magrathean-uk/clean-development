@@ -1,5 +1,5 @@
 import path from "node:path";
-import { spawn } from "node:child_process";
+import childProcess from "node:child_process";
 import { environmentValue } from "./platform.js";
 import { windowsBatchInvocation } from "./runtime.js";
 
@@ -13,23 +13,31 @@ function waitForExit(child, timeoutMs) {
   });
 }
 
-async function terminate(child, env) {
+async function terminate(child, env, closed, platform, spawnProcess) {
   if (!child.pid) return true;
+  // A post-launch error can be followed by close before stop's deferred
+  // termination runs. The original PID may already be reusable, while an
+  // inherited process group can still contain descendants. Do not signal
+  // either; retain the fixture as uncertain cleanup evidence instead.
+  if (closed()) return false;
   let complete = true;
-  if (process.platform === "win32") {
+  if (platform === "win32") {
     // Use the OS executable directly, never a shell or a PATH-supplied taskkill.
     const systemRoot = environmentValue(env, "SystemRoot");
     if (!systemRoot || !path.isAbsolute(systemRoot)) complete = false;
     else {
       complete = await new Promise((resolve) => {
-        const killer = spawn(path.join(systemRoot, "System32", "taskkill.exe"), ["/pid", String(child.pid), "/T", "/F"],
+        const killer = spawnProcess(path.join(systemRoot, "System32", "taskkill.exe"), ["/pid", String(child.pid), "/T", "/F"],
           { env, stdio: "ignore", windowsHide: true });
         const timer = setTimeout(() => { killer.kill(); resolve(false); }, 1500);
         killer.once("error", () => { clearTimeout(timer); resolve(false); });
         killer.once("close", (code) => { clearTimeout(timer); resolve(code === 0); });
       });
     }
-    try { child.kill("SIGKILL"); } catch { complete = false; }
+    if (closed()) complete = false;
+    else {
+      try { child.kill("SIGKILL"); } catch { complete = false; }
+    }
   } else {
     try { process.kill(-child.pid, "SIGKILL"); }
     catch (error) { if (error.code !== "ESRCH") complete = false; }
@@ -39,15 +47,17 @@ async function terminate(child, env) {
 
 /** Capture a known probe command, not arbitrary repository scripts. A process
  * group/tree is best-effort cleanup, not containment of a hostile executable. */
-export function captureProbeCommand(command, args, { cwd, env, timeoutMs = 5000, maxOutputBytes = 65536 } = {}) {
+export function captureProbeCommand(command, args, { cwd, env, timeoutMs = 5000, maxOutputBytes = 65536,
+  platform = process.platform, spawnProcess = childProcess.spawn } = {}) {
   if (typeof command !== "string" || !path.isAbsolute(command) || !Array.isArray(args)
     || args.some((arg) => typeof arg !== "string" || arg.includes("\0"))) throw new Error("Invalid probe command");
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30000
     || !Number.isSafeInteger(maxOutputBytes) || maxOutputBytes < 1 || maxOutputBytes > 1024 * 1024) throw new Error("Invalid probe command limits");
-  const invocation = process.platform === "win32" && /\.(cmd|bat)$/i.test(command)
+  if (typeof platform !== "string" || typeof spawnProcess !== "function") throw new Error("Invalid probe command platform");
+  const invocation = platform === "win32" && /\.(cmd|bat)$/i.test(command)
     ? windowsBatchInvocation(command, args, env) : { command, args };
   return new Promise((resolve) => {
-    let child, timer, stopping = null, settled = false, bytes = 0, interruptedSignal = null;
+    let child, timer, stopping = null, settled = false, closed = false, bytes = 0, interruptedSignal = null;
     const stdout = [], stderr = [];
     const finish = (failure, cleanupComplete = true) => {
       if (settled) return;
@@ -62,14 +72,14 @@ export function captureProbeCommand(command, args, { cwd, env, timeoutMs = 5000,
     const stop = (reason) => {
       if (stopping || settled) return;
       // Set the in-flight guard before termination can emit a child error.
-      stopping = Promise.resolve().then(() => terminate(child, env));
+      stopping = Promise.resolve().then(() => terminate(child, env, () => closed, platform, spawnProcess));
       stopping.then((complete) => finish(reason, complete), () => finish(reason, false));
     };
     const interruptInt = () => { interruptedSignal = "SIGINT"; stop("interrupted"); };
     const interruptTerm = () => { interruptedSignal = "SIGTERM"; stop("interrupted"); };
     try {
-      child = spawn(invocation.command, invocation.args, { cwd, env, shell: false, stdio: ["ignore", "pipe", "pipe"],
-        detached: process.platform !== "win32", windowsHide: true,
+      child = spawnProcess(invocation.command, invocation.args, { cwd, env, shell: false, stdio: ["ignore", "pipe", "pipe"],
+        detached: platform !== "win32", windowsHide: true,
         windowsVerbatimArguments: invocation.windowsVerbatimArguments || false });
     } catch { finish("spawn-failed"); return; }
     const collect = (chunks) => (chunk) => {
@@ -88,6 +98,7 @@ export function captureProbeCommand(command, args, { cwd, env, timeoutMs = 5000,
       else stop("process-failed");
     });
     child.once("close", (code) => {
+      closed = true;
       if (stopping) return;
       if (code === 0) finish(null);
       else finish("command-failed");
