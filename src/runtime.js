@@ -1,8 +1,6 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
-import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { environmentForTool, OWNERSHIP_MARKER } from "./adapters.js";
 import { resolveConfig } from "./config.js";
@@ -14,8 +12,9 @@ import { acquireWorkspaceLock, createLease, listWorkspaceRecords, recordWorkspac
 import { identifyWorkspace } from "./workspace.js";
 import { cargoInvocationCwd, resolveCargoWorkspace } from "./cargo-workspace.js";
 import { windowsBatchInvocation } from "./windows-command.js";
+import { spawnInherited } from "./process-runner.js";
 
-export { windowsBatchInvocation };
+export { windowsBatchInvocation, spawnInherited };
 
 const RUNTIME_MARKER = ".clean-development-runtime.json";
 const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
@@ -591,47 +590,6 @@ export function resolveExecutable(executable, env, excludedDirectory) {
     }
   }
   return null;
-}
-
-export function spawnInherited(command, args, options = {}) {
-  return new Promise((resolve, reject) => {
-    const env = options.env || process.env;
-    const invocation = process.platform === "win32" && /\.(cmd|bat)$/i.test(command)
-      ? windowsBatchInvocation(command, args, env)
-      : { command, args };
-    const child = spawn(invocation.command, invocation.args, {
-      cwd: options.cwd || process.cwd(), env, stdio: "inherit", windowsHide: false,
-      windowsVerbatimArguments: invocation.windowsVerbatimArguments || false
-    });
-    try {
-      options.onSpawn?.(child);
-    } catch (error) {
-      child.once("error", () => {});
-      try {
-        child.kill();
-      } catch {
-        // The child may not have reached a running state.
-      }
-      reject(error);
-      return;
-    }
-    const forward = (signal) => {
-      try {
-        child.kill(signal);
-      } catch {
-        // The process may have exited between signal receipt and forwarding.
-      }
-    };
-    process.once("SIGINT", forward);
-    process.once("SIGTERM", forward);
-    child.once("error", reject);
-    child.once("exit", (code, signal) => {
-      process.removeListener("SIGINT", forward);
-      process.removeListener("SIGTERM", forward);
-      const signalNumber = signal ? os.constants.signals[signal] : null;
-      resolve(signal ? 128 + (signalNumber || 1) : (code ?? 1));
-    });
-  });
 }
 
 function managedCargoTargetOwners(config, target, cwd) {
