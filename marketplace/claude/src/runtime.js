@@ -13,6 +13,9 @@ import { environmentWithoutSessionRouting, normalizeSessionMode, SESSION_MODE_EN
 import { acquireWorkspaceLock, createLease, listWorkspaceRecords, recordWorkspace, workspaceRecord } from "./state.js";
 import { identifyWorkspace } from "./workspace.js";
 import { cargoInvocationCwd, resolveCargoWorkspace } from "./cargo-workspace.js";
+import { windowsBatchInvocation } from "./windows-command.js";
+
+export { windowsBatchInvocation };
 
 const RUNTIME_MARKER = ".clean-development-runtime.json";
 const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
@@ -588,42 +591,6 @@ export function resolveExecutable(executable, env, excludedDirectory) {
     }
   }
   return null;
-}
-
-function escapeCmd(value) {
-  return value.replace(/[()\[\]%!^"`<>&|;, *?]/g, (character) => `^${character}`);
-}
-
-function quoteWindowsArgument(value) {
-  // Quote for the Windows argv parser before protecting cmd.exe metacharacters.
-  let quoted = '"';
-  let backslashes = 0;
-  for (const character of String(value)) {
-    if (character === "\\") {
-      backslashes += 1;
-      continue;
-    }
-    quoted += "\\".repeat(character === '"' ? backslashes * 2 + 1 : backslashes) + character;
-    backslashes = 0;
-  }
-  return quoted + "\\".repeat(backslashes * 2) + '"';
-}
-
-export function windowsBatchInvocation(command, args, env) {
-  if ([command, ...args].some((value) => /[\r\n\0]/.test(String(value)))) {
-    throw new Error("Windows batch commands cannot contain newlines or NUL bytes");
-  }
-  const doubleEscape = /node_modules[\\/]\.bin[\\/][^\\/]+\.cmd$/i.test(command);
-  const escapedArgs = args.map((value) => {
-    const escaped = escapeCmd(quoteWindowsArgument(value));
-    return doubleEscape ? escapeCmd(escaped) : escaped;
-  });
-  const commandLine = [escapeCmd(path.win32.normalize(command)), ...escapedArgs].join(" ");
-  return {
-    command: environmentValue(env, "ComSpec") || "cmd.exe",
-    args: ["/d", "/v:off", "/s", "/c", `"${commandLine}"`],
-    windowsVerbatimArguments: true
-  };
 }
 
 export function spawnInherited(command, args, options = {}) {
