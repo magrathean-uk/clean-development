@@ -39,7 +39,7 @@ jobs:
         run: node --test test/windows-argv.test.js
       - name: Literal executable paths and variable expansion boundaries
         if: ${{ !cancelled() }}
-        run: node --test test/windows-command-path.test.js
+        run: node --test test/windows-command-path.test.js test/windows-command-token.test.js
       - name: Foreground child lifecycle and failed launch cleanup
         if: ${{ !cancelled() }}
         run: node --test test/process-runner.test.js

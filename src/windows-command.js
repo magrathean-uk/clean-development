@@ -28,7 +28,10 @@ export function windowsBatchInvocation(command, args, env) {
   // whether it lives under node_modules/.bin. Protect metacharacters through
   // both parses; the final native executable still receives ordinary argv.
   const escapedArgs = args.map((value) => escapeCmd(escapeCmd(quoteWindowsArgument(value))));
-  const commandLine = [escapeCmd(path.win32.normalize(command)), ...escapedArgs].join(" ");
+  // An unprotected equals sign also terminates the command token. Arguments
+  // already carry their own quotes; keep their established encoding unchanged.
+  const escapedCommand = escapeCmd(path.win32.normalize(command)).replace(/=/g, "^=");
+  const commandLine = [escapedCommand, ...escapedArgs].join(" ");
   return {
     command: environmentValue(env, "ComSpec") || "cmd.exe",
     args: ["/d", "/v:off", "/s", "/c", `"${commandLine}"`],
