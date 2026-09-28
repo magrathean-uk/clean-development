@@ -176,6 +176,10 @@ function ensureManagedBase(directory) {
   if (!fs.existsSync(parent) || !fs.lstatSync(parent).isDirectory()) {
     throw new Error(`Parent directory is unavailable for ${directory}. Mount or create ${parent} first.`);
   }
+  // Reject changed ancestors before mkdir can follow them into the project.
+  if (fs.realpathSync.native(parent) !== path.resolve(parent)) {
+    throw new Error(`Managed path is not a real directory: ${parent}`);
+  }
   try {
     fs.mkdirSync(directory);
   } catch (error) {

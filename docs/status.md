@@ -32,9 +32,16 @@ entire request, not per workspace. Workspace sizes are observed before aggregate
 root sizes. Repeated exact roots reuse the same observation. Overlapping but
 non-identical roots can consume the budget twice and their results must not be
 summed. Scan limits require `--sizes` or `--build-budget`; zero performs no traversal.
-A time budget is checked between filesystem calls and cannot cancel a stalled
-filesystem syscall. Output order is stable; which entries an interrupted directory
-scan observes depends on filesystem enumeration order.
+The shared time budget is checked before each scanner filesystem read, including
+identity and canonical-path rechecks. Once it expires, only already-open directory
+handles are closed; no further metadata reads start, including for later roots.
+A final read, recheck or close that reaches the deadline makes the observation
+partial with a `time-limit` issue, even when enumeration has reached its end.
+Already observed bytes remain visible. Legacy totals that depend on a partial
+observation stay `null`; an affected advisory budget stays `unknown`. A stalled
+filesystem syscall or required handle close cannot be cancelled, so this is not a
+hard wall-clock timeout. Output order is stable; which entries an interrupted
+directory scan observes depends on filesystem enumeration order.
 
 The scanner reads metadata, never regular-file contents. It rejects noncanonical
 or symlink roots, skips descendant symlinks and special files, and skips descendants

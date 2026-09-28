@@ -16,7 +16,8 @@ export function createSizeScanner({ maxEntries = DEFAULT_SCAN_LIMITS.maxEntries,
   }
   const started = performance.now();
   let visited = 0;
-  const exhausted = () => visited >= maxEntries ? "entry-limit" : performance.now() - started >= maxDurationMs ? "time-limit" : null;
+  const timeExpired = () => performance.now() - started >= maxDurationMs;
+  const exhausted = () => visited >= maxEntries ? "entry-limit" : timeExpired() ? "time-limit" : null;
   const cached = new Map();
 
   function measure(root) {
@@ -30,13 +31,21 @@ export function createSizeScanner({ maxEntries = DEFAULT_SCAN_LIMITS.maxEntries,
     let allocated = 0n;
     let allocationKnown = process.platform !== "win32";
     const seen = new Set();
+    const timeLimitError = Symbol("time-limit");
+    let timeLimitReported = false;
+    const checkTime = () => { if (timeExpired()) throw timeLimitError; };
+    const canonical = (file) => { checkTime(); return fs.realpathSync.native(file); };
     const issue = (code, file = resolved) => {
       result.status = "partial";
       result.issueCount += 1;
+      if (code === "time-limit") timeLimitReported = true;
       if (result.issues.length < MAX_ISSUES) result.issues.push({ code, path: path.relative(resolved, file) || "." });
     };
-    const errorCode = (error) => typeof error.code === "string" && /^[A-Z0-9_]+$/.test(error.code) ? error.code : "io-error";
+    const errorCode = (error) => error === timeLimitError ? "time-limit"
+      : typeof error.code === "string" && /^[A-Z0-9_]+$/.test(error.code) ? error.code : "io-error";
     const finish = () => {
+      // The final validation or handle close can itself use up the deadline.
+      if (!timeLimitReported && ["complete", "partial"].includes(result.status) && timeExpired()) issue("time-limit");
       if (logical > BigInt(Number.MAX_SAFE_INTEGER)) { issue("logical-size-overflow"); result.logicalBytes = null; }
       else result.logicalBytes = Number(logical);
       if (allocationKnown && allocated <= BigInt(Number.MAX_SAFE_INTEGER)) result.allocatedBytes = Number(allocated);
@@ -53,19 +62,23 @@ export function createSizeScanner({ maxEntries = DEFAULT_SCAN_LIMITS.maxEntries,
     if (noBudget) { issue(noBudget); return finish(); }
     let rootStat;
     try {
+      checkTime();
       rootStat = fs.lstatSync(resolved, { bigint: true });
-      if (!rootStat.isDirectory() || rootStat.isSymbolicLink() || fs.realpathSync.native(resolved) !== resolved) {
+      if (!rootStat.isDirectory() || rootStat.isSymbolicLink() || canonical(resolved) !== resolved) {
         issue("unsafe-root"); result.status = "unsafe"; return finish();
       }
     } catch (error) {
-      issue(errorCode(error)); result.status = error.code === "ENOENT" ? "missing" : "unavailable"; return finish();
+      issue(errorCode(error));
+      if (error !== timeLimitError) result.status = error.code === "ENOENT" ? "missing" : "unavailable";
+      return finish();
     }
     const pending = [{ file: resolved, stat: rootStat }];
     // Validate both the leaf identity and the entire canonical directory path.
     const validate = ({ file, stat }) => {
+      checkTime();
       const current = fs.lstatSync(file, { bigint: true });
       if (!current.isDirectory() || current.isSymbolicLink() || !sameIdentity(current, stat)
-        || fs.realpathSync.native(file) !== file) throw Object.assign(new Error("directory changed"), { code: "DIRECTORY_CHANGED" });
+        || canonical(file) !== file) throw Object.assign(new Error("directory changed"), { code: "DIRECTORY_CHANGED" });
       return current;
     };
     while (pending.length) {
@@ -75,6 +88,7 @@ export function createSizeScanner({ maxEntries = DEFAULT_SCAN_LIMITS.maxEntries,
       let directory;
       try {
         validate(item);
+        checkTime();
         directory = fs.opendirSync(item.file, { bufferSize: 32 });
         validate(item);
         result.directories += 1;
@@ -89,8 +103,12 @@ export function createSizeScanner({ maxEntries = DEFAULT_SCAN_LIMITS.maxEntries,
           let stat;
           validate(item);
           try {
+            checkTime();
             stat = fs.lstatSync(target, { bigint: true });
-          } catch (error) { issue(errorCode(error), target); continue; }
+          } catch (error) {
+            if (error === timeLimitError) throw error;
+            issue(errorCode(error), target); continue;
+          }
           validate(item);
           if (stat.isSymbolicLink()) { result.symlinksSkipped += 1; continue; }
           if (stat.dev !== rootStat.dev) { issue("different-device", target); continue; }
@@ -107,17 +125,23 @@ export function createSizeScanner({ maxEntries = DEFAULT_SCAN_LIMITS.maxEntries,
           if (typeof stat.blocks === "bigint" && stat.blocks >= 0n) allocated += stat.blocks * 512n;
           else allocationKnown = false;
         }
+        if (timeLimitReported) break;
         const after = validate(item);
         if (after.mtimeNs !== item.stat.mtimeNs || after.ctimeNs !== item.stat.ctimeNs) issue("directory-changed-during-scan", item.file);
-      } catch (error) { issue(errorCode(error), item.file); }
-      finally {
+      } catch (error) {
+        issue(errorCode(error), item.file);
+        if (error === timeLimitError) break;
+      } finally {
         if (directory) {
+          // Cleanup must still run after the deadline; no further reads may start.
           try { directory.closeSync(); } catch (error) { issue(errorCode(error), item.file); }
         }
       }
     }
-    try { validate({ file: resolved, stat: rootStat }); }
-    catch (error) { issue(errorCode(error)); }
+    if (!timeLimitReported) {
+      try { validate({ file: resolved, stat: rootStat }); }
+      catch (error) { issue(errorCode(error)); }
+    }
     return finish();
   }
   return { measure, limits: { maxEntries, maxDurationMs } };

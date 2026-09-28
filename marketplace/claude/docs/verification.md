@@ -51,6 +51,20 @@ Additional checks have different prerequisites and side effects:
 
 See [contributing](https://github.com/magrathean-uk/clean-development/blob/main/CONTRIBUTING.md), [the fixture lab](https://github.com/magrathean-uk/clean-development/blob/main/test/lab/README.md), and [releasing](https://github.com/magrathean-uk/clean-development/blob/main/RELEASING.md). External plugin validators are optional, separately installed tooling; they are not npm scripts in this repository.
 
+## Installed-launcher package regression
+
+The package gate requires `bin/clean-development-shim.js` in the tarball. After both an upgrade and a fresh setup, it executes the managed CLI's `--version` and the managed Cargo shim against a disposable fake tool. The shim must actually reach that tool with session-only routing and the expected managed root; a successful setup receipt or an existing launcher file is not sufficient.
+
+Run the verifier regression independently with:
+
+```sh
+node --test test/package-verification.test.js
+```
+
+Its disposable repository creates a **synthetic** `v0.2.0` tag solely to exercise the verifier offline. It covers a complete package, a nested `.npmignore` that excludes the shim, and an included shim that exits unsuccessfully. This is verification-harness evidence, not compatibility evidence for the genuine `v0.2.0` release. The fixture does not create or replace tags in the working checkout. Its direct npm/shell execution is POSIX-only; a skipped native-Windows run is not a pass.
+
+`npm run test:package` still requires the genuine preceding-release tag. A source ZIP without Git history cannot complete that check: record the missing tag as a limitation, fetch the real tag, and rerun before claiming release-upgrade coverage. Neither the synthetic regression nor an installed-package check establishes npm publication or live-agent acceptance.
+
 ## Remaining acceptance
 
 - Native Windows execution and real concurrent worktrees.

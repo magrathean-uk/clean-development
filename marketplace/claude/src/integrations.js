@@ -417,16 +417,26 @@ function removeTomlBlockText(original, entry, binDir) {
     return { content: original, removed: false };
   }
   const sourceLines = original.split(/(?<=\n)/);
+  // Markers are comments, not TOML scope boundaries. A later user setting
+  // still belongs to the last table introduced by this block, so retain that
+  // header (and its separator) when it is shared with unowned settings.
+  const followingSyntax = lines.slice(finishes[0] + 1).find((line) => line.trim() && !line.trimStart().startsWith("#"));
+  let retainedHeader = "";
+  if (followingSyntax && !followingSyntax.trimStart().startsWith("[")) {
+    for (let index = starts[0] + 1; index < finishes[0]; index += 1) {
+      if (lines[index].startsWith("[")) retainedHeader = sourceLines[index];
+    }
+  }
   const start = sourceLines.slice(0, starts[0]).join("").length;
   const finish = sourceLines.slice(0, finishes[0]).join("").length;
   let before = start;
-  if (leadingSeparator && original.slice(start - leadingSeparator.length, start) === leadingSeparator) {
+  if (!retainedHeader && leadingSeparator && original.slice(start - leadingSeparator.length, start) === leadingSeparator) {
     before -= leadingSeparator.length;
   }
   let after = finish + end.length;
   if (original.startsWith("\r\n", after)) after += 2;
   else if (original.startsWith("\n", after)) after += 1;
-  const content = `${original.slice(0, before)}${original.slice(after)}`;
+  const content = `${original.slice(0, before)}${retainedHeader}${original.slice(after)}`;
   return { content, removed: true };
 }
 
