@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { readTextMetadata } from "./io.js";
 
 export const MANIFESTS = {
   cargo: ["Cargo.toml"],
@@ -63,7 +64,7 @@ function nearestProjectRoot(start, home = os.homedir()) {
 
 function packageManagerFromManifest(file) {
   try {
-    const value = JSON.parse(fs.readFileSync(file, "utf8")).packageManager;
+    const value = JSON.parse(readTextMetadata(file)).packageManager;
     if (typeof value !== "string") return null;
     const name = value.split("@")[0];
     return ["npm", "pnpm", "yarn", "bun"].includes(name) ? name : null;
@@ -184,7 +185,7 @@ function findRoot(start, patterns) {
 
 function isCargoWorkspaceManifest(file) {
   try {
-    return /^\s*\[workspace\]\s*(?:#.*)?$/m.test(fs.readFileSync(file, "utf8"));
+    return /^\s*\[workspace\]\s*(?:#.*)?$/m.test(readTextMetadata(file));
   } catch {
     return false;
   }

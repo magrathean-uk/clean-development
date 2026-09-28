@@ -1,0 +1,200 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUTC": "2026-09-27T20:48:15.094021+00:00",
+  "base": {
+    "commit": "af12577c6596095fdf91f18e840e9433521ea3d2",
+    "tree": "998605cda006d588e9562cabe1eee6c78c2f3a59",
+    "source": "Complete archive tree verified against GitHub; local import history is synthetic."
+  },
+  "platform": {
+    "node": "v22.16.0",
+    "platform": "linux",
+    "arch": "x64",
+    "kernel": "6.18.44",
+    "npm": "10.9.2"
+  },
+  "baseline": {
+    "report": "baseline-published.json",
+    "reportSha256": "4c1c2d4bb1013ee08968b56db5c40d9df32033175fb2031364361f34ec8d4d0e",
+    "seed": 1129071950,
+    "completed": 136,
+    "passed": 117,
+    "failed": 19,
+    "skipped": 0,
+    "complete": true,
+    "violationCounts": {
+      "unexpected-configuration-change": 1,
+      "secret-disclosure": 7,
+      "timeout": 11
+    },
+    "reductions": [
+      {
+        "signature": "unexpected-configuration-change",
+        "input": {
+          "id": "claude-nonfinite",
+          "boundary": "integration",
+          "slot": "claude",
+          "payload": "{\"\":1e999}",
+          "policy": "setup",
+          "argv": [
+            "setup",
+            "--agents",
+            "claude"
+          ]
+        },
+        "attempts": 30,
+        "budgetExhausted": false
+      },
+      {
+        "signature": "secret-disclosure",
+        "input": {
+          "id": "json-content-disclosure",
+          "boundary": "project",
+          "slot": "project",
+          "payload": "FUZZ_CANARY",
+          "argv": [
+            "status"
+          ]
+        },
+        "attempts": 38,
+        "budgetExhausted": false
+      },
+      {
+        "signature": "timeout",
+        "input": {
+          "id": "config-fifo",
+          "boundary": "project",
+          "slot": "project",
+          "topology": "fifo",
+          "argv": [
+            "status"
+          ]
+        },
+        "attempts": 3,
+        "budgetExhausted": false
+      }
+    ]
+  },
+  "fixed": {
+    "executions": 1560,
+    "generatedExecutions": 1536,
+    "repeatedRegressionExecutions": 24,
+    "passed": 1560,
+    "failed": 0,
+    "skipped": 0,
+    "caseCountsByBoundary": {
+      "argv": 192,
+      "environment": 192,
+      "project": 198,
+      "manifest": 198,
+      "state": 192,
+      "marker": 192,
+      "receipt": 192,
+      "integration": 204
+    },
+    "runs": [
+      {
+        "seed": 1129071950,
+        "seedHex": "0x434c454e",
+        "report": "published-0x434c454e.json",
+        "reportSha256": "e1b7487db3dcfd1c494114abcccf68c862f2b69dd3b3325fa44787e459dc7e76",
+        "completed": 520,
+        "passed": 520,
+        "failed": 0,
+        "skipped": 0,
+        "complete": true,
+        "elapsedMs": 48320,
+        "limits": {
+          "timeoutMs": 2500,
+          "outputBytes": 131072,
+          "entries": 2048,
+          "fileBytes": 4194304,
+          "totalBytes": 33554432,
+          "budgetMs": 180000,
+          "reductions": 32
+        }
+      },
+      {
+        "seed": 1592598566,
+        "seedHex": "0x5eed2026",
+        "report": "published-0x5eed2026.json",
+        "reportSha256": "8a4d5d6db80a2cba2ccda3bbba76b6b3a9182b005ab69b0570a0468280982a46",
+        "completed": 520,
+        "passed": 520,
+        "failed": 0,
+        "skipped": 0,
+        "complete": true,
+        "elapsedMs": 43122,
+        "limits": {
+          "timeoutMs": 2500,
+          "outputBytes": 131072,
+          "entries": 2048,
+          "fileBytes": 4194304,
+          "totalBytes": 33554432,
+          "budgetMs": 180000,
+          "reductions": 32
+        }
+      },
+      {
+        "seed": 12648430,
+        "seedHex": "0xc0ffee",
+        "report": "published-0xc0ffee.json",
+        "reportSha256": "1883848a072f48535d0dd970ea5d04544cc2a8563b44bdf864061f3e0e4bc8e7",
+        "completed": 520,
+        "passed": 520,
+        "failed": 0,
+        "skipped": 0,
+        "complete": true,
+        "elapsedMs": 42669,
+        "limits": {
+          "timeoutMs": 2500,
+          "outputBytes": 131072,
+          "entries": 2048,
+          "fileBytes": 4194304,
+          "totalBytes": 33554432,
+          "budgetMs": 180000,
+          "reductions": 32
+        }
+      }
+    ]
+  },
+  "validation": {
+    "focused": {
+      "command": "node --test test/fuzz-boundaries.test.js test/metadata-read.test.js test/bounded-leases.test.js",
+      "passed": 53,
+      "failed": 0,
+      "skipped": 0,
+      "logSha256": "0cc22f7fd3376729a299680f2edac4f043d5c17a6f7faa409f59e14244994b97"
+    },
+    "check": {
+      "command": "npm run check",
+      "exitCode": 0,
+      "javaScriptFiles": 41,
+      "synchronisedVersionFiles": 14,
+      "logSha256": "93658fe902b537e7574d215fa15ecd09c98fe2c4d9d1524c0f228bc87ccebfe9"
+    },
+    "fullSuite": {
+      "command": "npm test",
+      "tests": 431,
+      "passed": 404,
+      "failed": 0,
+      "skipped": 27,
+      "skipReasons": {
+        "nativeWindows": 26,
+        "unavailableCargo": 1
+      },
+      "logSha256": "3e316056e2527467e5e154821d2cfc53202e7ceb30e0a7756f05d771c5fd2ecd"
+    }
+  },
+  "acceptanceBoundary": {
+    "notCoverageGuided": true,
+    "notOSContainment": true,
+    "nativeWindowsMacOS": false,
+    "liveAgentHosts": false,
+    "realCompilerBuilds": false,
+    "packageUpgradeGate": false,
+    "uninstallReceiptFuzzing": "read-only planning",
+    "pruneFuzzing": "intentionally ineligible paired evidence",
+    "globalSecurityProof": false
+  }
+}

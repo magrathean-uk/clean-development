@@ -5,6 +5,7 @@ import { environmentForTool } from "./adapters.js";
 import { writeProjectConfig } from "./config.js";
 import { CONFIG_FILE } from "./constants.js";
 import { canonicalizePotentialPath, environmentValue, prependUniquePath, setEnvironmentValue } from "./platform.js";
+import { readTextMetadata } from "./io.js";
 import { detectStack } from "./workspace.js";
 import { repositoryManagedPaths } from "./routing-context.js";
 import { recordInjectedEnvironment, removeInjectedEnvironment, SESSION_ENV_MARKER } from "./routing-environment.js";
@@ -47,7 +48,7 @@ function inspectProjectConfig(file) {
   if (!stat.isFile() || stat.isSymbolicLink()) {
     return { path: file, status: "blocked", reason: "project configuration is not a real file", parentRealpath, parentIdentity };
   }
-  const contents = fs.readFileSync(file, "utf8");
+  const contents = readTextMetadata(file);
   return { path: file, status: "existing", sha256: sha256(contents), parentRealpath, parentIdentity };
 }
 
