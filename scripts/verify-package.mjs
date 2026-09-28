@@ -46,6 +46,26 @@ function sessionChild(binary, mode, cwd, env) {
   return runJson(binary, ["run", "--session", mode, "--", "cargo"], { cwd, env });
 }
 
+function verifyInstalledLaunchers(launcher, cwd, env) {
+  assert.equal(run(launcher, ["--version"], { cwd, env }).stdout.trim(), packageJson.version);
+  const binDir = path.dirname(launcher);
+  const shim = path.join(binDir, process.platform === "win32" ? "cargo.cmd" : "cargo");
+  const routed = runJson(shim, [], {
+    cwd,
+    env: {
+      ...env,
+      PATH: `${binDir}${path.delimiter}${env.PATH || ""}`,
+      CLEAN_DEVELOPMENT_SESSION_MODE: "session-only"
+    }
+  });
+  const managed = fs.realpathSync.native(env.CLEAN_DEVELOPMENT_ROOT);
+  assert.equal(routed.CLEAN_DEVELOPMENT_SESSION_MODE, "session-only");
+  assert.equal(routed.CLEAN_DEVELOPMENT_ACTIVE, "1");
+  assert.equal(routed.CLEAN_DEVELOPMENT_RESOLVED_ROOT, managed);
+  assert.ok(routed.CLEAN_DEVELOPMENT_WORKSPACE_ID);
+  assert.ok(routed.CARGO_TARGET_DIR.startsWith(`${path.join(managed, "builds")}${path.sep}`));
+}
+
 try {
   const previousTag = spawnSync("git", ["rev-parse", "--verify", `${previousRelease}^{commit}`], {
     cwd: root,
@@ -71,6 +91,7 @@ try {
     ".opencode/plugins/clean-development.js",
     ".pi/extensions/clean-development.ts",
     "bin/clean-development.js",
+    "bin/clean-development-shim.js",
     "claude-skills/clean-development/SKILL.md",
     "docs/audit-2026-09-18.md",
     "docs/agent-integrations.md",
@@ -224,7 +245,7 @@ try {
   assert.equal(status.runtime.version, packageJson.version);
   assert.equal(status.runtime.status, "installed");
   const launcher = path.join(lifecycleEnv.CLEAN_DEVELOPMENT_DATA_HOME, "bin", process.platform === "win32" ? "clean-development.cmd" : "clean-development");
-  assert.equal(fs.existsSync(launcher), true);
+  verifyInstalledLaunchers(launcher, project, lifecycleEnv);
   const uninstalled = runJson(binary, ["uninstall", "--json"], { cwd: temporary, env: lifecycleEnv });
   assert.equal(uninstalled.dryRun, false);
   assert.equal(uninstalled.runtime.retained.length, 0);
@@ -247,7 +268,7 @@ try {
   assert.equal(currentStatus.runtime.version, packageJson.version);
   assert.equal(currentStatus.runtime.status, "installed");
   const currentLauncher = path.join(currentLifecycleEnv.CLEAN_DEVELOPMENT_DATA_HOME, "bin", process.platform === "win32" ? "clean-development.cmd" : "clean-development");
-  assert.equal(fs.existsSync(currentLauncher), true);
+  verifyInstalledLaunchers(currentLauncher, project, currentLifecycleEnv);
   const currentUninstalled = runJson(binary, ["uninstall", "--json"], { cwd: temporary, env: currentLifecycleEnv });
   assert.equal(currentUninstalled.runtime.retained.length, 0);
   assert.equal(fs.existsSync(currentLauncher), false);
