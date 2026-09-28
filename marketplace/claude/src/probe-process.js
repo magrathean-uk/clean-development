@@ -99,8 +99,17 @@ export function captureProbeCommand(command, args, { cwd, env, timeoutMs = 5000,
     child.once("close", (code) => {
       closed = true;
       if (stopping) return;
-      if (code === 0) finish(null);
-      else finish("command-failed");
+      // Close proves only that the direct child and its output pipes stopped.
+      // Ordinary descendants can ignore those pipes and still use the fixture.
+      // Inspect the POSIX group without signalling a potentially reused PID;
+      // only ESRCH proves absence. Permission or other lookup errors fail closed.
+      let cleanupComplete = true;
+      if (platform !== "win32" && child.pid) {
+        cleanupComplete = false;
+        try { process.kill(-child.pid, 0); }
+        catch (error) { cleanupComplete = error.code === "ESRCH"; }
+      }
+      finish(code === 0 ? null : "command-failed", cleanupComplete);
     });
     timer = setTimeout(() => stop("timeout"), timeoutMs);
     process.once("SIGINT", interruptInt); process.once("SIGTERM", interruptTerm);

@@ -68,6 +68,16 @@ cleanup succeeded. A temporary directory is removed only if its root identity st
 matches the directory created by the probe. A replaced or undeletable root is
 retained as a failure with its path for manual inspection.
 
+On POSIX, an ordinary command closing its output pipes is not enough: descendants
+can ignore those pipes and keep using the fixture. A non-signalling process-group
+existence check must confirm absence before that completion permits deletion.
+A remaining group or a lookup error retains the fixture; a successful native exit
+then reports `cleanup-uncertain`. The native exit code and captured output remain
+unchanged. An uncertain path query does not launch the version query. No late
+termination signal is sent to a reaped child's potentially reused PID or group.
+This check cannot account for descendants that escape the original process group;
+Windows process-tree behaviour is unchanged.
+
 These are native offline controls and best-effort process cleanup, **not** a network,
 process or filesystem sandbox. A selected executable or shim must be trusted. A
 hostile descendant can escape a POSIX group; Windows cleanup depends on OS process
