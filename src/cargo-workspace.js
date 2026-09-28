@@ -19,8 +19,12 @@ function manifestContext(args, cwd) {
     if (!value || value === "--") throw new Error(`Cargo ${name} requires a value`);
     if (["-C", "--manifest-path"].includes(name) && seen.has(name)) throw new Error(`Cargo ${name} was provided more than once`);
     seen.add(name);
-    if (name === "-C") base = path.resolve(cwd, value);
-    else if (name === "--manifest-path") manifest = value;
+    if (name === "-C") {
+      base = path.resolve(cwd, value);
+      // Keep rustup/wrapper selection at the child's launch cwd. Cargo itself
+      // must apply -C after the toolchain has been selected.
+      forwarded.push("-C", value);
+    } else if (name === "--manifest-path") manifest = value;
     else configuration.push(name, value);
   }
   return { base, manifest: manifest ? path.resolve(base, manifest) : null, forwarded, configuration };
@@ -69,7 +73,7 @@ export function resolveCargoWorkspace(args, { executable, cwd = process.cwd(), e
   setEnvironmentValue(discoveryEnv, "RUSTUP_AUTO_INSTALL", "0");
   const prepared = invocation(executable, argv, discoveryEnv);
   const result = invoke(prepared.command, prepared.args, {
-    cwd: context.base, env: discoveryEnv, encoding: "utf8", timeout: 5000,
+    cwd, env: discoveryEnv, encoding: "utf8", timeout: 5000,
     killSignal: "SIGKILL", maxBuffer: 65536, windowsHide: true,
     windowsVerbatimArguments: prepared.windowsVerbatimArguments || false
   });

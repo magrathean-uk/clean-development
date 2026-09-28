@@ -38,8 +38,8 @@ test("Cargo discovery forwards selection context, stays offline and does not mut
   const env = { ...item.env, CARGO_NET_OFFLINE: "false", RUSTUP_AUTO_INSTALL: "1" };
   const result = resolveCargoWorkspace(args, { executable: "cargo", cwd: item.root, env, invoke(command, argv, options) {
     assert.equal(command, "cargo");
-    assert.deepEqual(argv, ["+nightly", "locate-project", "--workspace", "--message-format=json", "--manifest-path", path.join(item.member, "Cargo.toml"), "-Z", "unstable-options", "--config", "net.retry=0"]);
-    assert.equal(options.cwd, item.member);
+    assert.deepEqual(argv, ["+nightly", "-C", "workspace/member", "locate-project", "--workspace", "--message-format=json", "--manifest-path", path.join(item.member, "Cargo.toml"), "-Z", "unstable-options", "--config", "net.retry=0"]);
+    assert.equal(options.cwd, item.root);
     assert.equal(options.env.CARGO_NET_OFFLINE, "true");
     assert.equal(options.env.RUSTUP_AUTO_INSTALL, "0");
     assert.equal(options.timeout, 5000);
@@ -182,4 +182,80 @@ test("Cargo -C applies to relative target ownership checks before execution", { 
   assert.equal(fs.existsSync(env.CAPTURE), false);
   assert.equal(fs.existsSync(target), false);
   assert.deepEqual(listWorkspaceRecords(item.config), []);
+});
+
+test("Cargo -C discovery preserves the launch cwd and forwards the directory before the subcommand", (t) => {
+  const item = fixture(t);
+  const directory = path.join(item.root, "selected workspace [ü] = target");
+  fs.mkdirSync(directory);
+  fs.writeFileSync(path.join(directory, "Cargo.toml"), "[workspace]\nmembers=[]\n");
+  const relative = path.relative(item.member, directory);
+  for (const option of [["-C", relative], [`-C${relative}`], [`-C=${relative}`]]) {
+    const args = ["+nightly", ...option, "-Zunstable-options", "test", "--manifest-path=Cargo.toml", "--", "-C", "ignored"];
+    const result = resolveCargoWorkspace(args, {
+      executable: "cargo", cwd: item.member, env: item.env,
+      invoke(command, argv, options) {
+        assert.equal(command, "cargo");
+        assert.equal(options.cwd, item.member);
+        assert.deepEqual(argv, ["+nightly", "-C", relative, "locate-project", "--workspace", "--message-format=json",
+          "--manifest-path", path.join(directory, "Cargo.toml"), "-Z", "unstable-options"]);
+        return { status: 0, stdout: JSON.stringify({ root: path.join(directory, "Cargo.toml") }) };
+      }
+    });
+    assert.equal(result.root, directory);
+    assert.equal(fs.existsSync(item.config.locations.stateDir), false);
+    assert.equal(fs.existsSync(item.config.buildRoot), false);
+  }
+});
+
+test("Cargo -C ownership discovery and the child use the same toolchain-selection cwd", { skip: process.platform === "win32" }, async (t) => {
+  const item = fixture(t);
+  const caller = path.join(item.root, "caller");
+  const project = path.join(item.root, "selected workspace [ü] = target");
+  for (const directory of [caller, project]) fs.mkdirSync(directory);
+  fs.writeFileSync(path.join(caller, "rust-toolchain"), "caller-nightly\n");
+  fs.writeFileSync(path.join(project, "rust-toolchain"), "destination-stable\n");
+  fs.writeFileSync(path.join(project, "Cargo.toml"), "[workspace]\nmembers=[]\n");
+  const env = { ...fakeCargo(item), QUERY_ROOT: path.join(project, "Cargo.toml"),
+    DISCOVERY_CAPTURE: path.join(item.root, "discovery.json") };
+  delete env.RUSTUP_TOOLCHAIN;
+  // A disposable proxy models rustup's selection BEFORE Cargo handles -C.
+  // No real toolchain is installed, changed or downloaded by this fixture.
+  fs.writeFileSync(path.join(env.PATH, "cargo"), `#!${process.execPath}
+const fs = require('node:fs');
+const args = process.argv.slice(2);
+const toolchain = args[0]?.startsWith('+') ? args[0].slice(1)
+  : process.env.RUSTUP_TOOLCHAIN || fs.readFileSync('rust-toolchain', 'utf8').trim();
+const discovery = args.includes('locate-project');
+fs.writeFileSync(discovery ? process.env.DISCOVERY_CAPTURE : process.env.CAPTURE,
+  JSON.stringify({cwd:process.cwd(), toolchain, args, target:process.env.CARGO_TARGET_DIR,
+    workspace:process.env.CLEAN_DEVELOPMENT_WORKSPACE_ID}));
+if (discovery) process.stdout.write(JSON.stringify({root:process.env.QUERY_ROOT}));
+`);
+  for (const directory of [item.config.cacheRoot, item.config.buildRoot, item.config.scratchRoot]) fs.mkdirSync(directory, { recursive: true });
+  const relative = path.relative(caller, project);
+  for (const [prefix, override, expected] of [
+    [[], null, "caller-nightly"],
+    [[], "environment-nightly", "environment-nightly"],
+    [["+explicit-nightly"], "environment-nightly", "explicit-nightly"]
+  ]) {
+    const args = [...prefix, "-C", relative, "-Zunstable-options", "check", "--manifest-path", "Cargo.toml"];
+    const childEnv = override ? { ...env, RUSTUP_TOOLCHAIN: override } : env;
+    assert.equal(await runTool("cargo", args, { config: item.config, cwd: caller, env: childEnv }), 0);
+    const discovery = JSON.parse(fs.readFileSync(env.DISCOVERY_CAPTURE, "utf8"));
+    const child = JSON.parse(fs.readFileSync(env.CAPTURE, "utf8"));
+    assert.equal(child.toolchain, expected);
+    assert.equal(discovery.toolchain, child.toolchain);
+    assert.equal(discovery.cwd, caller);
+    assert.equal(child.cwd, caller);
+    assert.deepEqual(child.args, args);
+    const identity = identifyWorkspace("cargo", [], project, { root: project });
+    assert.equal(child.workspace, identity.id);
+    assert.equal(child.target, path.join(item.config.buildRoot, identity.id, "cargo", "target"));
+    const records = listWorkspaceRecords(item.config);
+    assert.equal(records.length, 1);
+    assert.equal(records[0].value.workspace, project);
+    assert.equal(records[0].value.workspaceId, identity.id);
+    assert.equal(activeWorkspaceIds(item.config).size, 0);
+  }
 });

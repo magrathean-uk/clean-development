@@ -17,6 +17,15 @@ explicit `+toolchain`, manifest path, `-C` working directory, and `--config` / `
 options. Arguments after `--` are not interpreted. The user's actual command and
 arguments are passed unchanged to the eventual child.
 
+Discovery starts in the same launch cwd as the eventual child. It forwards `-C`
+before `locate-project` rather than changing the subprocess cwd itself: rustup
+selects a toolchain before Cargo applies `-C`. The selection precedence remains
+an explicit `+toolchain`, then `RUSTUP_TOOLCHAIN`, then rustup's directory/file
+and default rules from the launch cwd. A toolchain file at the `-C` destination
+must not replace the caller's selected toolchain for ownership discovery.
+Relative manifest and Cargo configuration paths still use Cargo's `-C` context;
+the child's original argv and launch cwd remain unchanged.
+
 The discovery subprocess has a five-second timeout and a 64 KiB output limit.
 `CARGO_NET_OFFLINE=true` and `RUSTUP_AUTO_INSTALL=0` apply only to discovery, not to
 the build. There is no dependency-resolution command, model call, persistent
@@ -36,3 +45,5 @@ to the records they protect. No stable cross-platform acceptance is implied by
 unit tests; the real-Cargo fixture test reports a skip when Cargo is unavailable.
 
 Reference: https://doc.rust-lang.org/cargo/commands/cargo-locate-project.html
+
+Toolchain selection: https://rust-lang.github.io/rustup/overrides.html
