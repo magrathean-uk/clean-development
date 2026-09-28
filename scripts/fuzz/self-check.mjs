@@ -10,7 +10,8 @@ switch (process.argv[2]) {
   case 'promise': await fs.promises.writeFile(path.join(root, 'protected/secret'), 'bad'); break;
   case 'child': spawnSync('canary'); break;
   case 'crash': throw new Error('Deliberate uncaught control');
-  case 'leak': console.log(process.env.FUZZ_SECRET); break;
+  // Synthetic canary only: proves the output-disclosure oracle fires.
+  case 'leak': console.log(process.env.FUZZ_CANARY); break;
   case 'hang': setInterval(() => {}, 1000); break;
   default: throw new Error('Unknown oracle control');
 }

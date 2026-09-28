@@ -40,7 +40,8 @@ for (const stem of ['appendFile', 'writeFile', 'unlink', 'rm', 'rmdir', 'mkdir',
   for (const api of [stem, `${stem}Sync`]) {
     if (typeof fs[api] !== 'function') continue;
     const original = fs[api];
-    fs[api] = (...args) => { mutation(api, (targets[stem] || [0]).map(i => args[i])); return original(...args); };
+    // writeFile/appendFile/truncate also accept a descriptor; attribute it to its opened path.
+    fs[api] = (...args) => { mutation(api, (targets[stem] || [0]).map(i => typeof args[i] === 'number' ? fds.get(args[i]) ?? args[i] : args[i])); return original(...args); };
   }
   if (typeof fs.promises[stem] === 'function') {
     const original = fs.promises[stem].bind(fs.promises);

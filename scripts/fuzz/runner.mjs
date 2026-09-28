@@ -42,7 +42,7 @@ export function isolatedEnvironment(root) {
     APPDATA: path.join(root, 'xdg/config'), LOCALAPPDATA: path.join(root, 'xdg/data'),
     TMPDIR: path.join(root, 'tmp'), TEMP: path.join(root, 'tmp'), TMP: path.join(root, 'tmp'),
     CLAUDE_CONFIG_DIR: path.join(root, 'home/.claude'), CODEX_HOME: path.join(root, 'home/.codex'), GROK_HOME: path.join(root, 'home/.grok'),
-    PATH: path.join(root, 'tools'), CI: '1', NO_COLOR: '1', LANG: 'C.UTF-8', FUZZ_SECRET: SECRET,
+    PATH: path.join(root, 'tools'), CI: '1', NO_COLOR: '1', LANG: 'C.UTF-8', FUZZ_CANARY: SECRET,
     ...(process.platform === 'win32' ? { SystemRoot: process.env.SystemRoot, ComSpec: process.env.ComSpec } : {}),
   };
 }

@@ -149,7 +149,7 @@ test("Grok table scope survives a later setup failure and an update retry", { sk
   fs.mkdirSync(blockedFile, { recursive: true });
   const failed = run(["setup", "--agents", "grok,codex", "--json"], item.env);
   assert.equal(failed.status, 1);
-  assert.match(failed.stderr, /EISDIR|illegal operation on a directory/i);
+  assert.match(failed.stderr, /EISDIR|illegal operation on a directory|Metadata must be a regular file/i);
   const receiptFile = path.join(item.temporary, "data", "state", "integrations.json");
   const receipt = JSON.parse(fs.readFileSync(receiptFile, "utf8"));
   assert.deepEqual(receipt.integrations.map(({ agent }) => agent), ["grok"]);
