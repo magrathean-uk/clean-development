@@ -138,3 +138,21 @@ overrides non-empty values. To opt into routing from an npm-injected environment
 unset its cache variable or deliberately use force mode. Older shared-cache
 values without provenance are treated as explicit; older Cargo markers remain
 recognised. The marker authorises no file creation or deletion by itself.
+
+## Opt-in SwiftPM
+
+SwiftPM is disabled by default (`tools.swift: false`). Set `tools.swift: true` for
+command-local `swift build`/`swift test` cache routing. Build scratch stays native
+unless `swiftpmWorkspaceRoot` is explicitly configured as a **retained** directory
+outside source, disposable storage and application metadata. It has no default;
+`CLEAN_DEVELOPMENT_SWIFTPM_WORKSPACE_ROOT` overrides project/user values, and an API
+configuration overlay has highest precedence. Create/mount the retained base
+explicitly before use; setup/prepare do not create it for you.
+
+Swift scratch includes binaries as well as intermediates, so it is never routed
+to `buildRoot` or disposable `scratchRoot`, registered for pruning, or migrated.
+Native scratch/cache flags and Swift environment overrides remain unchanged even
+under force mode. Swift paths are not exported by `env`; preview with
+`explain -- swift build`. `enabled: false`, `tools.swift: false`, session skip and
+non-build/test Swift commands remain native. See the [SwiftPM contract](swiftpm.md)
+for package selection, output classification, supported flags and real-tool checks.

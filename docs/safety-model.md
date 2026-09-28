@@ -55,3 +55,23 @@ Shared-cache variables are applied at session start. Cargo output remains under 
 A compromised local project can execute arbitrary package scripts with the user's existing permissions. A malicious tool can ignore its cache variable. PID reuse can make a stale lease appear active, which causes retention rather than deletion. A user can place valuable files inside a product-owned managed build directory; explicit prune can then remove them. Same-user adversarial filesystem races, disk-full interruption, and hostile network filesystems still need broader testing before a stable release.
 
 Report vulnerabilities through [SECURITY.md](../SECURITY.md).
+
+## Experimental SwiftPM output boundary
+
+SwiftPM routing requires explicit `tools.swift: true`. Its scratch tree contains
+products and intermediates together. Without `swiftpmWorkspaceRoot` scratch stays
+native; with it, scratch uses a manually prepared retained base outside project,
+disposable and application-metadata roots. The adapter never registers Swift
+output in the Cargo prune registry or deletes it. The separate Swift identity
+marker prevents accidental directory adoption; it is not a deletion receipt.
+
+Only supported `swift build`/`swift test` forms receive generated command-local
+path flags. Native scratch/cache selections (including explicit environment
+values), output/QA destinations, archives, compiler invocations, plugins, signing
+material and SDK/config/security locations are not rewritten. Unsupported or
+ambiguous opted-in build/test syntax fails before adapter preparation; explicit
+skip uses native execution. Shared Swift caches have no automatic eviction.
+Read-only explanation evaluates no Swift manifest. Ordinary Swift builds and tests
+still execute trusted package code with the caller's permissions; there is no
+sandbox or new containment promise. See [SwiftPM](swiftpm.md) for precedence,
+retention, race/host limitations and reversible configuration.

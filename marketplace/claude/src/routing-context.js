@@ -2,6 +2,7 @@ import path from "node:path";
 import { resolveConfig } from "./config.js";
 import { canonicalizePotentialPath, isPathInside } from "./platform.js";
 import { detectStack, identifyWorkspace } from "./workspace.js";
+import { planSwiftpm } from "./swiftpm.js";
 
 /** The home-directory exception applies only to that root, not its projects. */
 export function repositoryManagedPaths(projectRoot, managed) {
@@ -41,8 +42,13 @@ export function assertRoutingBoundary(conflicts) {
 export function preflightToolRouting(tool, args, { config, cwd = process.cwd(), env = process.env } = {}) {
   if (config.enabled === false) return { config, workspace: null, disabled: true, repositoryPaths: [] };
   const workspace = identifyWorkspace(tool, args, cwd);
-  const selected = workspace.effectiveCwd === path.resolve(cwd) ? config : resolveConfig({ cwd: workspace.effectiveCwd, env });
-  const disabled = selected.enabled === false || selected.tools?.[tool] === false;
-  return { config: selected, workspace, disabled,
+  const configCwd = tool === "swift" ? workspace.configCwd : workspace.effectiveCwd;
+  const selected = configCwd === path.resolve(cwd) ? config : resolveConfig({ cwd: configCwd, env });
+  const disabled = selected.enabled === false || selected.tools?.[tool] === false
+    || (tool === "swift" && (selected.tools?.swift !== true || workspace.invocation.passthrough));
+  const swiftpm = tool === "swift" && !disabled ? planSwiftpm(args, { config: selected, cwd, env, workspace,
+    projectRoots: [cwd, workspace.effectiveCwd].map((directory) => detectStack(canonicalizePotentialPath(directory), { home: selected.locations.home }).root)
+  }) : null;
+  return { config: selected, workspace, disabled, swiftpm,
     repositoryPaths: disabled ? [] : commandStorageConflicts(selected, cwd, workspace) };
 }

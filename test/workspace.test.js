@@ -61,7 +61,8 @@ function assertRoot(actual, expected) {
   const canonical = fs.realpathSync.native(expected);
   assert.equal(actual.root, canonical);
   const digest = crypto.createHash("sha256").update(canonical).digest("hex").slice(0, 10);
-  assert.match(actual.id, new RegExp(`^[a-z0-9-]+-${digest}$`));
+  // SwiftPM retains a longer digest of the same canonical path.
+  assert.match(actual.id, new RegExp(`^[a-z0-9-]+-${digest}(?:[0-9a-f]{6})?$`));
 }
 
 for (const [tool, patterns] of Object.entries(MANIFESTS)) {
@@ -77,10 +78,12 @@ for (const [tool, patterns] of Object.entries(MANIFESTS)) {
     const nestedAlias = path.join(unrelated, "nested-alias");
     if (!link(t, project, rootAlias) || !link(t, nested, nestedAlias)) return;
     const before = snapshot(root);
-    const expected = identifyWorkspace(tool, [], project);
+    // A bare `swift` is passthrough; identity is defined for package commands.
+    const args = Object.freeze(tool === "swift" ? ["build"] : []);
+    const expected = identifyWorkspace(tool, args, project);
     assertRoot(expected, project);
     for (const cwd of [nested, rootAlias, nestedAlias, path.relative(process.cwd(), nestedAlias)]) {
-      const actual = identifyWorkspace(tool, Object.freeze([]), cwd);
+      const actual = identifyWorkspace(tool, args, cwd);
       assertRoot(actual, project);
       assert.equal(actual.id, expected.id, cwd);
       assert.equal(actual.effectiveCwd, path.resolve(cwd), "discovery must not rewrite effectiveCwd");
