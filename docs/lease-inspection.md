@@ -28,6 +28,23 @@ This is per-file bounded I/O, not a deadline for the whole registry. Filesystem
 calls can stall, directory enumeration is not bounded by this change, inode/PID
 reuse is possible and stat-based checks cannot eliminate every filesystem race.
 Prune still applies the existing ownership, root, pin, age and live-lease checks
-under its workspace lock. No migration or deletion is introduced.
+under its workspace lock. No migration or deletion is introduced by inspection.
+
+## Apply-time registry boundary
+
+An eligible preview is not authority to read or delete through its saved receipt
+path. After acquiring the workspace lock, prune reopens the record through the
+configured state collection and requires its derived path to equal the reviewed
+`recordFile`. A workspace-registry symlink or non-directory replacement fails
+closed with a validation error, even when its target contains an otherwise
+matching receipt. A plan naming a receipt outside that collection is skipped.
+The build and external receipt are retained; the workspace lock is released.
+
+The freshly loaded record must still have the reviewed ownership ID and build
+path. Marker verification, pins, live or uncertain leases, and the original age
+checkpoint are checked before deletion. Missing or invalid receipts confer no
+authority. These checks detect a registry replaced before the locked re-read;
+they do not claim atomic protection against all same-user filesystem races
+between validation and deletion.
 
 Tests: `node --test test/bounded-leases.test.js test/inspection.test.js test/prune.test.js`.

@@ -301,16 +301,17 @@ export async function applyPrune(config, plan) {
   for (const item of plan.filter((entry) => entry.eligible)) {
     const releaseLock = await acquireWorkspaceLock(config, item.workspaceId, item.buildRoot);
     try {
-      if (!regularJsonFile(item.recordFile)) continue;
-      const current = readStateJson(item.recordFile);
+      // Revalidate the collection after taking the lock; a reviewed receipt
+      // path may now traverse a replaced registry or point outside state.
+      const { file, value: current } = workspaceRecord(config, item.workspaceId, item.buildRoot);
       const threshold = Date.parse(item.pruneBefore);
-      if (!validWorkspaceRecord(current, item.recordFile) || !Number.isFinite(threshold)
+      if (file !== item.recordFile || !current || !Number.isFinite(threshold)
         || current.ownershipId !== item.ownershipId || current.path !== item.path) continue;
       const active = activeWorkspaceIds(config);
       if (ownedBuildReason(config, current) || current.pinned || active.has(current.workspaceId)) continue;
       if (!Number.isFinite(Date.parse(current.lastUsedAt)) || Date.parse(current.lastUsedAt) >= threshold) continue;
       fs.rmSync(current.path, { recursive: true, force: false });
-      fs.rmSync(item.recordFile, { force: true });
+      fs.rmSync(file, { force: true });
       removed.push(current.path);
     } finally {
       releaseLock();
