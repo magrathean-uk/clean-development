@@ -15,9 +15,13 @@ const ADDITIVE_TOMBSTONES = [
 function passThroughEnvironment(existing, binDir, includeRuntime = false) {
   const cleaned = nativeSessionEnvironment(existing, { binDir, includeRuntime });
   const internal = new Set(ADDITIVE_TOMBSTONES.map((name) => name.toLowerCase()));
+  // The additive merge can resurrect an omitted parent spelling. On POSIX,
+  // GOCACHE and gocache are distinct even though routing configuration treats
+  // their names case-insensitively; retaining one cannot unset the other.
+  const keyIdentity = (name) => process.platform === "win32" ? name.toLowerCase() : name;
+  const retainedKeys = new Set(Object.keys(cleaned).map(keyIdentity));
   const removedRouting = Object.keys(existing).filter((name) =>
-    !Object.keys(cleaned).some((candidate) => candidate.toLowerCase() === name.toLowerCase())
-      && !internal.has(name.toLowerCase()));
+    !retainedKeys.has(keyIdentity(name)) && !internal.has(name.toLowerCase()));
   if (removedRouting.length) {
     throw new Error(`OpenCode cannot safely unset inherited Clean Development routing (${removedRouting.sort().join(", ")}). Relaunch OpenCode through clean-development agent opencode, or use --session skip.`);
   }
