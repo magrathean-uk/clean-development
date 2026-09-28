@@ -123,6 +123,52 @@ test("session-only refuses every managed path inside the project", (t) => {
   assert.equal(fs.existsSync(path.join(item.project, ".clean-development.json")), false);
 });
 
+for (const mode of ["session-only", "persist", "skip"]) {
+  test(`${mode} does not create project storage through an ancestor replaced after review`, (t) => {
+    const item = fixture();
+    t.after(() => fs.rmSync(item.root, { recursive: true, force: true }));
+    fs.writeFileSync(path.join(item.project, "package.json"), "{}\n");
+    const volume = path.join(item.root, "volume");
+    const projectData = path.join(item.project, "data");
+    fs.mkdirSync(path.join(volume, "data"), { recursive: true });
+    fs.mkdirSync(projectData);
+    const env = {
+      ...item.env,
+      CLEAN_DEVELOPMENT_ROOT: path.join(volume, "data", "managed"),
+      npm_config_cache: "inherited-cache",
+      NPM_CONFIG_CACHE: "independent-cache",
+      CLEAN_DEVELOPMENT_SESSION_ENV: JSON.stringify({ npm_config_cache: "inherited-cache" })
+    };
+    const config = resolveConfig({ cwd: item.project, env });
+    const plan = planSession({ cwd: item.project, env, config });
+    assert.deepEqual(plan.managed.repositoryPaths, []);
+    assert.equal(fs.existsSync(config.root), false);
+    assert.deepEqual(fs.readdirSync(projectData), []);
+    assert.equal(fs.existsSync(plan.projectConfig.path), false);
+
+    // The direct parent is still a real directory; only its ancestor is now a link.
+    fs.renameSync(volume, `${volume}-original`);
+    fs.symlinkSync(item.project, volume, process.platform === "win32" ? "junction" : "dir");
+    assert.equal(fs.lstatSync(path.dirname(config.root)).isDirectory(), true);
+    if (mode === "skip") {
+      const applied = applySessionPlan(plan, mode, env);
+      assert.equal(applied.env.npm_config_cache, undefined);
+      assert.equal(applied.env.NPM_CONFIG_CACHE, "independent-cache");
+      assert.equal(applied.env.CLEAN_DEVELOPMENT_SESSION_ENV, undefined);
+      assert.equal(applied.env.CLEAN_DEVELOPMENT_SESSION_MODE, "skip");
+      assert.equal(applied.projectConfig, null);
+    } else {
+      assert.throws(() => applySessionPlan(plan, mode, env), /directory/i);
+    }
+    assert.deepEqual(fs.readdirSync(projectData), [], "refusal must precede directory creation");
+    assert.deepEqual(fs.readdirSync(path.join(`${volume}-original`, "data")), []);
+    assert.equal(fs.existsSync(plan.projectConfig.path), false);
+    assert.equal(fs.existsSync(config.locations.runtimeDir), false);
+    assert.equal(env.npm_config_cache, "inherited-cache");
+    assert.equal(env.NPM_CONFIG_CACHE, "independent-cache");
+  });
+}
+
 test("persist writes only the exact reviewed project file and rejects a changed target", (t) => {
   const item = fixture();
   t.after(() => fs.rmSync(item.root, { recursive: true, force: true }));
@@ -145,6 +191,49 @@ test("persist writes only the exact reviewed project file and rejects a changed 
   wrongParent.projectConfig.parentIdentity.ino = "0";
   assert.throws(() => persistSessionPlan(wrongParent), /Project directory changed after review/);
   assert.equal(fs.existsSync(projectFile), false);
+});
+
+test("persist retains a project config created at the exclusive-open boundary", (t) => {
+  const item = fixture();
+  t.after(() => fs.rmSync(item.root, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(item.project, "package.json"), "{}\n");
+  const config = resolveConfig({ cwd: item.project, env: item.env });
+  const plan = planSession({ cwd: item.project, env: item.env, config });
+  const projectFile = plan.projectConfig.path;
+  const competingContents = '{"schemaVersion":1,"enabled":false}\n';
+  const open = fs.openSync;
+  let raced = false;
+  t.mock.method(fs, "openSync", (file, flags, ...args) => {
+    if (file === projectFile && flags === "wx" && !raced) {
+      raced = true;
+      fs.writeFileSync(projectFile, competingContents);
+    }
+    return open(file, flags, ...args);
+  });
+
+  assert.throws(() => applySessionPlan(plan, "persist", item.env), /appeared after review/);
+  assert.equal(raced, true, "the competing writer must run after the absence checks");
+  assert.equal(fs.readFileSync(projectFile, "utf8"), competingContents);
+  assert.deepEqual(fs.readdirSync(item.project).sort(), [".clean-development.json", "package.json"]);
+});
+
+test("persist retries retain the created config and require a fresh review", (t) => {
+  const item = fixture();
+  t.after(() => fs.rmSync(item.root, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(item.project, "package.json"), "{}\n");
+  const config = resolveConfig({ cwd: item.project, env: item.env });
+  const plan = planSession({ cwd: item.project, env: item.env, config });
+  const first = applySessionPlan(plan, "persist", item.env);
+  assert.equal(first.env.CLEAN_DEVELOPMENT_SESSION_MODE, "session-only");
+  assert.throws(() => persistSessionPlan(plan), /appeared after review/);
+  assert.equal(fs.readFileSync(plan.projectConfig.path, "utf8"), plan.projectConfig.proposedContents);
+
+  const reviewed = planSession({ cwd: item.project, env: item.env, config });
+  assert.deepEqual(persistSessionPlan(reviewed), { status: "existing", file: plan.projectConfig.path });
+  const changedContents = '{"schemaVersion":1,"enabled":false}\n';
+  fs.writeFileSync(plan.projectConfig.path, changedContents);
+  assert.throws(() => persistSessionPlan(reviewed), /changed after review/);
+  assert.equal(fs.readFileSync(plan.projectConfig.path, "utf8"), changedContents);
 });
 
 test("session selection defaults safely and inherited persist cannot write another checkout", () => {
