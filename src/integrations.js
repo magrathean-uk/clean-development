@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { SUPPORTED_AGENTS } from "./constants.js";
-import { ensureRealDirectory, readJson, writeJsonAtomic, writeJsonAtomicFollowingLeafSymlink, writeTextAtomicFollowingLeafSymlink } from "./io.js";
+import { ensureRealDirectory, readJson, readTextMetadata, writeJsonAtomic, writeJsonAtomicFollowingLeafSymlink, writeTextAtomicFollowingLeafSymlink } from "./io.js";
 import { canonicalizePotentialPath, environmentValue, isPathInside, prependUniquePath } from "./platform.js";
 import { environmentWithoutSessionRouting, SESSION_ENV_MARKER, SESSION_MODE_ENV } from "./session.js";
 
@@ -316,13 +316,13 @@ function installGrokCommandPrefix(config, runtime, file, previousEntries = []) {
     return launcherIntegration("grok", runtime, "Grok command-prefix routing has not been accepted on Windows", file);
   }
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  let original = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
+  let original = fs.existsSync(file) ? readTextMetadata(file) : "";
   const previousForFile = previousEntries.filter((entry) => entry.agent === "grok" && entry.mode === "native-shell-environment" && entry.file === file);
   for (const entry of previousForFile) {
     if (removeOwnedTomlBlock(config, entry, { allowAbsent: true }) === "unsafe") {
       throw new Error(`Cannot update owned grok integration safely in ${file}; the recorded block was changed, removed, or is ambiguous`);
     }
-    original = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
+    original = fs.existsSync(file) ? readTextMetadata(file) : "";
   }
 
   const lines = original.split(/\r?\n/);
@@ -492,7 +492,7 @@ function installShellEnvironment(config, runtime, agent, file, env = process.env
     );
   }
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  let original = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
+  let original = fs.existsSync(file) ? readTextMetadata(file) : "";
   const previousForFile = previousEntries.filter((entry) => entry.agent === agent && entry.mode === "native-shell-environment" && entry.file === file);
   for (const entry of previousForFile) {
     const removed = removeTomlBlockText(original, entry, config.locations.binDir);
@@ -680,7 +680,7 @@ function removeOwnedTomlBlock(config, entry, { allowAbsent = false } = {}) {
     }
   }
   const { begin, end } = receiptTomlMarkers(entry);
-  const original = fs.readFileSync(file, "utf8");
+  const original = readTextMetadata(file);
   if (allowAbsent && !original.includes(begin) && !original.includes(end)) {
     const syntax = tomlSyntaxLines(original.split(/\r?\n/));
     if (!syntax || syntax.some((line) => /^\s*#\s*clean-development\s+(?:begin|end)\s*\(grok\)/.test(line))) return "unsafe";
@@ -911,7 +911,7 @@ export function applyClaudeSessionEnvironment(config, runtime, env = process.env
   const blockLines = disabled ? claudeDisabledBlock(runtime, env, begin, end) : normalBlockLines;
   const block = blockLines.join("\n");
   fs.mkdirSync(path.dirname(environmentFile), { recursive: true });
-  const original = fs.existsSync(environmentFile) ? fs.readFileSync(environmentFile, "utf8") : "";
+  const original = fs.existsSync(environmentFile) ? readTextMetadata(environmentFile) : "";
   const lines = original.split(/\r?\n/);
   const starts = lines.flatMap((line, index) => line === begin ? [index] : []);
   const finishes = lines.flatMap((line, index) => line === end ? [index] : []);
