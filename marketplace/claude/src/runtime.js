@@ -32,6 +32,9 @@ function sha256(value) {
 }
 
 function fileHash(file) {
+  // A matching digest does not transfer ownership to an unrecorded alias target,
+  // even when that target is still inside the versioned runtime directory.
+  ensureRealDirectory(path.dirname(file), { label: "Runtime file directory" });
   return sha256(fs.readFileSync(file));
 }
 
@@ -427,6 +430,8 @@ function removeEmptyOwnedDirectories(root, records) {
   for (const directory of [...directories].sort((left, right) => right.length - left.length)) {
     if (directory !== path.resolve(root) && !isPathInside(root, directory)) continue;
     try {
+      // Missing inventory files must not let cleanup follow an aliased parent.
+      if (!ensureRealDirectory(directory, { label: "Owned runtime directory" })) continue;
       fs.rmdirSync(directory);
     } catch (error) {
       if (!["ENOENT", "ENOTEMPTY", "EEXIST"].includes(error.code)) throw error;
