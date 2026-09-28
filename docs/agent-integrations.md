@@ -68,6 +68,8 @@ Grok 1.0.34 replaces the launcher's PATH with a captured login-shell PATH before
 
 Running setup again is idempotent. Uninstall removes only marked or recognizably owned entries, and retains storage/configuration.
 
+TOML ownership markers are comments, not table boundaries. If user settings after an owned block still belong to a table introduced inside it, setup/update and uninstall retain that table header and its separator. For example, a later Codex environment key must stay in `[shell_environment_policy.set]`, and a Grok bash timeout must stay in `[toolset.bash]`, rather than moving into the root or a preceding unrelated table. The retained header is unmarked and treated as user-owned on subsequent runs; unrelated settings and their line endings are preserved. A following table header or only trailing comments/whitespace does not require retaining an otherwise unused owned header.
+
 When `--agents` is supplied explicitly, it is a selection: previously owned native integrations for agents omitted from the list are removed safely, while unrelated configuration remains. The shared runtime launchers remain available for later selection.
 
 Setup updates and uninstall must resolve the same agent configuration locations used by the original setup. If `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, or `GROK_HOME` changes, the receipt is rejected before any agent file is edited. Rerun the command with the original values; this binding prevents a modified receipt from redirecting removal to an arbitrary file.
