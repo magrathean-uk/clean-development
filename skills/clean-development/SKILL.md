@@ -16,6 +16,14 @@ Prefer the installed CLI. If it is unavailable and the package location is known
 - **Enable routing:** use the session workflow below.
 - **Clean up:** preview `prune --json` with the user's requested age, for example `--older-than 60d`. Show eligible and retained entries, then use the same age with `--apply` only when deletion is authorized. An explicit request to delete after showing the list is sufficient; do not ask for the same approval again. Never replace prune with manual deletion.
 
+## Large local storage
+
+Prefer a configured external root for large managed build and test output. Verify the effective destination and available space before relying on routing. Place VMs, private labs, and test datasets at explicit external locations through their owning tools; they are not disposable managed build cache. Never treat VM images, private lab state, original evidence, or final deliverables as prune candidates.
+
+Configure tools that reject symlink path components with physical external paths; compatibility links alone do not establish runtime acceptance.
+
+For an authorized relocation, inventory and stop the processes using the state, copy it to the new location, verify the copy, and validate the owning runtime there before retiring the original. Keep the original until that validation passes. At task completion, clean up unneeded output created by the task under the existing authorization, using the owning tool and verified paths.
+
 ## Session consent and execution
 
 Before a new routing choice for a repository, run `clean-development session --dry-run --json`. Show detected tools, managed destinations, preserved overrides, conflicts, available choices, and the exact proposed `.clean-development.json`. Ask for **session only**, **save project settings**, or **skip** only if the user has not already selected one for this repository and task. Reuse an established choice; review again if the repository or destinations change.
