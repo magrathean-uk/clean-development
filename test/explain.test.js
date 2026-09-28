@@ -84,6 +84,58 @@ test("explain attributes independently configured cache roots and effective npm 
   assert.equal(variable(report, "npm_config_cache").value, path.join(item.root, "special-cache", "node", "npm"));
 });
 
+for (const command of ["yarn", process.execPath]) {
+  test(`explain attributes fixed Yarn settings to the adapter for ${command === "yarn" ? "direct" : "indirect"} routing`, (t) => {
+    const item = fixture(t);
+    fs.writeFileSync(path.join(item.cwd, "package.json"), '{"packageManager":"yarn@4.0.0"}\n');
+    const env = { ...item.env, CLEAN_DEVELOPMENT_CACHE_ROOT: path.join(item.root, "custom-cache") };
+    delete env.YARN_ENABLE_GLOBAL_CACHE;
+    delete env.YARN_ENABLE_MIRROR;
+    const before = snapshot(item.root), envBefore = { ...env };
+    const report = explainCommand(command, [], { ...item, env });
+    const preview = environmentForTool("yarn", [], { ...item, env, config: resolveConfig({ ...item, env }), create: false });
+    assert.equal(report.routing.status, command === "yarn" ? "predicted" : "indirect");
+    assert.equal(variable(report, "YARN_CACHE_FOLDER").value, preview.applied.YARN_CACHE_FOLDER);
+    assert.equal(variable(report, "YARN_CACHE_FOLDER").source, "environment: CLEAN_DEVELOPMENT_CACHE_ROOT");
+    assert.equal(variable(report, "YARN_CACHE_FOLDER").reason, "configured adapter destination");
+    const json = JSON.parse(JSON.stringify(report));
+    for (const name of ["YARN_ENABLE_GLOBAL_CACHE", "YARN_ENABLE_MIRROR"]) {
+      assert.deepEqual(variable(json, name), {
+        name, value: preview.applied[name], action: "set", source: "adapter: yarn", reason: "fixed adapter setting"
+      });
+    }
+    const text = formatExplanation(report);
+    assert.match(text, /fixed adapter setting; source: adapter: yarn/);
+    assert.deepEqual(env, envBefore);
+    assert.deepEqual(snapshot(item.root), before);
+  });
+}
+
+test("fixed Yarn setting attribution retains explicit overrides, force and inherited provenance", (t) => {
+  const item = fixture(t);
+  const env = { ...item.env, YARN_ENABLE_GLOBAL_CACHE: "true", YARN_ENABLE_MIRROR: "true" };
+  const before = snapshot(item.root), envBefore = { ...env };
+  const preserved = explainCommand("yarn", [], { ...item, env });
+  const forced = explainCommand("yarn", [], { ...item, env: { ...env, CLEAN_DEVELOPMENT_FORCE: "1" } });
+  const injected = { YARN_ENABLE_GLOBAL_CACHE: "false", YARN_ENABLE_MIRROR: "false" };
+  const rerouted = explainCommand("yarn", [], { ...item, env: {
+    ...env, ...injected, CLEAN_DEVELOPMENT_SESSION_ENV: JSON.stringify(injected)
+  } });
+  for (const name of Object.keys(injected)) {
+    assert.deepEqual(variable(preserved, name), {
+      name, value: "true", action: "preserve", source: "environment", reason: "explicit user override"
+    });
+    assert.deepEqual(variable(forced, name), {
+      name, value: "false", action: "set", source: "adapter: yarn", reason: "explicit force mode"
+    });
+    assert.deepEqual(variable(rerouted, name), {
+      name, value: "false", action: "set", source: "adapter: yarn", reason: "reroute unchanged Clean Development value"
+    });
+  }
+  assert.deepEqual(env, envBefore);
+  assert.deepEqual(snapshot(item.root), before);
+});
+
 test("skip avoids malformed configuration and never exposes unrelated arguments", (t) => {
   const item = fixture(t);
   fs.writeFileSync(item.projectFile, "{");

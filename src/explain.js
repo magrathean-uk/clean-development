@@ -94,8 +94,12 @@ export function explainCommand(command, args = [], { cwd = process.cwd(), env = 
   for (const [name, value] of Object.entries(applied)) {
     const injected = Object.entries(env).some(([key, item]) => key.toLowerCase() === name.toLowerCase() && isInjectedEnvironmentValue(env, key, item));
     const forced = environmentValue(env, "CLEAN_DEVELOPMENT_FORCE") === "1";
-    report.routing.variables.push({ name, value, action: "set", source: config.pathSources[name === "CARGO_TARGET_DIR" ? "buildRoot" : "cacheRoot"],
-      reason: forced ? "explicit force mode" : injected ? "reroute unchanged Clean Development value" : "configured adapter destination" });
+    // Fixed policy values come from the adapter, not the configurable cache root.
+    const fixedYarnSetting = name === "YARN_ENABLE_GLOBAL_CACHE" || name === "YARN_ENABLE_MIRROR";
+    report.routing.variables.push({ name, value, action: "set",
+      source: fixedYarnSetting ? "adapter: yarn" : config.pathSources[name === "CARGO_TARGET_DIR" ? "buildRoot" : "cacheRoot"],
+      reason: forced ? "explicit force mode" : injected ? "reroute unchanged Clean Development value"
+        : fixedYarnSetting ? "fixed adapter setting" : "configured adapter destination" });
   }
   for (const [name, value] of Object.entries(preserved)) {
     report.routing.variables.push({ name, value, action: "preserve", source: "environment", reason: "explicit user override" });

@@ -31,6 +31,21 @@ Tool-specific native configuration and arbitrary scripts are not executed to
 infer output. A prediction is not proof of routing in a GUI agent, resumed shell
 or subagent. Source and project-local dependencies are not automatically moved.
 
+## Variable sources
+
+Path variables cite the configuration source of their managed cache or build root.
+Fixed adapter settings cite the adapter instead: `YARN_ENABLE_GLOBAL_CACHE=false`
+and `YARN_ENABLE_MIRROR=false` have source `adapter: yarn` and, by default, reason
+`fixed adapter setting`. Changing `cacheRoot` changes `YARN_CACHE_FOLDER`, not
+these two policy values. This distinction applies to both direct Yarn predictions
+and detected Yarn settings shown for indirect commands.
+
+Independent user overrides still have action `preserve` and source `environment`.
+Explicit force mode and unchanged inherited routing retain their existing reasons;
+a fixed value set in either case still comes from the adapter. These source and
+reason labels are explanation metadata only: environment values, routing decisions
+and the version-1 JSON structure are unchanged.
+
 ## Terminal rendering
 
 The human-readable explanation escapes control characters inside each generated
