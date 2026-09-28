@@ -96,3 +96,21 @@ Cache and scratch eviction are not implemented in `0.2.0`. Package-manager cache
 ## Boundaries
 
 This is not complete filesystem isolation. Tools that ignore the routed variable, scripts with absolute output paths, native applications, remote jobs, and unsupported build systems can write elsewhere. A future strict mode would require an actual sandbox, container, or VM with separately designed mount and artifact-export rules.
+
+## Opt-in command-local SwiftPM
+
+`src/swiftpm.js` plans a bounded subset of `swift build` and `swift test` and
+prepares their cache/retained scratch directories. `tools.swift` defaults to false.
+Workspace discovery uses the canonical nearest `Package.swift`, including explicit
+`--package-path`; it does not evaluate the manifest. Preflight selects the target
+configuration before preparation and checks both source contexts. `runTool`
+inserts only missing command-local scratch/cache flags, preserving original argv
+order/cwd and the existing foreground runner. Static session/environment overlays
+never inject Swift path values; unsupported Swift commands pass through.
+
+SwiftPM scratch is mixed output, not safely disposable intermediates. Its optional
+`swiftpmWorkspaceRoot` is separate from the disposable hierarchy and requires an
+existing base. Swift identity markers authorize no pruning; no Swift workspace or
+lease is entered into Cargo state. The shared cache alone uses `cacheRoot/swiftpm`.
+The [SwiftPM contract](swiftpm.md) distinguishes retained binaries, native final
+outputs, configuration/security/toolchains, and the real-tool acceptance boundary.

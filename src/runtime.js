@@ -12,6 +12,7 @@ import { cargoInvocationCwd, resolveCargoWorkspace } from "./cargo-workspace.js"
 import { windowsBatchInvocation } from "./windows-command.js";
 import { spawnInherited } from "./process-runner.js";
 import { resolveExecutable } from "./executable.js";
+import { prepareSwiftpm } from "./swiftpm.js";
 import { preflightToolRouting, commandStorageConflicts, assertRoutingBoundary } from "./routing-context.js";
 
 export { windowsBatchInvocation, spawnInherited, resolveExecutable };
@@ -616,6 +617,10 @@ export async function runTool(tool, args, { config, cwd = process.cwd(), env = p
   assertRoutingBoundary(context.repositoryPaths);
   const executable = resolveExecutable(tool, env, effectiveConfig.locations.binDir, cwd);
   if (!executable) throw new Error(`Cannot find the real '${tool}' executable outside ${effectiveConfig.locations.binDir}`);
+  if (tool === "swift") {
+    prepareSwiftpm(context.swiftpm);
+    return spawnInherited(executable, [args[0], ...context.swiftpm.additions, ...args.slice(1)], { cwd, env: { ...env } });
+  }
   if (tool === "cargo") {
     workspace = resolveCargoWorkspace(args, {
       executable, cwd, env,

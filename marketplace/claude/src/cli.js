@@ -319,6 +319,7 @@ function envCommand(options, config, env) {
   }
   if (options.tool) {
     if (!SHIM_TOOLS.includes(options.tool)) throw new Error(`Unsupported tool '${options.tool}'`);
+    if (options.tool === "swift") throw new Error("SwiftPM paths are command-local; use clean-development run -- swift build/test, not environment exports");
     if (options.tool === "cargo") throw new Error("Cargo build output needs ownership and an active lease; use 'clean-development run -- cargo …' or the cargo shim");
     const result = environmentForTool(options.tool, [], { config, env, create: false, validateBase: true });
     return formatEnvironment({ ...result.applied, CLEAN_DEVELOPMENT_RESOLVED_ROOT: config.root, CLEAN_DEVELOPMENT_WORKSPACE_ID: result.workspace.id }, format);
@@ -524,6 +525,11 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
   if (command === "run") {
     const [executable, ...args] = parsed.passthrough.length ? parsed.passthrough : parsed.positionals;
     if (!executable) throw new Error("run requires a command after --");
+    // Merely exposing the Swift shim must not opt packages into routing or
+    // prepare storage for compiler, archive, plugin or disabled invocations.
+    if (executable === "swift" && preflightToolRouting(executable, args, { config, env }).disabled) {
+      return runTool(executable, args, { config, env });
+    }
     const validateRouting = SHIM_TOOLS.includes(executable)
       ? () => assertRoutingBoundary(preflightToolRouting(executable, args, { config, env }).repositoryPaths)
       : null;
