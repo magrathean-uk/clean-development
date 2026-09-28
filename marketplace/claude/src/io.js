@@ -174,33 +174,52 @@ export function directorySize(root) {
 }
 
 function processIsAlive(pid) {
-  if (!Number.isInteger(pid) || pid <= 0) return false;
+  if (!Number.isInteger(pid) || pid <= 0) return true;
   try {
     process.kill(pid, 0);
     return true;
   } catch (error) {
-    return error.code === "EPERM";
+    // Only ESRCH proves absence; permission and other lookup errors retain the lock.
+    return error.code !== "ESRCH";
   }
 }
 
-function lockAgeMs(directory) {
+// A token alone is not authority to remove an arbitrary path. Bind ownership
+// to the real directory and regular owner file that were actually inspected.
+// Missing/malformed metadata is uncertain, not evidence of a crashed owner.
+function readLockSnapshot(directory) {
   try {
-    return Date.now() - fs.statSync(directory).mtimeMs;
+    validateRealDirectory(directory, "Lock directory");
+    const identity = fs.lstatSync(directory, { bigint: true });
+    const ownerFile = path.join(directory, "owner.json");
+    const ownerIdentity = fs.lstatSync(ownerFile, { bigint: true });
+    if (!identity.isDirectory() || identity.isSymbolicLink() || !ownerIdentity.isFile() || ownerIdentity.isSymbolicLink()) return null;
+    const contents = fs.readFileSync(ownerFile, "utf8");
+    const owner = JSON.parse(contents);
+    if (
+      owner?.schemaVersion !== 1 || typeof owner.token !== "string" || !owner.token.trim()
+      || !Number.isInteger(owner.pid) || owner.pid <= 0 || owner.pid > 2_147_483_647
+      || typeof owner.acquiredAt !== "string" || !Number.isFinite(Date.parse(owner.acquiredAt))
+      || !sameIdentity(fs.lstatSync(ownerFile, { bigint: true }), ownerIdentity)
+      || !sameIdentity(fs.lstatSync(directory, { bigint: true }), identity)
+    ) return null;
+    return { identity, ownerIdentity, owner, contents };
   } catch {
-    return 0;
+    return null;
   }
 }
 
-function removeLockDirectory(directory, expectedToken = null) {
-  const ownerFile = path.join(directory, "owner.json");
-  if (expectedToken) {
-    const owner = readJson(ownerFile, null);
-    if (owner?.token !== expectedToken) return false;
-  }
+function removeLockDirectory(directory, expected) {
+  const current = readLockSnapshot(directory);
+  if (
+    !current || !expected || current.contents !== expected.contents
+    || !sameIdentity(current.identity, expected.identity)
+    || !sameIdentity(current.ownerIdentity, expected.ownerIdentity)
+  ) return false;
   try {
-    fs.unlinkSync(ownerFile);
-  } catch (error) {
-    if (error.code !== "ENOENT") return false;
+    fs.unlinkSync(path.join(directory, "owner.json"));
+  } catch {
+    return false;
   }
   try {
     fs.rmdirSync(directory);
@@ -219,13 +238,18 @@ export async function acquireDirectoryLock(directory, { timeoutMs = 30_000 } = {
     try {
       fs.mkdirSync(directory);
       validateRealDirectory(directory, "Lock directory");
+      const identity = fs.lstatSync(directory, { bigint: true });
       writeJsonAtomic(path.join(directory, "owner.json"), {
         schemaVersion: 1,
         token,
         pid: process.pid,
         acquiredAt: new Date().toISOString()
       });
-      return () => removeLockDirectory(directory, token);
+      const owned = readLockSnapshot(directory);
+      if (!owned || owned.owner.token !== token || !sameIdentity(owned.identity, identity)) {
+        throw new Error(`Cannot verify ownership of lock directory: ${directory}`);
+      }
+      return () => removeLockDirectory(directory, owned);
     } catch (error) {
       if (error.code !== "EEXIST") throw error;
     }
@@ -237,16 +261,9 @@ export async function acquireDirectoryLock(directory, { timeoutMs = 30_000 } = {
       throw error;
     }
 
-    let owner = null;
-    try {
-      owner = readJson(path.join(directory, "owner.json"), null);
-    } catch {
-      // A crashed writer may have left an incomplete lock owner file.
-    }
-    const age = lockAgeMs(directory);
-    const stale = owner ? (!processIsAlive(owner.pid) && age > 1_000) : age > 5_000;
-    if (stale) {
-      if (removeLockDirectory(directory, owner?.token || null)) continue;
+    const observed = readLockSnapshot(directory);
+    if (observed && !processIsAlive(observed.owner.pid) && Date.now() - Number(observed.identity.mtimeMs) > 1_000) {
+      if (removeLockDirectory(directory, observed)) continue;
     }
     if (Date.now() - started >= timeoutMs) throw new Error(`Timed out waiting for setup lock: ${directory}`);
     await new Promise((resolve) => setTimeout(resolve, 50));
@@ -262,13 +279,18 @@ export function acquireDirectoryLockSync(directory, { timeoutMs = 30_000 } = {})
     try {
       fs.mkdirSync(directory);
       validateRealDirectory(directory, "Lock directory");
+      const identity = fs.lstatSync(directory, { bigint: true });
       writeJsonAtomic(path.join(directory, "owner.json"), {
         schemaVersion: 1,
         token,
         pid: process.pid,
         acquiredAt: new Date().toISOString()
       });
-      return () => removeLockDirectory(directory, token);
+      const owned = readLockSnapshot(directory);
+      if (!owned || owned.owner.token !== token || !sameIdentity(owned.identity, identity)) {
+        throw new Error(`Cannot verify ownership of lock directory: ${directory}`);
+      }
+      return () => removeLockDirectory(directory, owned);
     } catch (error) {
       if (error.code !== "EEXIST") throw error;
     }
@@ -280,16 +302,9 @@ export function acquireDirectoryLockSync(directory, { timeoutMs = 30_000 } = {})
       throw error;
     }
 
-    let owner = null;
-    try {
-      owner = readJson(path.join(directory, "owner.json"), null);
-    } catch {
-      // A crashed writer may have left an incomplete lock owner file.
-    }
-    const age = lockAgeMs(directory);
-    const stale = owner ? (!processIsAlive(owner.pid) && age > 1_000) : age > 5_000;
-    if (stale) {
-      if (removeLockDirectory(directory, owner?.token || null)) continue;
+    const observed = readLockSnapshot(directory);
+    if (observed && !processIsAlive(observed.owner.pid) && Date.now() - Number(observed.identity.mtimeMs) > 1_000) {
+      if (removeLockDirectory(directory, observed)) continue;
     }
     if (Date.now() - started >= timeoutMs) throw new Error(`Timed out waiting for runtime lock: ${directory}`);
     Atomics.wait(waiter, 0, 0, 50);
