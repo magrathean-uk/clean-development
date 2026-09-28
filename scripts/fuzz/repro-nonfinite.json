@@ -1,0 +1,15 @@
+{
+  "id": "434c454e-295",
+  "boundary": "integration",
+  "kind": "near-miss",
+  "slot": "claude",
+  "agent": "claude",
+  "payload": "{\"\":1e999}",
+  "topology": "file",
+  "argv": [
+    "setup",
+    "--agents",
+    "claude"
+  ],
+  "policy": "setup"
+}

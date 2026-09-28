@@ -1,0 +1,9 @@
+{
+  "id": "config-fifo",
+  "boundary": "project",
+  "slot": "project",
+  "topology": "fifo",
+  "argv": [
+    "status"
+  ]
+}

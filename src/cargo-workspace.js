@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { readTextMetadata } from "./io.js";
 import { setEnvironmentValue } from "./platform.js";
 import { identifyWorkspace } from "./workspace.js";
 
@@ -48,7 +49,7 @@ function discoveryContext(args, cwd) {
       nearest ||= file;
       // This is a conservative fast path, not a TOML parser. Any potential
       // workspace key, including escaped spelling, is resolved by Cargo itself.
-      if (stat.size > 1024 * 1024 || /workspace|\\[uU]/.test(fs.readFileSync(file, "utf8"))) needsCargo = true;
+      if (stat.size > 1024 * 1024 || /workspace|\\[uU]/.test(readTextMetadata(file))) needsCargo = true;
     } catch (error) {
       if (error.code !== "ENOENT") throw error;
     }

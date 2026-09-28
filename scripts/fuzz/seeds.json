@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "seeds": [
+    1129071950,
+    1592598566,
+    12648430
+  ],
+  "casesPerSeed": 512,
+  "timeoutMs": 2500,
+  "budgetMs": 180000,
+  "reductions": 32
+}
