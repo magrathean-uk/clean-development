@@ -23,7 +23,13 @@ Keep authentication outside the repository. If a first publication needs an inte
    ```
 
    The package check needs the preceding-release tag named in `scripts/verify-package.mjs` for its installed-upgrade fixture. Obtain the required history before running that check in a shallow checkout.
-3. Inspect the tarball file list, installed executable and exports, fresh skip, session-only, persist, retained project settings, setup/status/uninstall, and upgrade results. Exclude local configuration, credentials, private paths, and build output from the package.
+3. Inspect the tarball file list, installed executable and exports, fresh skip, session-only, persist, retained project settings, setup/status/uninstall, and upgrade results. Exclude local configuration, credentials, private paths, and build output from the package. Run the [independent source-to-npm audit](docs/release-audit.md) from the committed release candidate:
+
+   ```sh
+   node scripts/audit-release.mjs --output ../release-evidence
+   ```
+
+   It compares two ordinary clean-checkout packs byte-for-byte, records sorted source/package inventories, exclusions and hashes, checks versions and private-material patterns, tests the exact artifact, and runs the existing preceding-release package gate. A missing tag is a blocked check, not a pass. Keep the evidence outside the package and record the actual source commit and toolchain.
 4. Run relevant real-tool and named-host acceptance. Record actual command routing, destination paths, explicit override behavior, and the absence of unexpected project writes. Repeat lifecycle and sandbox checks where the change affects them.
 5. Record source revision, Node and OS versions, test totals and skips, package SHA-256, and the unpacked file manifest. Keep package hashes outside the hashed package. Update [verification](docs/verification.md) and the [integration matrix](docs/agent-integrations.md) without promoting untested routes.
 
