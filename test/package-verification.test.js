@@ -15,7 +15,7 @@ function fixture(t) {
   t.after(() => fs.rmSync(temporary, { recursive: true, force: true }));
   const root = path.join(temporary, "source");
   fs.mkdirSync(root);
-  for (const relative of [...packageJson.files, "package.json", "scripts/verify-package.mjs", "scripts/harness-utils.mjs"]) {
+  for (const relative of [...packageJson.files, "package.json", "scripts/verify-package.mjs", "scripts/harness-utils.mjs", "scripts/npm-pack-report.mjs"]) {
     const target = path.join(root, relative);
     fs.mkdirSync(path.dirname(target), { recursive: true });
     fs.cpSync(path.join(sourceRoot, relative), target, { recursive: true });

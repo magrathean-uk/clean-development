@@ -5,6 +5,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { isolatedEnvironment } from "./harness-utils.mjs";
+import { normalizeNpmPackReport } from "./npm-pack-report.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
@@ -74,7 +75,7 @@ try {
   if (previousTag.status !== 0) {
     throw new Error(`Installed upgrade verification requires the ${previousRelease} Git tag. Fetch full tag history before running npm run test:package.`);
   }
-  const packed = JSON.parse(run("npm", ["pack", "--json", "--ignore-scripts", "--pack-destination", temporary]).stdout)[0];
+  const packed = normalizeNpmPackReport(runJson("npm", ["pack", "--json", "--ignore-scripts", "--pack-destination", temporary]), packageJson.name);
   const tarball = path.join(temporary, packed.filename);
   const names = new Set(packed.files.map((entry) => entry.path));
   for (const required of [
@@ -211,9 +212,12 @@ try {
   fs.mkdirSync(previousSource);
   run("git", ["archive", "--format=tar", "--output", previousArchive, previousRelease]);
   run("tar", ["-xf", previousArchive, "-C", previousSource]);
-  const previousPacked = runJson("npm", ["pack", "--json", "--ignore-scripts", "--pack-destination", temporary], { cwd: previousSource });
+  const previousPacked = normalizeNpmPackReport(
+    runJson("npm", ["pack", "--json", "--ignore-scripts", "--pack-destination", temporary], { cwd: previousSource }),
+    JSON.parse(fs.readFileSync(path.join(previousSource, "package.json"), "utf8")).name
+  );
   const previousPrefix = path.join(temporary, "previous-prefix");
-  run("npm", ["install", "--prefix", previousPrefix, "--ignore-scripts", "--no-audit", "--no-fund", path.join(temporary, previousPacked[0].filename)]);
+  run("npm", ["install", "--prefix", previousPrefix, "--ignore-scripts", "--no-audit", "--no-fund", path.join(temporary, previousPacked.filename)]);
   const previousBinary = path.join(previousPrefix, "node_modules", ".bin", process.platform === "win32" ? "clean-development.cmd" : "clean-development");
   assert.equal(run(previousBinary, ["--version"], { cwd: temporary }).stdout.trim(), previousVersion);
 

@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { isolatedEnvironment } from "./harness-utils.mjs";
+import { normalizeNpmPackReport } from "./npm-pack-report.mjs";
 import { resolveExecutable } from "../src/runtime.js";
 import { parseSmokeOptions, parseToolVersion, verificationSource, smokeOutcome, SMOKE_TOOLS, SMOKE_HELP, runVerificationCommand } from "./verification-utils.mjs";
 
@@ -107,7 +108,7 @@ const fixtures = {
     const result = runTool("npm", ["config", "get", "cache"], project);
     const cache = path.join(managed, "caches", "node", "npm");
     assert.equal(fs.realpathSync(result.stdout.trim()), cache);
-    const packed = JSON.parse(runTool("npm", ["pack", "--json", "--offline", "--ignore-scripts"], project).stdout)[0];
+    const packed = normalizeNpmPackReport(JSON.parse(runTool("npm", ["pack", "--json", "--offline", "--ignore-scripts"], project).stdout), "clean-development-smoke");
     runTool("npm", ["cache", "add", path.join(project, packed.filename), "--offline", "--ignore-scripts"], project);
     const artifacts = filesBelow(path.join(cache, "_cacache", "content-v2"));
     assert.ok(artifacts.length > 0, "npm produced no managed package cache content");
