@@ -6,6 +6,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { resolveExecutable } from "../src/runtime.js";
+import { rustupHomeEnvironment } from "./harness-utils.mjs";
 
 const repository = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const cli = path.join(repository, "bin", "clean-development.js");
@@ -109,7 +110,7 @@ function laneEnvironment(directory) {
     CLEAN_DEVELOPMENT_ROOT: path.join(directory, "managed"),
     CARGO_HOME: locations["cargo-home"],
     CARGO_NET_OFFLINE: "true",
-    RUSTUP_HOME: process.env.RUSTUP_HOME || path.join(os.homedir(), ".rustup"),
+    ...rustupHomeEnvironment(),
     RUSTUP_AUTO_INSTALL: "0",
     GOPATH: locations["go-path"],
     GOPROXY: "off",

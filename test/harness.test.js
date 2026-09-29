@@ -5,7 +5,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
-import { isolatedEnvironment, summarizeOverhead, withoutCleanDevelopmentEnvironment } from "../scripts/harness-utils.mjs";
+import { isolatedEnvironment, rustupHomeEnvironment, summarizeOverhead, withoutCleanDevelopmentEnvironment } from "../scripts/harness-utils.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -103,4 +103,20 @@ test("Cargo smoke rejects a successful command that produced no compiler artifac
   });
   assert.equal(result.status, 1, result.stderr || result.stdout);
   assert.match(result.stderr, /Cargo reported no compiler artifacts/);
+});
+
+test("rustup home for disposable-HOME children is inherited or an installed default, never a new path", () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "rustup-home-"));
+  try {
+    assert.deepEqual(rustupHomeEnvironment({ RUSTUP_HOME: "/routed/rustup" }, home), { RUSTUP_HOME: "/routed/rustup" });
+    assert.deepEqual(rustupHomeEnvironment({}, home), {});
+    assert.equal(fs.existsSync(path.join(home, ".rustup")), false);
+    fs.mkdirSync(path.join(home, ".rustup"));
+    assert.deepEqual(rustupHomeEnvironment({ RUSTUP_HOME: "" }, home), {});
+    fs.mkdirSync(path.join(home, ".rustup", "toolchains"));
+    assert.deepEqual(rustupHomeEnvironment({ RUSTUP_HOME: "" }, home), { RUSTUP_HOME: path.join(home, ".rustup") });
+    assert.deepEqual(rustupHomeEnvironment({ RUSTUP_HOME: "/routed/rustup" }, home), { RUSTUP_HOME: "/routed/rustup" });
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
 });

@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { isolatedEnvironment } from "./harness-utils.mjs";
+import { isolatedEnvironment, rustupHomeEnvironment } from "./harness-utils.mjs";
 import { normalizeNpmPackReport } from "./npm-pack-report.mjs";
 import { resolveExecutable } from "../src/runtime.js";
 import { parseSmokeOptions, parseToolVersion, verificationSource, smokeOutcome, SMOKE_TOOLS, SMOKE_HELP, runVerificationCommand } from "./verification-utils.mjs";
@@ -21,9 +21,10 @@ const temporary = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "clean-d
 const managed = path.join(temporary, "managed");
 const inherited = isolatedEnvironment(temporary);
 // Toolchains remain installed at their original locations, while tool user/cache
-// settings and fixture writes use disposable homes. Ignore ambient npm options.
+// settings and fixture writes use disposable homes. Ignore ambient npm options;
+// rustupHomeEnvironment decides RUSTUP_HOME (inherited, or an installed default).
 for (const key of Object.keys(inherited)) {
-  if (key.toUpperCase().startsWith("NPM_CONFIG_") || ["RUSTUP_TRACE_DIR", "RUSTC_WRAPPER", "RUSTC_WORKSPACE_WRAPPER"].includes(key.toUpperCase())) delete inherited[key];
+  if (key.toUpperCase().startsWith("NPM_CONFIG_") || ["RUSTUP_HOME", "RUSTUP_TRACE_DIR", "RUSTC_WRAPPER", "RUSTC_WORKSPACE_WRAPPER"].includes(key.toUpperCase())) delete inherited[key];
 }
 const env = {
   ...inherited,
@@ -31,7 +32,7 @@ const env = {
   XDG_CACHE_HOME: path.join(temporary, "tool-cache"), XDG_CONFIG_HOME: path.join(temporary, "tool-config"),
   XDG_DATA_HOME: path.join(temporary, "tool-data"), XDG_STATE_HOME: path.join(temporary, "tool-state"),
   CARGO_HOME: path.join(temporary, "cargo-home"),
-  RUSTUP_HOME: process.env.RUSTUP_HOME || path.join(os.homedir(), ".rustup"),
+  ...rustupHomeEnvironment(),
   CARGO_NET_OFFLINE: "true",
   RUSTUP_AUTO_INSTALL: "0",
   GOENV: "off", GOWORK: "off", GOTOOLCHAIN: "local", GOPROXY: "off", GOSUMDB: "off",

@@ -35,7 +35,10 @@ for the subset of available tools.
 Fixtures use temporary projects, managed directories, tool homes, XDG homes and
 npm user/global configuration. Ambient npm configuration environment values are
 removed. Cargo has a disposable home for this dependency-free fixture; rustup still
-uses the original installed toolchain location, with auto-install disabled. This
+uses the original installed toolchain location (the inherited `RUSTUP_HOME`, else
+the default location when a toolchain is already installed there, else the
+disposable home, so nothing is created under the real home), with auto-install
+disabled. This
 harness isolation is not a change to the product's `CARGO_HOME` routing policy.
 Go proxy/checksum downloads, npm network access, Cargo dependency access and uv
 Python/package downloads are disabled using their normal offline controls. These

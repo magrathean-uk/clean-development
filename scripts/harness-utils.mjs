@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
 const ROUTING_VARIABLES = new Set([
@@ -27,6 +29,20 @@ export function isolatedEnvironment(root, inherited = process.env) {
     CLEAN_DEVELOPMENT_CONFIG_HOME: path.join(root, "config"),
     CLEAN_DEVELOPMENT_ROOT: path.join(root, "managed")
   };
+}
+
+/**
+ * RUSTUP_HOME for children that run with a disposable HOME. Rustup derives its
+ * default home from HOME, so a child that does not name the installed toolchain
+ * cannot find it. Use the inherited value; otherwise rustup's default location, but
+ * only when a toolchain is already installed there. Never name a path that is
+ * absent (rustup would create it) and never invent one: return nothing so the
+ * child's disposable HOME applies and nothing is created under the real home.
+ */
+export function rustupHomeEnvironment(inherited = process.env, home = os.homedir()) {
+  if (inherited.RUSTUP_HOME) return { RUSTUP_HOME: inherited.RUSTUP_HOME };
+  const installed = path.join(home, ".rustup");
+  return fs.statSync(path.join(installed, "toolchains"), { throwIfNoEntry: false })?.isDirectory() ? { RUSTUP_HOME: installed } : {};
 }
 
 export function summarizeOverhead(direct, routed) {
