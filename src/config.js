@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { CONFIG_FILE, DEFAULT_CONFIG, SHIM_TOOLS, SUPPORTED_AGENTS } from "./constants.js";
+import { CONFIG_FILE, DEFAULT_CONFIG, SHIM_TOOLS, SUPPORTED_AGENTS, XCODE_OPTIONS } from "./constants.js";
 import { readJson, writeJsonAtomic, writeJsonExclusive } from "./io.js";
 import { assertSafeManagedRoot, environmentValue, platformPaths } from "./platform.js";
 
@@ -16,7 +16,7 @@ function invalid(file, message) {
 
 function validateConfig(value, file, { user = false } = {}) {
   if (!isObject(value)) invalid(file, "top level must be a JSON object");
-  const allowed = user ? new Set([...PROJECT_KEYS, "agents"]) : PROJECT_KEYS;
+  const allowed = user ? new Set([...PROJECT_KEYS, "agents", "xcode"]) : PROJECT_KEYS;
   for (const key of Object.keys(value)) if (!allowed.has(key)) invalid(file, `unknown key '${key}'`);
   if (value.schemaVersion !== 1) invalid(file, "schemaVersion must be 1");
   if (value.$schema !== undefined && (typeof value.$schema !== "string" || !value.$schema.trim())) invalid(file, "$schema must be a non-empty string");
@@ -42,6 +42,14 @@ function validateConfig(value, file, { user = false } = {}) {
     if (!user) invalid(file, "agents is only valid in user configuration");
     if (!Array.isArray(value.agents) || value.agents.some((agent) => !Object.hasOwn(SUPPORTED_AGENTS, agent))) {
       invalid(file, "agents must contain only supported agent names");
+    }
+  }
+  if (value.xcode !== undefined) {
+    if (!user) invalid(file, "xcode is only valid in user configuration");
+    if (!isObject(value.xcode)) invalid(file, "xcode must be an object");
+    for (const [key, enabled] of Object.entries(value.xcode)) {
+      if (!XCODE_OPTIONS.includes(key)) invalid(file, `unknown xcode key '${key}'`);
+      if (typeof enabled !== "boolean") invalid(file, `xcode.${key} must be a boolean`);
     }
   }
   return value;
@@ -173,6 +181,8 @@ export function writeUserConfig(config, env = process.env) {
   if (config.buildRoot && config.buildRoot !== path.join(persisted.root, "builds")) persisted.buildRoot = path.resolve(config.buildRoot);
   if (config.scratchRoot && config.scratchRoot !== path.join(persisted.root, "scratch")) persisted.scratchRoot = path.resolve(config.scratchRoot);
   if (config.swiftpmWorkspaceRoot) persisted.swiftpmWorkspaceRoot = assertSafeManagedRoot(config.swiftpmWorkspaceRoot, env);
+  // Absent means "never asked"; an explicit false/false records a declined choice.
+  if (config.xcode) persisted.xcode = Object.fromEntries(XCODE_OPTIONS.map((key) => [key, config.xcode[key] === true]));
   validateConfig(persisted, locations.configPath, { user: true });
   writeJsonAtomic(locations.configPath, persisted);
   return locations.configPath;

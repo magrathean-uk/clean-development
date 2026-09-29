@@ -149,7 +149,7 @@ pass-through `swift package clean` targets the relocated build.
 
 No filesystem sandbox, compiler-version isolation or process-tree containment is
 added. Package manifests, plugins and tests remain executable code with the user's
-permissions. We do not claim Xcode DerivedData, archives/XCFramework workflows,
+permissions. We do not claim archives/XCFramework workflows (Xcode DerivedData is a separate opt-in, see [xcode.md](xcode.md)),
 remote dependencies, alternative build systems, cross-compilation, native Windows
 Swift, or all same-user filesystem races are verified. Point-in-time checks cannot
 protect a root changed after validation. Back up valuable retained products.

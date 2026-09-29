@@ -2,6 +2,11 @@ export const VERSION = "0.2.1";
 export const PACKAGE_NAME = "clean-development";
 export const CONFIG_FILE = ".clean-development.json";
 
+// Opt-in macOS Xcode management. The preference key was checked in Xcode 27's IDEFoundation.
+export const XCODE_DOMAIN = "com.apple.dt.Xcode";
+export const XCODE_DERIVED_DATA_KEY = "IDECustomDerivedDataLocation";
+export const XCODE_OPTIONS = Object.freeze(["derivedData", "simulators"]);
+
 export const SUPPORTED_AGENTS = Object.freeze({
   claude: "claude",
   antigravity: "agy",

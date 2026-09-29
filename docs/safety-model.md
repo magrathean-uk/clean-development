@@ -56,6 +56,16 @@ A compromised local project can execute arbitrary package scripts with the user'
 
 Report vulnerabilities through [SECURITY.md](../SECURITY.md).
 
+## Opt-in Xcode boundary
+
+Xcode management changes one host preference (`IDECustomDerivedDataLocation`) and deletes only through the explicit
+`clean-development xcode prune --apply`. Both need a recorded yes (`setup` prompt, `--xcode`), and setup never asks
+noninteractively. The preference change is receipted and restored only while it still holds the value setup wrote.
+Prune removes marker-verified DerivedData project folders inside the managed root, DeviceSupport folders, and Apple's
+own simulator leftovers through `simctl`, re-checks each entry before acting, never follows symlinks, and keeps
+everything when Xcode's state is unknown or a simulator is booted. It is separate from the Cargo prune registry.
+Details and limits: [xcode.md](xcode.md).
+
 ## Experimental SwiftPM output boundary
 
 SwiftPM routing requires explicit `tools.swift: true`. Its scratch tree contains

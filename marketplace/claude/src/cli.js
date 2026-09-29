@@ -15,14 +15,15 @@ import { storageStatus, formatStorageStatus, parseByteSize } from "./status.js";
 import { probeTool, formatProbe } from "./probe.js";
 import { preflightToolRouting, assertRoutingBoundary } from "./routing-context.js";
 import { applyRecovery, beginLifecycleRecovery, checkpointLifecycleRecovery, formatRecovery, planRecovery } from "./recovery.js";
+import { applyXcodePrune, applyXcodeSettings, formatXcodePlan, formatXcodeStatus, promptXcodeChoice, restoreXcodeSettings, xcodePaths, xcodePrunePlan, xcodeSettings, xcodeStatus, xcodeSupported } from "./xcode.js";
 
 const HELP = `clean-development ${VERSION}
 
 Keep new development caches and supported build output in one managed place.
 
 Usage:
-  clean-development setup [--root PATH] [--agents LIST] [--dry-run] [--json]
-  clean-development update [--root PATH] [--agents LIST] [--dry-run] [--json]
+  clean-development setup [--root PATH] [--agents LIST] [--xcode | --no-xcode] [--dry-run] [--json]
+  clean-development update [--root PATH] [--agents LIST] [--xcode | --no-xcode] [--dry-run] [--json]
   clean-development prepare [--dry-run] [--json]
   clean-development session [--session session-only|persist|skip] [--dry-run] [--json]
   clean-development init [--root PATH] [--force]
@@ -35,6 +36,7 @@ Usage:
   clean-development doctor [--json]
   clean-development probe --tool npm|go|uv [--execute] [--timeout-ms MS] [--json]
   clean-development prune [--older-than DAYS] [--apply] [--json]
+  clean-development xcode [status|prune] [--older-than DAYS] [--apply] [--sizes] [--json]
   clean-development pin WORKSPACE_ID | unpin WORKSPACE_ID
   clean-development uninstall [--dry-run] [--json]
   clean-development recover [--dry-run] [--json]
@@ -43,6 +45,8 @@ Usage:
 Use COMMAND --help for help. Put child command options after --.
 Interactive launches offer session only (Enter), save project settings, or skip.
 Noninteractive launches default to session-only; native integrations default to skip.
+macOS only: setup asks whether to manage Xcode DerivedData and simulator clean-up (default no).
+--xcode answers yes to both, --no-xcode answers no; noninteractive setup without either leaves Xcode alone.
 
 Agents:
   ${Object.keys(SUPPORTED_AGENTS).join(", ")}
@@ -53,8 +57,8 @@ CLEAN_DEVELOPMENT_FORCE=1 is set.`;
 const COMMAND_OPTIONS = Object.freeze({
   help: {},
   version: {},
-  setup: { root: "value", agents: "value", "dry-run": "boolean", json: "boolean" },
-  update: { root: "value", agents: "value", "dry-run": "boolean", json: "boolean" },
+  setup: { root: "value", agents: "value", xcode: "boolean", "no-xcode": "boolean", "dry-run": "boolean", json: "boolean" },
+  update: { root: "value", agents: "value", xcode: "boolean", "no-xcode": "boolean", "dry-run": "boolean", json: "boolean" },
   prepare: { "dry-run": "boolean", json: "boolean" },
   session: { session: "value", "dry-run": "boolean", json: "boolean" },
   init: { root: "value", force: "boolean", json: "boolean" },
@@ -68,6 +72,7 @@ const COMMAND_OPTIONS = Object.freeze({
   doctor: { json: "boolean" },
   probe: { tool: "value", execute: "boolean", "timeout-ms": "value", json: "boolean" },
   prune: { "older-than": "value", apply: "boolean", json: "boolean" },
+  xcode: { "older-than": "value", apply: "boolean", sizes: "boolean", json: "boolean" },
   pin: { json: "boolean" },
   unpin: { json: "boolean" },
   uninstall: { "dry-run": "boolean", json: "boolean" },
@@ -112,6 +117,9 @@ function validateArguments(command, parsed) {
   const noArguments = ["help", "version", "setup", "update", "prepare", "session", "init", "env", "status", "doctor", "probe", "prune", "uninstall", "recover"];
   if (noArguments.includes(command) && (positionals.length > 0 || passthrough.length > 0)) {
     throw new Error(`${command} does not accept positional arguments`);
+  }
+  if (command === "xcode" && (positionals.length > 1 || passthrough.length > 0 || (positionals.length === 1 && !["status", "prune"].includes(positionals[0])))) {
+    throw new Error("xcode accepts one optional subcommand: status or prune");
   }
   if (["pin", "unpin"].includes(command) && (positionals.length !== 1 || passthrough.length > 0)) {
     throw new Error(`${command} requires exactly one workspace ID`);
@@ -170,8 +178,21 @@ function ensureManagedBase(directory) {
   validate();
 }
 
+async function xcodeDecision(options, config) {
+  if (options.xcode && options["no-xcode"]) throw new Error("--xcode and --no-xcode are mutually exclusive");
+  if ((options.xcode || options["no-xcode"]) && !xcodeSupported()) throw new Error("Xcode management is available on macOS only");
+  if (options.xcode) return { derivedData: true, simulators: true };
+  if (options["no-xcode"]) return { derivedData: false, simulators: false };
+  // An earlier answer stands; update never asks again.
+  if (config.xcode) return config.xcode;
+  if (!options["dry-run"] && xcodeSupported() && process.stdin.isTTY && process.stderr.isTTY) return promptXcodeChoice(config);
+  return undefined;
+}
+
 async function setup(options, env, operation = "setup") {
   const { config, agents } = setupPlan(options, env);
+  const xcode = await xcodeDecision(options, config);
+  if (xcode) config.xcode = xcode;
   const summary = {
     root: config.root,
     cacheRoot: config.cacheRoot,
@@ -180,7 +201,11 @@ async function setup(options, env, operation = "setup") {
     agents,
     dryRun: Boolean(options["dry-run"])
   };
-  if (options["dry-run"]) return summary;
+  if (xcodeSupported()) summary.xcode = { ...xcodeSettings(config), derivedDataRoot: xcodePaths(config).derivedData };
+  if (options["dry-run"]) {
+    if (xcodeSupported() && config.xcode) summary.xcode = applyXcodeSettings(config, env, { dryRun: true });
+    return summary;
+  }
   const releaseLock = await acquireDirectoryLock(path.join(config.locations.stateDir, "setup.lock"));
   try {
     for (const directory of [...new Set([config.root, config.cacheRoot, config.buildRoot, config.scratchRoot])]) ensureManagedBase(directory);
@@ -193,6 +218,7 @@ async function setup(options, env, operation = "setup") {
     checkpointLifecycleRecovery(persisted, recovery, "runtime-published");
     summary.runtime = { version: VERSION, binDir: runtime.binDir };
     summary.integrations = installAgentIntegrations(persisted, runtime, agents, env);
+    if (xcodeSupported() && (persisted.xcode || fs.existsSync(xcodePaths(persisted).receipt))) summary.xcode = applyXcodeSettings(persisted, env);
     checkpointLifecycleRecovery(persisted, recovery, "complete");
     return summary;
   } finally {
@@ -360,6 +386,13 @@ function doctorCommand(config, env) {
     checks.push({ name: `managed-${key}`, ok, detail });
   }
   checks.push({ name: "runtime", ...runtimeHealth(config) });
+  if (xcodeSupported() && (config.xcode?.derivedData || config.xcode?.simulators)) {
+    const report = xcodeStatus(config, env);
+    const detail = report.settings.derivedData
+      ? `Xcode DerivedData ${report.preference.matchesManagedRoot ? "routed to" : "NOT routed to"} ${report.derivedDataRoot}; run clean-development update to apply`
+      : "Xcode simulator clean-up enabled (DerivedData not managed)";
+    checks.push({ name: "xcode", ok: !report.settings.derivedData || report.preference.matchesManagedRoot, optional: true, detail });
+  }
   for (const tool of SHIM_TOOLS) {
     const executable = resolveExecutable(tool, env, config.locations.binDir);
     checks.push({ name: `tool:${tool}`, ok: Boolean(executable), optional: true, detail: executable || "not found" });
@@ -410,11 +443,13 @@ async function uninstallCommand(options, config, env) {
     integrationTargets,
     retained: runtimePlan.retained
   };
+  if (xcodeSupported() && fs.existsSync(xcodePaths(config).receipt)) result.xcode = restoreXcodeSettings(config, env, { dryRun: true });
   if (result.dryRun) return result;
   const releaseLock = await acquireDirectoryLock(path.join(config.locations.stateDir, "setup.lock"));
   try {
     const recovery = beginLifecycleRecovery(config, "uninstall");
     result.integrationsRemoved = removeOwnedAgentIntegrations(config, env);
+    if (result.xcode) result.xcode = restoreXcodeSettings(config, env);
     result.runtime = removeRuntime(config);
     checkpointLifecycleRecovery(config, recovery, "complete");
     return result;
@@ -521,7 +556,7 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
     } catch {
       config = resolveConfig({ env, includeProject: false });
     }
-  } else config = resolveConfig({ env, includeProject: command !== "uninstall" });
+  } else config = resolveConfig({ env, includeProject: !["uninstall", "xcode"].includes(command) });
   if (command === "run") {
     const [executable, ...args] = parsed.passthrough.length ? parsed.passthrough : parsed.positionals;
     if (!executable) throw new Error("run requires a command after --");
@@ -584,6 +619,20 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
   if (command === "pin" || command === "unpin") {
     output(await setPinned(config, parsed.positionals[0], command === "pin"), json);
     return 0;
+  }
+  if (command === "xcode") {
+    const subcommand = parsed.positionals[0] || "status";
+    if (subcommand === "status") {
+      if (parsed.options.apply || parsed.options["older-than"]) throw new Error("xcode status does not accept --apply or --older-than");
+      const report = xcodeStatus(config, env, { sizes: Boolean(parsed.options.sizes) });
+      output(json ? report : formatXcodeStatus(report), json);
+      return 0;
+    }
+    if (parsed.options.sizes) throw new Error("xcode prune does not accept --sizes");
+    const plan = xcodePrunePlan(config, env, { olderThanDays: parseDays(parsed.options["older-than"], config.retention.buildDays) });
+    const outcome = parsed.options.apply ? applyXcodePrune(plan, config, env) : null;
+    output(json ? { apply: Boolean(parsed.options.apply), ...plan, outcome } : formatXcodePlan(plan, outcome), json);
+    return outcome?.some((item) => item.status === "failed") ? 1 : 0;
   }
   if (command === "uninstall") {
     output(await uninstallCommand(parsed.options, config, env), json);

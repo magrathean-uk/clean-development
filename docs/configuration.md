@@ -139,6 +139,13 @@ unset its cache variable or deliberately use force mode. Older shared-cache
 values without provenance are treated as explicit; older Cargo markers remain
 recognised. The marker authorises no file creation or deletion by itself.
 
+## Opt-in Xcode (macOS)
+
+`xcode` is a user-config-only object, `{ "derivedData": boolean, "simulators": boolean }`. It is absent until the
+owner answers the `setup` question or passes `--xcode` or `--no-xcode`; absent means never asked, and `update` keeps
+whatever is stored. `derivedData` sets one Xcode preference to `<root>/xcode/DerivedData` and remembers the previous
+value for restore; `simulators` enables the dry-run-first `clean-development xcode prune`. See [xcode.md](xcode.md).
+
 ## Opt-in SwiftPM
 
 SwiftPM is disabled by default (`tools.swift: false`). Set `tools.swift: true` for

@@ -79,7 +79,7 @@ When a routed session is active, the CLI provides adapters for:
 | Composer | Composer cache |
 | ccache and sccache | Native compiler cache |
 
-It does not move `node_modules`, virtual environments, final Go binaries, release archives, Xcode archives, Rust toolchains, credentials, or arbitrary framework output. `CARGO_HOME` is not relocated because it can contain configuration, credentials, installed binaries, and caches together.
+On macOS, `setup` also asks whether to manage Xcode DerivedData and simulator leftovers (default no); see [Xcode management](docs/xcode.md). It does not move `node_modules`, virtual environments, final Go binaries, release archives, Xcode archives, Rust toolchains, credentials, or arbitrary framework output. `CARGO_HOME` is not relocated because it can contain configuration, credentials, installed binaries, and caches together.
 
 The default managed layout is one root with `caches/`, `builds/`, and `scratch/` children. Routed Cargo build workspaces receive ownership records and active-build leases. Scratch storage is reserved; automatic scratch registration and cleanup are not implemented. Pruning is limited to registered direct children of the managed build root and is a dry run unless `--apply` is supplied.
 
@@ -171,8 +171,8 @@ Explicit environment variables win by default. `CLEAN_DEVELOPMENT_FORCE=1` is re
 The executable exposes these commands:
 
 ```text
-setup [--root PATH] [--agents LIST] [--dry-run] [--json]
-update [--root PATH] [--agents LIST] [--dry-run] [--json]
+setup [--root PATH] [--agents LIST] [--xcode | --no-xcode] [--dry-run] [--json]
+update [--root PATH] [--agents LIST] [--xcode | --no-xcode] [--dry-run] [--json]
 prepare [--dry-run] [--json]
 session [--session session-only|persist|skip] [--dry-run] [--json]
 init [--root PATH] [--force]
@@ -185,6 +185,7 @@ status [--workspaces] [--sizes] [--build-budget SIZE] [--json]
 doctor [--json]
 probe --tool npm|go|uv [--execute] [--timeout-ms MS] [--json]
 prune [--older-than DAYS] [--apply] [--json]
+xcode [status|prune] [--older-than DAYS] [--apply] [--sizes] [--json]
 pin WORKSPACE_ID
 unpin WORKSPACE_ID
 uninstall [--dry-run] [--json]
@@ -192,7 +193,7 @@ uninstall [--dry-run] [--json]
 
 Use `clean-development COMMAND --help` to display CLI usage. Child command options belong after `--`.
 
-`status` reports configured paths and workspace records. `doctor` checks managed directories and owned runtime files without repairing them. `update` refreshes the durable runtime and configured integrations. `uninstall` removes owned integrations and launchers while retaining configuration and managed data. Use `prune --json` first; add `--apply` only when the listed registered workspaces are intended for removal.
+`status` reports configured paths and workspace records. `doctor` checks managed directories and owned runtime files without repairing them. `update` refreshes the durable runtime and configured integrations. `uninstall` removes owned integrations and launchers while retaining configuration and managed data. Use `prune --json` first; add `--apply` only when the listed registered workspaces are intended for removal. `xcode status` and `xcode prune` (macOS, opt-in) follow the same dry-run-first rule.
 
 ## Safety boundaries
 

@@ -6,6 +6,7 @@ A short guide to clean-development's documentation.
 
 - [Architecture](architecture.md)
 - [Configuration](configuration.md)
+- [Xcode management (macOS, opt-in)](xcode.md)
 - [Agent integrations](agent-integrations.md)
 - [Safety model](safety-model.md)
 - [Verification](verification.md)
