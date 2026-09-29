@@ -1,4 +1,4 @@
-export const VERSION = "0.2.1";
+export const VERSION = "0.3.0";
 export const PACKAGE_NAME = "clean-development";
 export const CONFIG_FILE = ".clean-development.json";
 

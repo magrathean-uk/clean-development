@@ -4,6 +4,10 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-29
+
+Prepared for local runtime rollout; not yet published to npm or tagged.
+
 ### Added
 
 - Opt-in macOS Xcode management. `setup` asks whether to route Xcode DerivedData into the managed root and whether to enable simulator and device clean-up (both default to no; `--xcode` and `--no-xcode` answer for noninteractive runs). DerivedData routing sets one restorable Xcode preference. `clean-development xcode status|prune` inspects and, only with `--apply`, removes old marker-verified DerivedData projects, DeviceSupport folders, unavailable simulators, the XCTest device set and CoreSimulator caches. See `docs/xcode.md`.

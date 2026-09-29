@@ -1,6 +1,6 @@
 {
   "name": "clean-development",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Keep development caches and supported build output in one managed place, without adding prompt context.",
   "type": "module",
   "main": "./.opencode/plugins/clean-development.js",

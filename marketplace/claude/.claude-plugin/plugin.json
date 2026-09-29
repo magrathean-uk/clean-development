@@ -2,7 +2,7 @@
   "name": "clean-development",
   "displayName": "Clean Development",
   "description": "Inspect and manage local development caches and build output with explicit session consent.",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "author": {
     "name": "MAGRATHEAN UK LTD"
   },

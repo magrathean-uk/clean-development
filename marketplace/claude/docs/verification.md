@@ -1,6 +1,6 @@
 # Verification status
 
-This ledger separates recorded checks from current acceptance. The source version is `0.2.1`, but it is not an npm publication or release tag. The observations below are dated repository records. They do not establish acceptance for a later source revision, package, or host version.
+This ledger separates recorded checks from current acceptance. The source version is `0.3.0`, but it is not an npm publication or release tag. The observations below are dated repository records. They do not establish acceptance for a later source revision, package, or host version.
 
 ## Recorded evidence
 
