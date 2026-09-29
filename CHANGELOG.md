@@ -4,6 +4,14 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-09-29
+
+Prepared for local runtime rollout; not yet published to npm or tagged.
+
+### Fixed
+
+- The management skill is now explicit-only for Claude Code. Claude Code adds the marketplace's `claude-skills/` path to the plugin's default `skills/` scan, so the root copy, which lacked `disable-model-invocation: true`, kept the skill description in every turn's context. Every tracked copy now carries the key, less always-on context. `npm run check` requires the key in each copy and identical skill files.
+
 ## [0.3.0] - 2026-09-29
 
 Prepared for local runtime rollout; not yet published to npm or tagged.

@@ -10,7 +10,7 @@
 
 `clean-development` routes new development caches and supported build output to a managed root. It is a local Node.js CLI for developers and coding agents. Routing is explicit and preserves existing environment values unless force mode is selected.
 
-The current source version is `0.3.0` and requires Node.js `20.12` or newer. The repository is MIT licensed. It has not been published to npm or listed in the official Codex or Claude directories; use this source checkout until a public release is available.
+The current source version is `0.3.1` and requires Node.js `20.12` or newer. The repository is MIT licensed. It has not been published to npm or listed in the official Codex or Claude directories; use this source checkout until a public release is available.
 
 Directory review is separate from public availability. The Claude directory submission passed its automated security scan and is in manual policy review because the bundle contains executable files. The [Codex community submission](https://github.com/openai/community-plugins/pull/21) is open but not live. The global OpenAI directory listing is a draft and has not been submitted because its MCP form blocks the submission.
 

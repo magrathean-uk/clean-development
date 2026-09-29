@@ -19,6 +19,6 @@ Run the relevant isolated test first, such as `node --test test/session.test.js`
 
 Use `npm run test:package` for distribution changes. It installs temporary tarballs and requires the preceding-release tag named in `scripts/verify-package.mjs` for upgrade verification. See [CONTRIBUTING.md](CONTRIBUTING.md) for broader smoke, fixture, and performance checks.
 
-Keep versioned files in `.version-bump.json`, both root package-lock versions, and the bug-report placeholder synchronized. Keep the Codex and Claude skill bodies identical except for Claude's `disable-model-invocation: true` field; preserve both hosts' explicit-invocation metadata.
+Keep versioned files in `.version-bump.json`, both root package-lock versions, and the bug-report placeholder synchronized. Keep the Codex (`skills/`) and Claude (`claude-skills/`) skill files identical, and keep `disable-model-invocation: true` in every copy: Claude Code also scans the root `skills/` directory, so a copy without the key puts its description in every turn's context. Codex takes its policy from `agents/openai.yaml`; preserve that explicit-invocation metadata too.
 
 For routing and ownership changes, read [architecture](docs/architecture.md) and [the safety model](docs/safety-model.md). Update the affected configuration, integration, or verification document. A package loader or fixture pass does not establish live host acceptance or billed-token neutrality. Record the exact revision, host version, and check boundary when adding evidence.

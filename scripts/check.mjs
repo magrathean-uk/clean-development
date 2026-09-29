@@ -62,14 +62,18 @@ for (const executable of ["bin/clean-development.js", "bin/clean-development-shi
 
 const codexSkill = fs.readFileSync(path.join(root, "skills/clean-development/SKILL.md"), "utf8");
 const claudeSkill = fs.readFileSync(path.join(root, "claude-skills/clean-development/SKILL.md"), "utf8");
-if (/^disable-model-invocation:/m.test(codexSkill)) {
-  throw new Error("Codex skill must use agents/openai.yaml instead of Claude-only frontmatter");
+// Claude Code adds a marketplace entry's `skills` path to the plugin's default
+// `skills/` scan, so every tracked copy of the skill must be manual-only for it.
+// Codex takes its own policy from agents/openai.yaml (checked below).
+for (const copy of ["skills", "claude-skills", "marketplace/claude/skills"]) {
+  const file = path.join(root, copy, "clean-development/SKILL.md");
+  if (!fs.existsSync(file)) continue;
+  if (!/^disable-model-invocation:\s*true\s*$/m.test(fs.readFileSync(file, "utf8"))) {
+    throw new Error(`${copy}/clean-development/SKILL.md must remain explicit-only with disable-model-invocation: true`);
+  }
 }
-if (!/^disable-model-invocation:\s*true\s*$/m.test(claudeSkill)) {
-  throw new Error("Claude management skill must remain explicit-only with disable-model-invocation: true");
-}
-if (claudeSkill.replace(/^disable-model-invocation: true\r?\n/m, "") !== codexSkill) {
-  throw new Error("Codex and Claude/Grok skill instructions must match apart from host invocation metadata");
+if (claudeSkill !== codexSkill) {
+  throw new Error("Codex and Claude/Grok skill files must be identical, including their host invocation metadata");
 }
 const codexSkillPolicy = fs.readFileSync(path.join(root, "skills/clean-development/agents/openai.yaml"), "utf8");
 if (!/^  allow_implicit_invocation:\s*false\s*$/m.test(codexSkillPolicy)) {
@@ -77,7 +81,7 @@ if (!/^  allow_implicit_invocation:\s*false\s*$/m.test(codexSkillPolicy)) {
 }
 const claudeMarketplace = JSON.parse(fs.readFileSync(path.join(root, ".claude-plugin/marketplace.json"), "utf8"));
 if (claudeMarketplace.plugins?.[0]?.skills !== "./claude-skills/") {
-  throw new Error("Claude marketplace must replace root skill discovery with ./claude-skills/");
+  throw new Error("Claude marketplace must select ./claude-skills/");
 }
 const codexMarketplace = JSON.parse(fs.readFileSync(path.join(root, ".agents/plugins/marketplace.json"), "utf8"));
 const codexSource = codexMarketplace.plugins?.[0]?.source;

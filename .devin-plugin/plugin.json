@@ -1,6 +1,6 @@
 {
   "name": "clean-development",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Package metadata for clean-development; use its Devin launcher for runtime activation.",
   "author": {
     "name": "MAGRATHEAN UK LTD"

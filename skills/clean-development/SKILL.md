@@ -1,6 +1,7 @@
 ---
 name: clean-development
 description: Configure, inspect, diagnose, or explicitly prune storage managed by clean-development. Use for clean-development setup and storage questions, not for ordinary builds, tests, or package installs.
+disable-model-invocation: true
 ---
 
 # Clean Development
