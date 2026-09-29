@@ -7,6 +7,7 @@ import { spawnSync } from "node:child_process";
 import { resolveExecutable, spawnInherited, windowsBatchInvocation } from "../src/runtime.js";
 import { setEnvironmentValue } from "../src/platform.js";
 import { windowsPathEntries } from "../src/executable.js";
+import { withoutCleanDevelopmentEnvironment } from "../scripts/harness-utils.mjs";
 
 const variants = [
   "spaces and & ampersand", "round (brackets) and [square]", "caret ^ and bang !",
@@ -19,7 +20,7 @@ const args = ["", "literal & | < > ( )", "%CD_LITERAL_TOKEN%", "!CD_LITERAL_TOKE
 function fixture(t) {
   const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "cd command-path contract ")));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
-  const env = { ...process.env };
+  const env = withoutCleanDevelopmentEnvironment();
   for (const key of Object.keys(env)) if (["NODE_OPTIONS", "NODE_PATH"].includes(key.toUpperCase())) delete env[key];
   setEnvironmentValue(env, "CD_LITERAL_TOKEN", "SHOULD_NOT_EXPAND");
   setEnvironmentValue(env, "CD_COMMAND_CAPTURE", path.join(root, "capture.json"));

@@ -6,6 +6,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 import { detectStack, identifyWorkspace, MANIFESTS } from "../src/workspace.js";
+import { withoutCleanDevelopmentEnvironment } from "../scripts/harness-utils.mjs";
 
 // Identity is a slug plus a hash of the canonical workspace path, not the
 // spelling used to reach it or its shared Git metadata. Discover ancestors of
@@ -256,7 +257,7 @@ test("real linked worktrees sharing Git metadata and a commit retain separate id
   const root = fixture(t);
   const home = directory(root, "home");
   const empty = directory(root, "empty");
-  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^GIT_/i.test(key)));
+  const env = Object.fromEntries(Object.entries(withoutCleanDevelopmentEnvironment()).filter(([key]) => !/^GIT_/i.test(key)));
   Object.assign(env, { HOME: home, USERPROFILE: home, XDG_CONFIG_HOME: home, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: path.join(home, "empty-config") });
   fs.writeFileSync(env.GIT_CONFIG_GLOBAL, "");
   const version = spawnSync("git", ["--version"], { env, encoding: "utf8", timeout: 10000 });

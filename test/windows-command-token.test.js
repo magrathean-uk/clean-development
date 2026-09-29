@@ -5,6 +5,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 import { windowsBatchInvocation } from "../src/windows-command.js";
+import { withoutCleanDevelopmentEnvironment } from "../scripts/harness-utils.mjs";
 
 const variants = ["equal=only", "many===equals", "caret^=equal", "space = equals", "semi;comma,equal=plus+"];
 
@@ -35,7 +36,7 @@ for (const variant of variants) {
     fs.writeFileSync(script, "require('node:fs').writeFileSync(process.env.CD_TOKEN_CAPTURE,JSON.stringify(process.argv.slice(2)));process.exit(23);\n");
     const prefix = path.join(root, `${variant.split("=")[0]}.cmd`);
     fs.writeFileSync(prefix, '@echo wrong>"%CD_TOKEN_UNINTENDED%"\r\nexit /b 77\r\n');
-    const env = { ...process.env, CD_TOKEN_CAPTURE: capture, CD_TOKEN_UNINTENDED: unintended };
+    const env = { ...withoutCleanDevelopmentEnvironment(), CD_TOKEN_CAPTURE: capture, CD_TOKEN_UNINTENDED: unintended };
     for (const key of Object.keys(env)) if (["NODE_OPTIONS", "NODE_PATH"].includes(key.toUpperCase())) delete env[key];
     const args = ["key=value", "==", "", "caret^=value", "& echo BAD > unintended.txt"];
     for (const ext of ["cmd", "bat"]) {

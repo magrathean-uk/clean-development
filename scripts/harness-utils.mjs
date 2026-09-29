@@ -7,11 +7,19 @@ const ROUTING_VARIABLES = new Set([
   "COMPOSER_CACHE_DIR", "CCACHE_DIR", "SCCACHE_DIR", "NODE_OPTIONS"
 ]);
 
+/**
+ * Copy an environment without any CLEAN_DEVELOPMENT_* variable (matched
+ * case-insensitively, as Windows treats names). Fixtures that spawn the CLI
+ * build their child environment from this so an ambient CLEAN_DEVELOPMENT_ROOT
+ * or similar override cannot leak in and change which storage a test uses.
+ */
+export function withoutCleanDevelopmentEnvironment(inherited = process.env) {
+  return Object.fromEntries(Object.entries(inherited).filter(([key]) => !key.toUpperCase().startsWith("CLEAN_DEVELOPMENT_")));
+}
+
 export function isolatedEnvironment(root, inherited = process.env) {
-  const env = Object.fromEntries(Object.entries(inherited).filter(([key]) => {
-    const normalized = key.toUpperCase();
-    return !normalized.startsWith("CLEAN_DEVELOPMENT_") && !ROUTING_VARIABLES.has(normalized);
-  }));
+  const env = Object.fromEntries(Object.entries(withoutCleanDevelopmentEnvironment(inherited))
+    .filter(([key]) => !ROUTING_VARIABLES.has(key.toUpperCase())));
   return {
     ...env,
     CLEAN_DEVELOPMENT_HOME: path.join(root, "home"),

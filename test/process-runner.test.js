@@ -6,11 +6,12 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { spawnInherited } from "../src/runtime.js";
+import { withoutCleanDevelopmentEnvironment } from "../scripts/harness-utils.mjs";
 
 function fixture(t) {
   const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "cd process & contract ")));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
-  const env = { ...process.env };
+  const env = withoutCleanDevelopmentEnvironment();
   for (const key of Object.keys(env)) if (["NODE_OPTIONS", "NODE_PATH"].includes(key.toUpperCase())) delete env[key];
   return { root, env };
 }

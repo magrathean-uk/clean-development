@@ -8,7 +8,7 @@ import { environmentForTool } from "../src/adapters.js";
 import { SHIM_TOOLS } from "../src/constants.js";
 import { canonicalizePotentialPath } from "../src/platform.js";
 import { identifyWorkspace } from "../src/workspace.js";
-import { isolatedEnvironment } from "../scripts/harness-utils.mjs";
+import { isolatedEnvironment, withoutCleanDevelopmentEnvironment } from "../scripts/harness-utils.mjs";
 
 function fixture() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "clean-development-config-"));
@@ -140,7 +140,7 @@ test("npm cache values are explicit even when they match npm defaults", (t) => {
 });
 
 test("broad roots are refused", () => {
-  assert.throws(() => resolveConfig({ env: { ...process.env, CLEAN_DEVELOPMENT_ROOT: path.parse(process.cwd()).root } }), /Refusing broad managed root/);
+  assert.throws(() => resolveConfig({ env: { ...withoutCleanDevelopmentEnvironment(), CLEAN_DEVELOPMENT_ROOT: path.parse(process.cwd()).root } }), /Refusing broad managed root/);
 });
 
 test("relative managed roots are refused from project, user, and environment configuration", (t) => {

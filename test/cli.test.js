@@ -5,6 +5,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import test from "node:test";
+import { withoutCleanDevelopmentEnvironment } from "../scripts/harness-utils.mjs";
 
 const cli = path.resolve("bin/clean-development.js");
 
@@ -16,7 +17,7 @@ function fixture() {
   const grok = path.join(root, "grok");
   fs.mkdirSync(home, { recursive: true });
   const env = {
-    ...process.env,
+    ...withoutCleanDevelopmentEnvironment(),
     CLEAN_DEVELOPMENT_HOME: home,
     CLEAN_DEVELOPMENT_DATA_HOME: path.join(root, "data"),
     CLEAN_DEVELOPMENT_CONFIG_HOME: path.join(root, "config"),

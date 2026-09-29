@@ -9,6 +9,7 @@ import { resolveConfig } from "../src/config.js";
 import { ensureRuntime, removeRuntime, resolveExecutable, runTool, runtimeHealth, spawnInherited, windowsBatchInvocation } from "../src/runtime.js";
 import { acquireWorkspaceLock, activeWorkspaceIds, prunePlan, workspaceRecord } from "../src/state.js";
 import { identifyWorkspace } from "../src/workspace.js";
+import { withoutCleanDevelopmentEnvironment } from "../scripts/harness-utils.mjs";
 
 const CLI = fileURLToPath(new URL("../bin/clean-development.js", import.meta.url));
 
@@ -21,14 +22,14 @@ function fixture(t) {
   for (const directory of [first, second, bin]) fs.mkdirSync(directory);
   for (const project of [first, second]) fs.writeFileSync(path.join(project, "Cargo.toml"), `[package]\nname="${path.basename(project)}"\nversion="0.1.0"\n`);
   const env = {
-    ...process.env,
+    ...withoutCleanDevelopmentEnvironment(),
     CLEAN_DEVELOPMENT_HOME: path.join(root, "home"),
     CLEAN_DEVELOPMENT_DATA_HOME: path.join(root, "data"),
     CLEAN_DEVELOPMENT_CONFIG_HOME: path.join(root, "config"),
     CLEAN_DEVELOPMENT_ROOT: path.join(root, "managed"),
     PATH: bin
   };
-  for (const key of ["CARGO_TARGET_DIR", "CLEAN_DEVELOPMENT_CARGO_TARGET_DIR", "CLEAN_DEVELOPMENT_FORCE", "YARN_CACHE_FOLDER", "YARN_ENABLE_GLOBAL_CACHE", "YARN_ENABLE_MIRROR"]) delete env[key];
+  for (const key of ["CARGO_TARGET_DIR", "YARN_CACHE_FOLDER", "YARN_ENABLE_GLOBAL_CACHE", "YARN_ENABLE_MIRROR"]) delete env[key];
   for (const directory of ["caches", "builds", "scratch"]) fs.mkdirSync(path.join(root, "managed", directory), { recursive: true });
   return { root, first, second, bin, env, config: resolveConfig({ cwd: first, env }) };
 }

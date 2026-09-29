@@ -5,6 +5,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
+import { withoutCleanDevelopmentEnvironment } from "../scripts/harness-utils.mjs";
 
 const sourceRoot = fileURLToPath(new URL("../", import.meta.url));
 function fixture(t) {
@@ -15,7 +16,7 @@ function fixture(t) {
     const target = path.join(root, relative); fs.mkdirSync(path.dirname(target), { recursive: true });
     fs.cpSync(path.join(sourceRoot, relative), target, { recursive: true });
   }
-  const env = { ...process.env };
+  const env = withoutCleanDevelopmentEnvironment();
   for (const key of Object.keys(env)) if (["NODE_OPTIONS", "NODE_PATH"].includes(key.toUpperCase())) delete env[key];
   const run = (args = []) => spawnSync(process.execPath, [path.join(root, "scripts", "build-marketplace.mjs"), ...args], {
     cwd: root, env, encoding: "utf8", timeout: 30000, maxBuffer: 1024 * 1024

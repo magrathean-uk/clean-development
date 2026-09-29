@@ -5,7 +5,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
-import { isolatedEnvironment, summarizeOverhead } from "../scripts/harness-utils.mjs";
+import { isolatedEnvironment, summarizeOverhead, withoutCleanDevelopmentEnvironment } from "../scripts/harness-utils.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -25,6 +25,28 @@ test("verification environments discard inherited routing overrides regardless o
   assert.equal(env.CLEAN_DEVELOPMENT_ROOT, path.join(temporary, "managed"));
   assert.equal(Object.values(env).some((value) => value.startsWith("/outside")), false);
   assert.equal(env.CLEAN_DEVELOPMENT_FORCE, undefined);
+});
+
+test("fixture environments drop every CLEAN_DEVELOPMENT_ variable regardless of casing and keep the rest", () => {
+  const inherited = {
+    PATH: "/bin",
+    HOME: "/home/example",
+    CLEAN_DEVELOPMENT_ROOT: "/outside/managed",
+    CLEAN_DEVELOPMENT_ACTIVE: "1",
+    clean_development_data_home: "/outside/data",
+    npm_config_cache: "/outside/npm"
+  };
+  const env = withoutCleanDevelopmentEnvironment(inherited);
+  assert.deepEqual(env, { PATH: "/bin", HOME: "/home/example", npm_config_cache: "/outside/npm" });
+  assert.equal(inherited.CLEAN_DEVELOPMENT_ROOT, "/outside/managed");
+  const previous = process.env.CLEAN_DEVELOPMENT_ROOT;
+  process.env.CLEAN_DEVELOPMENT_ROOT = "/outside/ambient";
+  try {
+    assert.equal(Object.keys(withoutCleanDevelopmentEnvironment()).some((key) => key.toUpperCase().startsWith("CLEAN_DEVELOPMENT_")), false);
+  } finally {
+    if (previous === undefined) delete process.env.CLEAN_DEVELOPMENT_ROOT;
+    else process.env.CLEAN_DEVELOPMENT_ROOT = previous;
+  }
 });
 
 test("prune fixtures cannot delete inherited or repository-configured build storage", (t) => {

@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { spawnInherited, windowsBatchInvocation } from "../src/runtime.js";
 import { setEnvironmentValue } from "../src/platform.js";
+import { withoutCleanDevelopmentEnvironment } from "../scripts/harness-utils.mjs";
 
 const argumentsToPreserve = [
   "", "plain", "two words", " leading", "trailing ", "  ", "\t", "line\ttab",
@@ -21,7 +22,7 @@ function fixture(t) {
   const script = path.join(root, "capture.cjs");
   const capture = path.join(root, "arguments.json");
   fs.writeFileSync(script, "require('node:fs').writeFileSync(process.env.CD_ARGV_CAPTURE,JSON.stringify(process.argv.slice(2)));process.exit(Number(process.env.CD_ARGV_EXIT||0));\n");
-  const env = { ...process.env };
+  const env = withoutCleanDevelopmentEnvironment();
   for (const name of ["NODE_OPTIONS", "NODE_PATH"]) {
     for (const key of Object.keys(env)) if (key.toUpperCase() === name) delete env[key];
   }

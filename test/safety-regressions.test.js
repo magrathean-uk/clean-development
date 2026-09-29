@@ -12,6 +12,7 @@ import { writeJsonAtomic } from "../src/io.js";
 import { ensureRuntime, removeRuntime, resolveExecutable, runTool, runtimeRemovalPlan, spawnInherited } from "../src/runtime.js";
 import { acquireWorkspaceLock, activeWorkspaceIds, applyPrune, listWorkspaceRecords, prunePlan, workspaceRecord } from "../src/state.js";
 import { identifyWorkspace } from "../src/workspace.js";
+import { withoutCleanDevelopmentEnvironment } from "../scripts/harness-utils.mjs";
 
 const REPOSITORY = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const CLI = path.join(REPOSITORY, "bin", "clean-development.js");
@@ -25,7 +26,7 @@ function fixture(prefix = "clean-development-safety-") {
   fs.mkdirSync(project, { recursive: true });
   fs.mkdirSync(fakeBin, { recursive: true });
   const env = {
-    ...process.env,
+    ...withoutCleanDevelopmentEnvironment(),
     HOME: home,
     CLEAN_DEVELOPMENT_HOME: home,
     CLEAN_DEVELOPMENT_DATA_HOME: path.join(root, "data"),
@@ -35,9 +36,6 @@ function fixture(prefix = "clean-development-safety-") {
   };
   for (const name of [
     "CARGO_TARGET_DIR",
-    "CLEAN_DEVELOPMENT_BUILD_ROOT",
-    "CLEAN_DEVELOPMENT_CACHE_ROOT",
-    "CLEAN_DEVELOPMENT_FORCE",
     "NODE_OPTIONS",
     "npm_command",
     "npm_execpath",
