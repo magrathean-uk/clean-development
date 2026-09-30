@@ -23,6 +23,7 @@ Prepared as a source version; npm publication and release-tag creation are separ
 ### Changed
 
 - Windows fixtures perform real NTFS-compatible executable replacement without weakening identity assertions. Installed-package verification invokes npm's actual `.cmd` wrapper and checks exact managed-shim argv/cwd, missing and broken shims, and genuine preceding-release upgrades; npm 10.5's ampersand install-prefix limitation remains explicit.
+- Native CI fixtures canonicalize short Windows temporary paths, set PATH through its native environment key, and use JavaScript traversal when copying Unicode Windows package fixtures on Node 22. Fake Xcode executables use an explicit CommonJS format so the exact Node 20.12.0 minimum can run the lifecycle assertions.
 - CI selects the exact Node 20.12.0 minimum alongside configured Node 20/22/24 on Ubuntu/macOS, and selected native Windows contracts on 20.12.0/22/24. Dated local ARM64 evidence, tool skips, known fault TODOs and remaining live-host acceptance are recorded separately from configured workflows.
 
 ## [0.3.1] - 2026-09-29

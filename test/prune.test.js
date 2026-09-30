@@ -10,10 +10,12 @@ import { acquireWorkspaceLock, applyPrune, createLease, prunePlan, workspaceReco
 import { isolatedEnvironment } from "../scripts/harness-utils.mjs";
 
 function fixture(t, prefix) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  // Windows TEMP may use an 8.3 ancestor; ownership fixtures use its native
+  // canonical spelling so assertions exercise pruning, not that alias.
+  const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const config = resolveConfig({ cwd: root, env: isolatedEnvironment(root), includeProject: false });
-  assert.equal(config.buildRoot, path.join(fs.realpathSync(root), "managed", "builds"));
+  assert.equal(config.buildRoot, path.join(root, "managed", "builds"));
   return { root, config };
 }
 

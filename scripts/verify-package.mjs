@@ -12,7 +12,8 @@ import { environmentValue, setEnvironmentValue } from "../src/platform.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
-const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "clean-development-package-"));
+// Windows TEMP may use an 8.3 ancestor alias; keep owned fixture paths canonical.
+const temporary = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "clean-development-package-")));
 const previousRelease = "v0.2.0";
 const previousVersion = previousRelease.slice(1);
 

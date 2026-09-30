@@ -88,6 +88,21 @@ correction. It does not extend the earlier native VM record to `0.4.0`, establis
 real Xcode/SwiftPM or live-agent acceptance, or repair the three fault invariants.
 The configured CI matrices and npm publication remain separate observations.
 
+The initial `0.4.0` source push at
+`cf83f48a4230090f6c3ec1ec291bd65184d1ec6a` exposed additional fixture assumptions
+on hosted runners: short Windows `TEMP` paths, inherited `Path` spelling, and
+extensionless fake Xcode executables whose ESM syntax was unsupported by Node
+20.12.0. The follow-up canonicalizes owned temporary fixture paths, replaces
+native PATH aliases through the environment helper, and uses CommonJS for the
+fake executables. The synthetic package fixture uses JavaScript copy traversal
+to avoid Node 22's native Windows directory-copy handling of Unicode names;
+the adversarial source and cwd names remain in the test. Ownership and deletion
+assertions remain intact. The Xcode
+failure was reproduced locally with the official macOS ARM64 Node 20.12.0
+archive, checked against its published SHA-256; the corrected lifecycle suite
+passed all 29 cases on that exact runtime. The initial hosted failures and any
+later workflow result are separate checks from the earlier ARM64 VM snapshot.
+
 ## Recorded host observations
 
 | Host | Observation in repository records | Still outside that evidence |

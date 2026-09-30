@@ -23,7 +23,9 @@ function fixture(t) {
   for (const relative of [...packageJson.files, "package.json", "scripts/verify-package.mjs", "scripts/harness-utils.mjs", "scripts/npm-pack-report.mjs"]) {
     const target = path.join(root, relative);
     fs.mkdirSync(path.dirname(target), { recursive: true });
-    fs.cpSync(path.join(sourceRoot, relative), target, { recursive: true });
+    // Node 22's native directory-copy fast path uses narrow Windows paths.
+    // Retain the Unicode fixture name with portable JS traversal instead.
+    fs.cpSync(path.join(sourceRoot, relative), target, { recursive: true, filter: () => true });
   }
   const env = isolatedEnvironment(temporary);
   for (const name of Object.keys(env)) {

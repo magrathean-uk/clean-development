@@ -13,8 +13,8 @@ const DEVICE_TYPE = "com.apple.CoreSimulator.SimDeviceType.iPhone-Test";
 const RUNTIME = "com.apple.CoreSimulator.SimRuntime.iOS-Test-1";
 
 const XCRUN = `#!/usr/bin/env node
-import fs from "node:fs";
-import path from "node:path";
+const fs = require("node:fs");
+const path = require("node:path");
 const args = process.argv.slice(2);
 const fixture = process.env.FAKE_SIMCTL_DIR;
 fs.appendFileSync(path.join(fixture, "calls.jsonl"), JSON.stringify(args) + "\\n");
@@ -81,7 +81,7 @@ if (command === "list" && rest[0] === "devicetypes") {
 `;
 
 const PGREP = `#!/usr/bin/env node
-import fs from "node:fs";
+const fs = require("node:fs");
 const [flag, name] = process.argv.slice(2);
 if (flag !== "-x") process.exit(2);
 process.exit(fs.existsSync(process.env.FAKE_RUNNING_DIR + "/" + name) ? 0 : 1);

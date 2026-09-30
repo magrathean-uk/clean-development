@@ -9,6 +9,7 @@ import { resolveConfig } from "../src/config.js";
 import { SHIM_TOOLS } from "../src/constants.js";
 import { applySessionPlan, environmentWithoutSessionRouting, nativeSessionEnvironment, planSession } from "../src/session.js";
 import { injectedEnvironment, SESSION_ENV_MARKER } from "../src/routing-environment.js";
+import { setEnvironmentValue } from "../src/platform.js";
 import { isolatedEnvironment } from "../scripts/harness-utils.mjs";
 
 function fixture(t) {
@@ -123,7 +124,10 @@ test("POSIX skip preserves independently named metadata and PATH variants", { sk
 test("Windows skip removes a quoted managed PATH entry and preserves unrelated spelling", { skip: process.platform !== "win32" }, (t) => {
   const item = fixture(t), bin = path.join(item.root, "runtime;bin"), other = path.join(item.root, "other;tools");
   fs.mkdirSync(bin); fs.mkdirSync(other);
-  const env = { ...item.env, PATH: `"${other}";"${bin}";;relative;"malformed` };
+  const env = { ...item.env };
+  // Hosted Windows runners inherit `Path`; replace all native aliases so the
+  // fixture does not retain the ambient PATH before its reviewed test value.
+  setEnvironmentValue(env, "PATH", `"${other}";"${bin}";;relative;"malformed`);
   const skipped = environmentWithoutSessionRouting(env, bin);
   assert.equal(skipped.PATH, `"${other}";;relative;"malformed`);
   assert.equal(env.PATH, `"${other}";"${bin}";;relative;"malformed`);
