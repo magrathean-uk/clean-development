@@ -66,6 +66,13 @@ own simulator leftovers through `simctl`, re-checks each entry before acting, ne
 everything when Xcode's state is unknown or a simulator is booted. It is separate from the Cargo prune registry.
 Details and limits: [xcode.md](xcode.md).
 
+The separate `xcode test-run` lifecycle is also explicit per command and does not depend on the prune preference. It
+requires exact installed simulator identifiers, a real managed root outside home and the current project, and no
+detectable Xcode/test process. It creates one device in the default CoreSimulator set, stores a run receipt and test
+results outside the project, and passes the exact device UDID to the child. Cleanup checks the receipt and simulator
+identity again and deletes only that UDID. Unknown activity, identity changes, and interruption retain the receipt;
+`xcode test-cleanup RUN_ID` retries one recorded run and never sweeps devices.
+
 ## Experimental SwiftPM output boundary
 
 SwiftPM routing requires explicit `tools.swift: true`. Its scratch tree contains

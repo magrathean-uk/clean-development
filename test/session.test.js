@@ -497,22 +497,39 @@ test("the OpenCode native adapter defaults to pass-through until a session is se
   const config = resolveConfig({ cwd: item.project, env: item.env });
   const runtime = ensureRuntime(config);
   const plugin = await CleanDevelopmentPlugin({ directory: item.project });
+  const shellEnvironment = async (input, output) => {
+    // The native hook merges process.env with its overlay. Keep the host side
+    // isolated too, even when this suite itself runs inside a routed session.
+    const previous = { ...process.env };
+    try {
+      for (const name of Object.keys(process.env)) {
+        if (!Object.hasOwn(item.env, name)) delete process.env[name];
+      }
+      Object.assign(process.env, item.env);
+      return await plugin["shell.env"](input, output);
+    } finally {
+      for (const name of Object.keys(process.env)) {
+        if (!Object.hasOwn(previous, name)) delete process.env[name];
+      }
+      Object.assign(process.env, previous);
+    }
+  };
 
   const defaultOutput = { env: { ...item.env } };
-  await plugin["shell.env"]({ cwd: item.project }, defaultOutput);
+  await shellEnvironment({ cwd: item.project }, defaultOutput);
   assert.equal(defaultOutput.env.CLEAN_DEVELOPMENT_SESSION_MODE, "skip");
   assert.equal(defaultOutput.env.CLEAN_DEVELOPMENT_ACTIVE, "");
   assert.equal(defaultOutput.env.PATH.split(path.delimiter)[0], runtime.binDir);
 
   const routed = applySessionPlan(planSession({ cwd: item.project, env: item.env, config }), "session-only", item.env);
   const selectedOutput = { env: routed.env };
-  await plugin["shell.env"]({ cwd: item.project }, selectedOutput);
+  await shellEnvironment({ cwd: item.project }, selectedOutput);
   assert.equal(selectedOutput.env.CLEAN_DEVELOPMENT_SESSION_MODE, "session-only");
   assert.equal(selectedOutput.env.CLEAN_DEVELOPMENT_ACTIVE, "1");
 
   fs.writeFileSync(path.join(item.project, ".clean-development.json"), "{\n");
   const malformedOutput = { env: { ...item.env } };
-  await plugin["shell.env"]({ cwd: item.project }, malformedOutput);
+  await shellEnvironment({ cwd: item.project }, malformedOutput);
   assert.equal(malformedOutput.env.CLEAN_DEVELOPMENT_SESSION_MODE, "skip");
   assert.equal(malformedOutput.env.CLEAN_DEVELOPMENT_ACTIVE, "");
   assert.equal(malformedOutput.env.PATH.split(path.delimiter)[0], runtime.binDir);
@@ -520,7 +537,7 @@ test("the OpenCode native adapter defaults to pass-through until a session is se
   fs.writeFileSync(path.join(item.project, ".clean-development.json"), '{"schemaVersion":1,"enabled":false}\n');
   const disabledOutput = { env: { ...selectedOutput.env } };
   await assert.rejects(
-    plugin["shell.env"]({ cwd: item.project }, disabledOutput),
+    shellEnvironment({ cwd: item.project }, disabledOutput),
     /cannot safely unset inherited Clean Development routing.*npm_config_cache/i
   );
 

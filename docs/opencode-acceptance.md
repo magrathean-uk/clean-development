@@ -87,7 +87,7 @@ Host output is bounded to its last 64 KiB, HTTP responses to 2 MiB while reading
 
 ## Redacted artifacts and checks
 
-`<LAB>` is the canonical newly created disposable root; `<SOURCE>` is the checkout; `<OPENCODE>` is the supplied executable. These are path substitutions, not invented observations. The fixture's JSON contains only allowlisted environment fields, never the HTTP password or provider credentials. Review retained raw local files before sharing; only the exported redacted result is the intended shareable record.
+`<LAB>` is the canonical newly created disposable root; `<HOME>` is its isolated fixture home; `<SOURCE>` is the checkout; `<OPENCODE>` is the supplied executable. These are path substitutions, not invented observations. The fixture's JSON contains only allowlisted environment fields, never the HTTP password or provider credentials. Review retained raw local files before sharing; only the exported redacted result is the intended shareable record.
 
 Exact artifact layout for the live protocol:
 
@@ -99,7 +99,7 @@ Exact artifact layout for the live protocol:
 <LAB>/evidence/<case-name>-tool.json
 <LAB>/managed/caches/node/npm/<case-name>.sentinel
 <LAB>/cache-b/node/npm/<case-name>.sentinel
-<LAB>/home/native-npm/<case-name>.sentinel
+<HOME>/native-npm/<case-name>.sentinel
 <LAB>/user-cache/<case-name>.sentinel
 ```
 

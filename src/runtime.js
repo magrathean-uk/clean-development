@@ -28,6 +28,22 @@ function quoteSh(value) {
   return `'${String(value).replaceAll("'", `'\"'\"'`)}'`;
 }
 
+/** Generate a batch launcher with literal installation paths. These values are
+ * stored in a batch file, whose percent expansion differs from /c arguments.
+ * The dynamic argument tail retains ordinary percent-star forwarding.
+ */
+export function windowsLauncherContents(node, entrypoint, args = []) {
+  const literals = [node, entrypoint, ...args];
+  if (literals.some((value) => typeof value !== "string" || /[\r\n\0"]/.test(value))) {
+    throw new Error("Windows launcher paths and fixed arguments must be literal single-line values without quotes");
+  }
+  const command = literals.map((value) => `"${value.replaceAll("%", "%%")}"`).join(" ");
+  // Keep the native command last: batch EOF preserves its status and restores
+  // setlocal automatically. A trailing command can reset that status, while
+  // %ERRORLEVEL% can read an unrelated caller-defined environment variable.
+  return ["@echo off", "setlocal DisableDelayedExpansion", `${command} %*`, ""].join("\r\n");
+}
+
 function sha256(value) {
   return crypto.createHash("sha256").update(value).digest("hex");
 }
@@ -281,8 +297,8 @@ export function launcherSpecifications(versionRoot, binDir, node = process.execP
   const specifications = [];
   const add = (name, contents) => specifications.push({ path: path.join(binDir, name), contents, sha256: sha256(contents) });
   if (process.platform === "win32") {
-    add("clean-development.cmd", `@echo off\r\n"${node}" "${cli}" %*\r\n`);
-    for (const tool of SHIM_TOOLS) add(`${tool}.cmd`, `@echo off\r\n"${node}" "${shim}" ${tool} %*\r\n`);
+    add("clean-development.cmd", windowsLauncherContents(node, cli));
+    for (const tool of SHIM_TOOLS) add(`${tool}.cmd`, windowsLauncherContents(node, shim, [tool]));
   } else {
     add("clean-development", `#!/bin/sh\nexec ${quoteSh(node)} ${quoteSh(cli)} "$@"\n`);
     add("clean-development-shell-env", [
@@ -311,7 +327,7 @@ export function launcherSpecifications(versionRoot, binDir, node = process.execP
   }
   for (const agent of Object.keys(SUPPORTED_AGENTS)) {
     const filename = process.platform === "win32" ? `clean-development-${agent}.cmd` : `clean-development-${agent}`;
-    if (process.platform === "win32") add(filename, `@echo off\r\n"${node}" "${cli}" agent ${agent} -- %*\r\n`);
+    if (process.platform === "win32") add(filename, windowsLauncherContents(node, cli, ["agent", agent, "--"]));
     else add(filename, `#!/bin/sh\nexec ${quoteSh(node)} ${quoteSh(cli)} agent ${quoteSh(agent)} -- "$@"\n`);
   }
   return { cli, specifications };
@@ -596,14 +612,14 @@ function rejectUnownedManagedTarget(config, target, cwd, owners) {
   }
 }
 
-export async function runTool(tool, args, { config, cwd = process.cwd(), env = process.env } = {}) {
+export async function runTool(tool, args, { config, cwd = process.cwd(), env = process.env, onSpawn } = {}) {
   if (!SHIM_TOOLS.includes(tool)) throw new Error(`Unsupported shim tool: ${tool}`);
   const sessionMode = normalizeSessionMode(environmentValue(env, SESSION_MODE_ENV));
   if (sessionMode === "skip") {
     const childEnv = environmentWithoutSessionRouting(env, config.locations.binDir);
     const executable = resolveExecutable(tool, childEnv, config.locations.binDir, cwd);
     if (!executable) throw new Error(`Cannot find the real '${tool}' executable outside ${config.locations.binDir}`);
-    return spawnInherited(executable, args, { cwd, env: childEnv });
+    return spawnInherited(executable, args, { cwd, env: childEnv, onSpawn });
   }
   const context = preflightToolRouting(tool, args, { config, cwd, env });
   let workspace = context.workspace;
@@ -612,14 +628,14 @@ export async function runTool(tool, args, { config, cwd = process.cwd(), env = p
     const childEnv = environmentWithoutSessionRouting(env, effectiveConfig.locations.binDir);
     const executable = resolveExecutable(tool, childEnv, effectiveConfig.locations.binDir, cwd);
     if (!executable) throw new Error(`Cannot find the real '${tool}' executable outside ${effectiveConfig.locations.binDir}`);
-    return spawnInherited(executable, args, { cwd, env: childEnv });
+    return spawnInherited(executable, args, { cwd, env: childEnv, onSpawn });
   }
   assertRoutingBoundary(context.repositoryPaths);
   const executable = resolveExecutable(tool, env, effectiveConfig.locations.binDir, cwd);
   if (!executable) throw new Error(`Cannot find the real '${tool}' executable outside ${effectiveConfig.locations.binDir}`);
   if (tool === "swift") {
     prepareSwiftpm(context.swiftpm);
-    return spawnInherited(executable, [args[0], ...context.swiftpm.additions, ...args.slice(1)], { cwd, env: { ...env } });
+    return spawnInherited(executable, [args[0], ...context.swiftpm.additions, ...args.slice(1)], { cwd, env: { ...env }, onSpawn });
   }
   if (tool === "cargo") {
     workspace = resolveCargoWorkspace(args, {
@@ -688,7 +704,10 @@ export async function runTool(tool, args, { config, cwd = process.cwd(), env = p
       execution = spawnInherited(executable, args, {
         cwd,
         env: routed.env,
-        onSpawn: (child) => { for (const lease of leases) lease.updatePid(child.pid); }
+        onSpawn: (child) => {
+          for (const lease of leases) lease.updatePid(child.pid);
+          onSpawn?.(child);
+        }
       });
     }
   } catch (error) {
@@ -697,7 +716,7 @@ export async function runTool(tool, args, { config, cwd = process.cwd(), env = p
   } finally {
     for (const release of releaseLocks.reverse()) release();
   }
-  execution ||= spawnInherited(executable, args, { cwd, env: routed.env });
+  execution ||= spawnInherited(executable, args, { cwd, env: routed.env, onSpawn });
   try {
     return await execution;
   } finally {
@@ -705,27 +724,27 @@ export async function runTool(tool, args, { config, cwd = process.cwd(), env = p
   }
 }
 
-export async function runWithShims(command, args, { config, cwd = process.cwd(), env = process.env } = {}) {
+export async function runWithShims(command, args, { config, cwd = process.cwd(), env = process.env, onSpawn, configureAgent = true } = {}) {
   const sessionMode = normalizeSessionMode(environmentValue(env, SESSION_MODE_ENV));
   if (sessionMode === "skip") {
     const childEnv = environmentWithoutSessionRouting(env, config.locations.binDir);
     const executable = resolveExecutable(command, childEnv, config.locations.binDir, cwd);
     if (!executable) throw new Error(`Cannot find executable: ${command}`);
-    return spawnInherited(executable, args, { cwd, env: childEnv });
+    return spawnInherited(executable, args, { cwd, env: childEnv, onSpawn });
   }
   if (SHIM_TOOLS.includes(command)) {
     const context = preflightToolRouting(command, args, { config, cwd, env });
     assertRoutingBoundary(context.repositoryPaths);
-    if (context.disabled) return runTool(command, args, { config, cwd, env });
+    if (context.disabled) return runTool(command, args, { config, cwd, env, onSpawn });
   }
   const runtime = ensureRuntime(config);
   const childEnv = { ...env, CLEAN_DEVELOPMENT_ACTIVE: "1" };
   setEnvironmentValue(childEnv, "PATH", prependUniquePath(environmentValue(childEnv, "PATH"), runtime.binDir));
-  if (SHIM_TOOLS.includes(command)) return runTool(command, args, { config, cwd, env: childEnv });
+  if (SHIM_TOOLS.includes(command)) return runTool(command, args, { config, cwd, env: childEnv, onSpawn });
   const executable = resolveExecutable(command, childEnv, runtime.binDir, cwd);
   if (!executable) throw new Error(`Cannot find executable: ${command}`);
   let forwarded = args;
-  if (command === SUPPORTED_AGENTS.codex) {
+  if (configureAgent && command === SUPPORTED_AGENTS.codex) {
     const separator = args.indexOf("--");
     const insertion = separator === -1 ? args.length : separator;
     const routedMode = sessionMode || "session-only";
@@ -736,5 +755,5 @@ export async function runWithShims(command, args, { config, cwd = process.cwd(),
       ...args.slice(insertion)
     ];
   }
-  return spawnInherited(executable, forwarded, { cwd, env: childEnv });
+  return spawnInherited(executable, forwarded, { cwd, env: childEnv, onSpawn });
 }

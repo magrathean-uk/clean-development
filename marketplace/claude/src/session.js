@@ -4,11 +4,12 @@ import path from "node:path";
 import { environmentForTool } from "./adapters.js";
 import { writeProjectConfig } from "./config.js";
 import { CONFIG_FILE } from "./constants.js";
-import { canonicalizePotentialPath, environmentValue, prependUniquePath, setEnvironmentValue } from "./platform.js";
+import { canonicalizePotentialPath, environmentValue, matchingEnvironmentKeys, prependUniquePath, setEnvironmentValue } from "./platform.js";
 import { readTextMetadata } from "./io.js";
 import { detectStack } from "./workspace.js";
 import { repositoryManagedPaths } from "./routing-context.js";
-import { recordInjectedEnvironment, removeInjectedEnvironment, SESSION_ENV_MARKER } from "./routing-environment.js";
+import { matchingRoutedEnvironmentKeys, recordInjectedEnvironment, removeInjectedEnvironment, SESSION_ENV_MARKER } from "./routing-environment.js";
+import { pathEntries } from "./path-entries.js";
 
 export const SESSION_MODES = Object.freeze(["session-only", "persist", "skip"]);
 export const SESSION_MODE_ENV = "CLEAN_DEVELOPMENT_SESSION_MODE";
@@ -210,9 +211,9 @@ export function applySessionPlan(plan, mode, env = process.env) {
 
   prepareManagedDirectories(plan);
   const applied = {};
-  const preservedNames = new Set(Object.keys(plan.managed.preserved).map((name) => name.toLowerCase()));
   for (const [name, value] of Object.entries(plan.managed.environment)) {
-    if (preservedNames.has(name.toLowerCase())) continue;
+    if (matchingRoutedEnvironmentKeys(plan.managed.preserved, name).length) continue;
+    for (const key of matchingRoutedEnvironmentKeys(childEnv, name)) delete childEnv[key];
     setEnvironmentValue(childEnv, name, value);
     applied[name] = value;
   }
@@ -228,12 +229,17 @@ export function environmentWithoutSessionRouting(env = process.env, binDir = nul
     "CLEAN_DEVELOPMENT_ACTIVE", "CLEAN_DEVELOPMENT_RESOLVED_ROOT", "CLEAN_DEVELOPMENT_WORKSPACE_ID",
     "CLEAN_DEVELOPMENT_WORKSPACE", "CLEAN_DEVELOPMENT_CARGO_TARGET_DIR", SESSION_ENV_MARKER
   ]) {
-    for (const key of Object.keys(result)) if (key.toLowerCase() === name.toLowerCase()) delete result[key];
+    for (const key of matchingEnvironmentKeys(result, name)) delete result[key];
   }
   if (binDir) {
-    const resolved = path.resolve(binDir);
-    const entries = String(environmentValue(result, "PATH") || "").split(path.delimiter)
-      .filter((entry) => !entry || path.resolve(entry) !== resolved);
+    const resolved = canonicalizePotentialPath(binDir);
+    const key = process.platform === "win32" ? resolved.toLowerCase() : resolved;
+    const entries = pathEntries(environmentValue(result, "PATH"))
+      .filter((entry) => {
+        if (!entry.value) return true;
+        const canonical = canonicalizePotentialPath(entry.value);
+        return (process.platform === "win32" ? canonical.toLowerCase() : canonical) !== key;
+      }).map((entry) => entry.raw);
     setEnvironmentValue(result, "PATH", entries.join(path.delimiter));
   }
   setEnvironmentValue(result, SESSION_MODE_ENV, "skip");
@@ -250,7 +256,7 @@ export function nativeSessionEnvironment(env = process.env, { mode = "skip", bin
     setEnvironmentValue(result, "PATH", prependUniquePath(environmentValue(result, "PATH"), binDir));
   }
   if (selected === "skip") {
-    for (const key of Object.keys(result)) if (key.toLowerCase() === "clean_development_active") delete result[key];
+    for (const key of matchingEnvironmentKeys(result, "CLEAN_DEVELOPMENT_ACTIVE")) delete result[key];
   } else setEnvironmentValue(result, "CLEAN_DEVELOPMENT_ACTIVE", "1");
   return result;
 }

@@ -36,6 +36,7 @@ export function xcodePaths(config) {
   return {
     xcodeRoot,
     derivedData: path.join(xcodeRoot, "DerivedData"),
+    testResults: path.join(xcodeRoot, "test-results"),
     receipt: path.join(config.locations.stateDir, "xcode.json"),
     developer,
     simulatorCaches: path.join(developer, "CoreSimulator", "Caches"),
@@ -132,6 +133,9 @@ export function restoreXcodeSettings(config, env, { dryRun = false, platform = p
   const receipt = readReceipt(paths.receipt);
   if (!receipt) return { action: "none" };
   const current = readPreference(config, env);
+  if (current.status === "unavailable" || current.status === "unreadable") {
+    throw new Error(`Cannot read the Xcode preference ${XCODE_DERIVED_DATA_KEY}; restoration receipt retained${current.detail ? `: ${current.detail}` : "; the macOS 'defaults' command is unavailable"}`);
+  }
   const ours = current.status === "set" && current.value === receipt.written;
   const action = ours ? (receipt.previous === null ? "removed" : "restored") : "left-unchanged";
   const result = { action, previous: receipt.previous, written: receipt.written, retainedDirectory: receipt.written, dryRun };
@@ -167,7 +171,17 @@ function listDevices(config, env, selector, ...setArgs) {
   if (!answer.usable) return answer;
   try {
     const parsed = JSON.parse(answer.stdout);
-    const devices = Object.values(parsed.devices || {}).flat();
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)
+      || !parsed.devices || typeof parsed.devices !== "object" || Array.isArray(parsed.devices)) {
+      return { usable: false, reason: "simctl-output-unreadable" };
+    }
+    const groups = Object.values(parsed.devices);
+    if (groups.some((group) => !Array.isArray(group)
+      || group.some((device) => !device || typeof device !== "object" || Array.isArray(device)
+        || typeof device.udid !== "string" || !device.udid.trim()))) {
+      return { usable: false, reason: "simctl-output-unreadable" };
+    }
+    const devices = groups.flat();
     return { usable: true, count: devices.length };
   } catch {
     return { usable: false, reason: "simctl-output-unreadable" };
@@ -176,8 +190,9 @@ function listDevices(config, env, selector, ...setArgs) {
 
 function realDirectoryEntry(directory) {
   try {
-    const stat = fs.lstatSync(directory);
-    return stat.isDirectory() && !stat.isSymbolicLink() ? stat : null;
+    const resolved = path.resolve(directory);
+    const stat = fs.lstatSync(resolved);
+    return stat.isDirectory() && !stat.isSymbolicLink() && fs.realpathSync.native(resolved) === resolved ? stat : null;
   } catch {
     return null;
   }
@@ -320,6 +335,8 @@ function stillEligible(entry, config, env, plan, paths) {
     assertInside(entry.parent, entry.path);
     return true;
   }
+  if (entry.category === "testing-simulators") return Boolean(stat) && entry.path === paths.testingDevices;
+  if (entry.category === "simulator-caches") return Boolean(stat) && entry.path === paths.simulatorCaches;
   return true;
 }
 
@@ -378,7 +395,8 @@ export function applyXcodePrune(plan, config, env, { platform = process.platform
 export function xcodeStatus(config, env, { sizes = false, platform = process.platform } = {}) {
   const settings = xcodeSettings(config);
   const paths = xcodePaths(config);
-  const report = { schemaVersion: 1, supported: xcodeSupported(platform), settings, derivedDataRoot: paths.derivedData };
+  const report = { schemaVersion: 1, supported: xcodeSupported(platform), settings, derivedDataRoot: paths.derivedData,
+    testResults: { path: paths.testResults, retention: "retained", prunable: false } };
   if (!report.supported) return report;
   const preference = readPreference(config, env);
   const receipt = (() => { try { return readReceipt(paths.receipt); } catch (error) { return { invalid: error.message }; } })();
@@ -391,7 +409,8 @@ export function xcodeStatus(config, env, { sizes = false, platform = process.pla
     reason: booted.usable ? undefined : booted.reason };
   if (sizes) {
     const scanner = createSizeScanner();
-    const measured = { derivedData: paths.derivedData, simulatorCaches: paths.simulatorCaches, testingDevices: paths.testingDevices,
+    const measured = { derivedData: paths.derivedData, testResults: paths.testResults,
+      simulatorCaches: paths.simulatorCaches, testingDevices: paths.testingDevices,
       ...Object.fromEntries(paths.deviceSupport.map((dir) => [path.basename(dir), dir])) };
     report.sizes = Object.fromEntries(Object.entries(measured).map(([name, dir]) => [name, scanner.measure(dir)]));
     report.sizeNote = "Logical file-name bytes, not space saved. Roots are separate; the totals are not added up.";
@@ -476,11 +495,14 @@ export function formatXcodeStatus(report) {
   const lines = [
     `Managed: DerivedData ${report.settings.derivedData ? "yes" : "no"}, simulator clean-up ${report.settings.simulators ? "yes" : "no"}${report.settings.decided ? "" : " (never asked; run setup --xcode to opt in)"}`,
     `DerivedData root: ${report.derivedDataRoot}`,
+    `Test results root: ${report.testResults.path} (retained; not pruned)`,
     `Xcode preference ${report.preference.key}: ${report.preference.status === "set" ? report.preference.value : report.preference.status}${report.preference.matchesManagedRoot ? " (managed)" : ""}`,
     `Xcode running: ${report.activity.running ? report.activity.processes.join(", ") : report.activity.unknown ? "unknown" : "no"}`,
     `Simulators: ${report.simulators.usable ? `${report.simulators.booted} booted, ${report.simulators.unavailable} unavailable` : `simctl not usable (${report.simulators.reason})`}`
   ];
-  if (report.sizes) for (const [name, size] of Object.entries(report.sizes)) lines.push(`  ${name}: ${size.status === "complete" ? `${size.logicalBytes} bytes` : size.status}`);
+  if (report.sizes) for (const [name, size] of Object.entries(report.sizes)) {
+    const label = name === "testResults" ? "testResults (retained; not pruned)" : name;
+    lines.push(`  ${label}: ${size.status === "complete" ? `${size.logicalBytes} bytes` : size.status}`);
+  }
   return lines.join("\n");
 }
-

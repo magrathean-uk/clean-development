@@ -197,6 +197,35 @@ test("disabled target routing cleans only inherited managed values and does not 
   assert.equal(fs.existsSync(config.root), false);
 });
 
+test("the final npm prefix selects disabled routing and preserves exact native arguments", async (t) => {
+  const item = fixture(t), fake = fakeTool(item), config = resolved(item);
+  const routed = environmentForTool("npm", [], { ...item, config, create: false });
+  writeConfig(item.b, { ...item.configB, enabled: false });
+  const args = ["--prefix", item.a, `--prefix=${item.b}`, "test", "--", "--prefix", item.a];
+  assert.equal(explainCommand("npm", args, { ...item, env: routed.env }).routing.status, "disabled");
+  assert.equal(await runWithShims("npm", args, { ...item, config, env: routed.env }), 0);
+  const captured = JSON.parse(fs.readFileSync(fake.capture));
+  assert.deepEqual(captured.args, args);
+  assert.equal(captured.cwd, item.a);
+  assert.equal(captured.cache, null);
+  assert.equal(captured.active, null);
+  assert.equal(captured.session, "skip");
+  assert.equal(fs.existsSync(config.locations.dataDir), false);
+  assert.equal(fs.existsSync(config.root), false);
+});
+
+test("the final npm prefix determines the storage boundary before any writes", async (t) => {
+  const item = fixture(t), fake = fakeTool(item), config = resolved(item);
+  writeConfig(item.b, { root: path.join(item.b, "managed") });
+  const args = [`--prefix=${item.a}`, "--prefix", item.b, "test"];
+  const before = snapshot(item.root);
+  assert.equal(explainCommand("npm", args, item).routing.status, "blocked");
+  await assert.rejects(runTool("npm", args, { ...item, config }), boundaryError);
+  await assert.rejects(runWithShims("npm", args, { ...item, config }), boundaryError);
+  assert.deepEqual(snapshot(item.root), before);
+  assert.equal(fs.existsSync(fake.capture), false);
+});
+
 for (const disabled of [{ enabled: false }, { tools: { npm: false } }]) {
   test(`disabled target ${JSON.stringify(disabled)} preserves a mixed-case override after another adapter`, async (t) => {
     const item = fixture(t), fake = fakeTool(item), config = resolved(item);

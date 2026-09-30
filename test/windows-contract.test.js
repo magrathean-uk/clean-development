@@ -3,10 +3,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { spawnSync } from "node:child_process";
 import test from "node:test";
 import { captureProbeCommand } from "../src/probe-process.js";
 import { probeTool } from "../src/probe.js";
-import { resolveExecutable, ensureRuntime, runtimeHealth, removeRuntime } from "../src/runtime.js";
+import { resolveExecutable, ensureRuntime, runtimeHealth, removeRuntime, windowsBatchInvocation, windowsLauncherContents } from "../src/runtime.js";
 import { resolveConfig } from "../src/config.js";
 import { setEnvironmentValue, canonicalizePotentialPath } from "../src/platform.js";
 import { ensureOwnedBuildRoot } from "../src/adapters.js";
@@ -17,8 +18,8 @@ import { isolatedEnvironment } from "../scripts/harness-utils.mjs";
 
 const onlyWindows = { skip: process.platform !== "win32" };
 const cli = fileURLToPath(new URL("../bin/clean-development.js", import.meta.url));
-function fixture(t) {
-  const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "cd Windows & contract ")));
+function fixture(t, prefix = "cd Windows & contract ") {
+  const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const cwd = path.join(root, "source project"); fs.mkdirSync(cwd);
   fs.writeFileSync(path.join(cwd, "package.json"), '{"name":"windows-contract","private":true}\n');
@@ -65,6 +66,49 @@ test("native Windows generated .cmd launchers work in paths with spaces and ampe
   const unrelated = path.join(runtime.binDir, "unrelated.txt"); fs.writeFileSync(unrelated, "retain");
   removeRuntime(item.config);
   assert.equal(fs.existsSync(launcher), false); assert.equal(fs.readFileSync(unrelated, "utf8"), "retain");
+});
+
+test("native Windows generated launchers keep percent and bang installation paths literal", onlyWindows, async (t) => {
+  const item = fixture(t, "cd %CD_LITERAL_TOKEN% !CD_LITERAL_TOKEN! 50% ");
+  setEnvironmentValue(item.env, "CD_LITERAL_TOKEN", "SHOULD_NOT_EXPAND");
+  for (const root of [item.config.root, item.config.cacheRoot, item.config.buildRoot, item.config.scratchRoot]) fs.mkdirSync(root, { recursive: true });
+  const runtime = ensureRuntime(item.config), launcher = path.join(runtime.binDir, "clean-development.cmd");
+  assert.equal((await command(launcher, ["--version"], item)).trim(), VERSION);
+  // With /v:on, cmd expands bangs in the command pathname before entering the
+  // batch file. Use a plain entry pathname for this inherited-policy check;
+  // the identical launcher body still references the literal installed path.
+  const entryRoot = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "cd-delayed-entry-")));
+  t.after(() => fs.rmSync(entryRoot, { recursive: true, force: true }));
+  const entry = path.join(entryRoot, "clean-development.cmd");
+  fs.copyFileSync(launcher, entry);
+  const invocation = windowsBatchInvocation(entry, ["--version"], item.env);
+  invocation.args[1] = "/v:on";
+  const inherited = spawnSync(invocation.command, invocation.args, {
+    cwd: item.cwd, env: item.env, encoding: "utf8", timeout: 10000, windowsVerbatimArguments: true
+  });
+  assert.equal(inherited.error, undefined);
+  assert.equal(inherited.status, 0, inherited.stderr);
+  assert.equal(inherited.stdout.trim(), VERSION);
+  const shim = path.join(runtime.binDir, "npm.cmd");
+  assert.equal(canonicalizePotentialPath((await command(shim, ["config", "get", "cache"], item)).trim()),
+    path.join(item.config.cacheRoot, "node", "npm"));
+  assert.equal(runtimeHealth(item.config).ok, true);
+  const capture = path.join(item.root, "capture.cjs"), generated = path.join(item.root, "capture.cmd");
+  fs.writeFileSync(capture, "console.log(JSON.stringify({cwd:process.cwd(),argv:process.argv.slice(2),errorlevel:process.env.ERRORLEVEL}));process.exit(Number(process.env.CD_LAUNCHER_EXIT));\n");
+  fs.writeFileSync(generated, windowsLauncherContents(process.execPath, capture));
+  setEnvironmentValue(item.env, "ERRORLEVEL", "77");
+  const args = ["", "%CD_LITERAL_TOKEN%", "!CD_LITERAL_TOKEN!", "quoted & literal", "trailing\\"];
+  for (const code of [0, 37, 86, 255, 2147483647, 2147483648, 4294967295]) {
+    setEnvironmentValue(item.env, "CD_LAUNCHER_EXIT", String(code));
+    const call = windowsBatchInvocation(generated, args, item.env);
+    const result = spawnSync(call.command, call.args, {
+      cwd: item.cwd, env: item.env, encoding: "utf8", timeout: 10000, windowsVerbatimArguments: true
+    });
+    assert.equal(result.error, undefined);
+    assert.notEqual(result.status, null, result.stderr);
+    assert.equal(result.status >>> 0, code >>> 0, result.stderr);
+    assert.deepEqual(JSON.parse(result.stdout), { cwd: item.cwd, argv: args, errorlevel: "77" });
+  }
 });
 
 test("native Windows setup/update/uninstall retain unrelated configuration and managed data", onlyWindows, async (t) => {

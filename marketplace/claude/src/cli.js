@@ -16,6 +16,7 @@ import { probeTool, formatProbe } from "./probe.js";
 import { preflightToolRouting, assertRoutingBoundary } from "./routing-context.js";
 import { applyRecovery, beginLifecycleRecovery, checkpointLifecycleRecovery, formatRecovery, planRecovery } from "./recovery.js";
 import { applyXcodePrune, applyXcodeSettings, formatXcodePlan, formatXcodeStatus, promptXcodeChoice, restoreXcodeSettings, xcodePaths, xcodePrunePlan, xcodeSettings, xcodeStatus, xcodeSupported } from "./xcode.js";
+import { cleanupXcodeTestRun, runXcodeTest, validateXcodeTestRun } from "./xcode-test-run.js";
 
 const HELP = `clean-development ${VERSION}
 
@@ -37,6 +38,8 @@ Usage:
   clean-development probe --tool npm|go|uv [--execute] [--timeout-ms MS] [--json]
   clean-development prune [--older-than DAYS] [--apply] [--json]
   clean-development xcode [status|prune] [--older-than DAYS] [--apply] [--sizes] [--json]
+  clean-development xcode test-run --device-type ID --runtime ID [--session session-only|skip] -- COMMAND [ARGS...]
+  clean-development xcode test-cleanup RUN_ID [--json]
   clean-development pin WORKSPACE_ID | unpin WORKSPACE_ID
   clean-development uninstall [--dry-run] [--json]
   clean-development recover [--dry-run] [--json]
@@ -72,7 +75,7 @@ const COMMAND_OPTIONS = Object.freeze({
   doctor: { json: "boolean" },
   probe: { tool: "value", execute: "boolean", "timeout-ms": "value", json: "boolean" },
   prune: { "older-than": "value", apply: "boolean", json: "boolean" },
-  xcode: { "older-than": "value", apply: "boolean", sizes: "boolean", json: "boolean" },
+  xcode: { "older-than": "value", apply: "boolean", sizes: "boolean", json: "boolean", session: "value", "device-type": "value", runtime: "value" },
   pin: { json: "boolean" },
   unpin: { json: "boolean" },
   uninstall: { "dry-run": "boolean", json: "boolean" },
@@ -118,8 +121,20 @@ function validateArguments(command, parsed) {
   if (noArguments.includes(command) && (positionals.length > 0 || passthrough.length > 0)) {
     throw new Error(`${command} does not accept positional arguments`);
   }
-  if (command === "xcode" && (positionals.length > 1 || passthrough.length > 0 || (positionals.length === 1 && !["status", "prune"].includes(positionals[0])))) {
-    throw new Error("xcode accepts one optional subcommand: status or prune");
+  if (command === "xcode") {
+    const subcommand = positionals[0] || "status";
+    if (["status", "prune"].includes(subcommand) && (positionals.length > 1 || passthrough.length > 0)) {
+      throw new Error(`xcode ${subcommand} accepts no positional arguments`);
+    }
+    if (subcommand === "test-run" && (positionals.length !== 1 || passthrough.length === 0)) {
+      throw new Error("xcode test-run requires a child command after --");
+    }
+    if (subcommand === "test-cleanup" && (positionals.length !== 2 || passthrough.length > 0)) {
+      throw new Error("xcode test-cleanup requires exactly one run UUID");
+    }
+    if (!["status", "prune", "test-run", "test-cleanup"].includes(subcommand)) {
+      throw new Error("xcode accepts status, prune, test-run, or test-cleanup");
+    }
   }
   if (["pin", "unpin"].includes(command) && (positionals.length !== 1 || passthrough.length > 0)) {
     throw new Error(`${command} requires exactly one workspace ID`);
@@ -622,11 +637,59 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
   }
   if (command === "xcode") {
     const subcommand = parsed.positionals[0] || "status";
+    if (subcommand === "test-run") {
+      if (parsed.options.json || parsed.options.apply || parsed.options.sizes || parsed.options["older-than"] !== undefined) {
+        throw new Error("xcode test-run does not accept --json, --apply, --sizes, or --older-than because child stdio is inherited");
+      }
+      if (parsed.options.session === "persist") throw new Error("xcode test-run never writes project settings; use --session session-only or --session skip");
+      const inherited = normalizeSessionMode(environmentValue(env, "CLEAN_DEVELOPMENT_SESSION_MODE"));
+      const mode = parsed.options.session || (inherited === "persist" ? "session-only" : inherited) || "session-only";
+      if (!["session-only", "skip"].includes(mode)) throw new Error("xcode test-run supports only session-only or skip routing");
+      const [testCommand, ...testArgs] = parsed.passthrough;
+      validateXcodeTestRun(config, env, {
+        deviceType: parsed.options["device-type"], runtime: parsed.options.runtime, command: testCommand, cwd: process.cwd()
+      });
+      const routingConfig = resolveConfig({ env, includeProject: mode !== "skip" });
+      const validateRouting = SHIM_TOOLS.includes(testCommand)
+        ? () => assertRoutingBoundary(preflightToolRouting(testCommand, testArgs, { config: routingConfig, env }).repositoryPaths)
+        : null;
+      const session = await sessionDecision({ session: mode }, routingConfig, env, process.cwd(), validateRouting);
+      return runXcodeTest(config, env, {
+        deviceType: parsed.options["device-type"],
+        runtime: parsed.options.runtime,
+        command: testCommand,
+        args: testArgs,
+        routingConfig,
+        sessionEnv: session.env,
+        cwd: process.cwd()
+      });
+    }
+    if (subcommand === "test-cleanup") {
+      if (parsed.options.apply || parsed.options.sizes || parsed.options["older-than"] !== undefined
+        || parsed.options.session !== undefined || parsed.options["device-type"] !== undefined || parsed.options.runtime !== undefined) {
+        throw new Error("xcode test-cleanup accepts only RUN_ID and optional --json");
+      }
+      const report = cleanupXcodeTestRun(config, env, parsed.positionals[1]);
+      if (!json) {
+        console.log(report.cleaned
+          ? report.alreadyClean
+            ? `Simulator for test run ${report.runId} is already clean.`
+            : `Cleanup complete for test run ${report.runId}; simulator ${report.simulator || "already absent"}.`
+          : `Simulator cleanup for test run ${report.runId} is pending: ${report.reason}\nReceipt: ${report.receipt}`);
+      } else output(report, true);
+      return report.cleaned ? 0 : 1;
+    }
     if (subcommand === "status") {
-      if (parsed.options.apply || parsed.options["older-than"]) throw new Error("xcode status does not accept --apply or --older-than");
+      if (parsed.options.apply || parsed.options["older-than"] || parsed.options.session !== undefined
+        || parsed.options["device-type"] !== undefined || parsed.options.runtime !== undefined) {
+        throw new Error("xcode status does not accept --apply, --older-than, --session, --device-type, or --runtime");
+      }
       const report = xcodeStatus(config, env, { sizes: Boolean(parsed.options.sizes) });
       output(json ? report : formatXcodeStatus(report), json);
       return 0;
+    }
+    if (parsed.options.session !== undefined || parsed.options["device-type"] !== undefined || parsed.options.runtime !== undefined) {
+      throw new Error("xcode prune does not accept --session, --device-type, or --runtime");
     }
     if (parsed.options.sizes) throw new Error("xcode prune does not accept --sizes");
     const plan = xcodePrunePlan(config, env, { olderThanDays: parseDays(parsed.options["older-than"], config.retention.buildDays) });

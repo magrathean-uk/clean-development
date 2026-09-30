@@ -1,6 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
 import { canonicalizePotentialPath, environmentValue, isPathInside } from "./platform.js";
+import { windowsPathEntries } from "./path-entries.js";
+
+export { windowsPathEntries };
 
 function candidateNames(executable, env) {
   if (process.platform !== "win32") return [executable];
@@ -70,23 +73,6 @@ function usableCandidate(file, rejectedFiles) {
       } catch { /* Missing or inaccessible candidates remain rejected. */ }
     }
   }
-}
-
-/** Decode whole-entry double quotes in Windows PATH, not shell expressions. */
-export function windowsPathEntries(value) {
-  const entries = [];
-  let start = 0, quoted = false;
-  for (let index = 0; index <= value.length; index += 1) {
-    if (value[index] === '"') quoted = !quoted;
-    if (index < value.length && (value[index] !== ";" || quoted)) continue;
-    const raw = value.slice(start, index);
-    const entry = raw.startsWith('"') && raw.endsWith('"') ? raw.slice(1, -1) : raw;
-    // Quotes cannot be literal Windows filename characters. Skip malformed
-    // entries rather than guessing paths from their semicolon-separated pieces.
-    if (entry && !entry.includes('"')) entries.push(entry);
-    start = index + 1;
-  }
-  return entries;
 }
 
 /** Read-only executable discovery. Explicit paths remain caller-selected.

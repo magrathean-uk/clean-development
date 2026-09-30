@@ -107,9 +107,11 @@ later package cannot inherit a stale adapter scratch path.
   rather than overriding a caller's intended setting; it does not promise SwiftPM
   honours it. Use documented `--cache-path` for portable explicit selection.
 - Native variables are preserved byte-for-byte, including module-cache and SBOM
-  variables. Presence checks are conservative across case variants and empty
-  values; SwiftPM itself determines whether those spellings/values are meaningful
-  on the host. `CLEAN_DEVELOPMENT_FORCE=1` never discards these Swift overrides.
+  variables. Presence checks use exact native names on Linux/macOS and
+  case-insensitive names on Windows, including explicitly empty values; unrelated
+  POSIX case variants remain unchanged but do not suppress routing. SwiftPM itself
+  determines whether a native value is meaningful on the host.
+  `CLEAN_DEVELOPMENT_FORCE=1` never discards these Swift overrides.
 - `--xunit-output`, `--attachments-path` and current documented
   `--sbom-output-dir` values remain user deliverables. Compiler forwarding options
   such as `-Xswiftc` consume their own next argument; option-looking compiler values

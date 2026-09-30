@@ -11,9 +11,14 @@ const sourceRoot = fileURLToPath(new URL("../", import.meta.url));
 const packageJson = JSON.parse(fs.readFileSync(path.join(sourceRoot, "package.json"), "utf8"));
 
 function fixture(t) {
-  const temporary = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "clean-development-package-test-")));
+  // npm 10.5's generated .cmd uses unquoted SET dp0=%~dp0: an ampersand in
+  // its install prefix fails inside npm's wrapper before our CLI can execute.
+  // Keep that prefix plain on Windows; retain adversarial source/cwd names and
+  // the managed-launcher argv/cwd checks without bypassing npm's real .cmd.
+  const prefix = process.platform === "win32" ? "clean-development-package-test-" : "clean-development package & = é-test-";
+  const temporary = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
   t.after(() => fs.rmSync(temporary, { recursive: true, force: true }));
-  const root = path.join(temporary, "source");
+  const root = path.join(temporary, "source & = é");
   fs.mkdirSync(root);
   for (const relative of [...packageJson.files, "package.json", "scripts/verify-package.mjs", "scripts/harness-utils.mjs", "scripts/npm-pack-report.mjs"]) {
     const target = path.join(root, relative);
@@ -64,9 +69,9 @@ function fixture(t) {
   return { root, run: () => run(process.execPath, [path.join(root, "scripts", "verify-package.mjs")]) };
 }
 
-// The verifier currently invokes npm and installed shell launchers directly.
-// Native Windows command dispatch is a separate gate; do not emulate it here.
-test("package verification exercises installed tool shims", { skip: process.platform === "win32" }, async (t) => {
+// Native host execution is required: POSIX success does not establish Windows
+// .cmd acceptance. The verifier also checks argv/cwd through installed tool shims.
+test("package verification exercises installed tool shims", async (t) => {
   const item = fixture(t);
   await t.test("a complete tarball passes the synthetic lifecycle fixture", () => {
     const result = item.run();

@@ -88,6 +88,47 @@ test("case variants do not hide or erase independent overrides", (t) => {
     path.join(item.b.config.cacheRoot, "node", "npm"));
 });
 
+test("POSIX native adapter names remain distinct from unrelated case variants through routing and skip", { skip: process.platform === "win32" }, (t) => {
+  const item = fixture(t);
+  for (const tool of SHIM_TOOLS.filter((name) => !["npm", "npx", "pnpm", "swift"].includes(name))) {
+    const first = route(tool, item.a, item.env);
+    for (const name of Object.keys(first.applied)) {
+      const lower = name.toLowerCase(), value = first.applied[name];
+      const changed = { ...first.env, [lower]: value };
+      const next = route(tool, item.b, changed);
+      assert.equal(next.applied[name], route(tool, item.b, item.env).applied[name], `${tool}:${name}`);
+      assert.equal(next.env[lower], value, `${tool}:${lower} preserved`);
+      const skipped = environmentWithoutSessionRouting(next.env);
+      assert.equal(skipped[name], undefined, `${tool}:${name} removed`);
+      assert.equal(skipped[lower], value, `${tool}:${lower} remains independent`);
+    }
+  }
+});
+
+test("POSIX skip preserves independently named metadata and PATH variants", { skip: process.platform === "win32" }, (t) => {
+  const item = fixture(t), first = route("cargo", item.a, item.env);
+  const changed = { ...first.env, path: "independent-path" };
+  for (const name of ["CLEAN_DEVELOPMENT_ACTIVE", "CLEAN_DEVELOPMENT_CARGO_TARGET_DIR", SESSION_ENV_MARKER]) {
+    changed[name.toLowerCase()] = first.env[name];
+  }
+  const skipped = environmentWithoutSessionRouting(changed);
+  assert.equal(skipped.CARGO_TARGET_DIR, undefined);
+  assert.equal(skipped.path, "independent-path");
+  for (const name of ["CLEAN_DEVELOPMENT_ACTIVE", "CLEAN_DEVELOPMENT_CARGO_TARGET_DIR", SESSION_ENV_MARKER]) {
+    assert.equal(skipped[name], undefined);
+    assert.equal(skipped[name.toLowerCase()], first.env[name]);
+  }
+});
+
+test("Windows skip removes a quoted managed PATH entry and preserves unrelated spelling", { skip: process.platform !== "win32" }, (t) => {
+  const item = fixture(t), bin = path.join(item.root, "runtime;bin"), other = path.join(item.root, "other;tools");
+  fs.mkdirSync(bin); fs.mkdirSync(other);
+  const env = { ...item.env, PATH: `"${other}";"${bin}";;relative;"malformed` };
+  const skipped = environmentWithoutSessionRouting(env, bin);
+  assert.equal(skipped.PATH, `"${other}";;relative;"malformed`);
+  assert.equal(env.PATH, `"${other}";"${bin}";;relative;"malformed`);
+});
+
 test("an unrelated adapter retains provenance for an unchanged cache spelling", (t) => {
   const item = fixture(t);
   const first = route("npm", item.a, item.env);

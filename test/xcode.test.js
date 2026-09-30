@@ -6,7 +6,7 @@ import { PassThrough } from "node:stream";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 import { resolveConfig, writeUserConfig } from "../src/config.js";
-import { applyXcodePrune, applyXcodeSettings, promptXcodeChoice, restoreXcodeSettings, xcodePaths, xcodePrunePlan, xcodeStatus } from "../src/xcode.js";
+import { applyXcodePrune, applyXcodeSettings, formatXcodeStatus, promptXcodeChoice, restoreXcodeSettings, xcodePaths, xcodePrunePlan, xcodeStatus } from "../src/xcode.js";
 
 // Every test uses a disposable home, disposable fake `defaults`, `xcrun` and `pgrep`, and never touches
 // the contributor's real Xcode preferences, simulators or DerivedData.
@@ -19,7 +19,8 @@ const HASH = "abcdefghijklmnopqrstuvwxyzab"; // 28 lowercase letters, like Xcode
 const DEFAULTS = `#!/bin/sh
 store="$FAKE_DEFAULTS_STORE"
 case "$1" in
-  read) if [ -f "$store" ]; then cat "$store"; else echo "The domain/default pair of ($2, $3) does not exist" >&2; exit 1; fi ;;
+  read) if [ "$FAKE_DEFAULTS_READ_FAILURE" = "1" ]; then echo "preference read failed" >&2; exit 2; fi
+    if [ -f "$store" ]; then cat "$store"; else echo "The domain/default pair of ($2, $3) does not exist" >&2; exit 1; fi ;;
   write) printf '%s\\n' "$5" > "$store" ;;
   delete) rm -f "$store" ;;
   *) exit 2 ;;
@@ -101,6 +102,18 @@ function project(root, name, { marked = true, days = 60 } = {}) {
   return directory;
 }
 
+function developerPruneTargets(config) {
+  const paths = xcodePaths(config);
+  const targets = [path.join(paths.deviceSupport[0], "17.0 (fixture)"),
+    path.join(paths.testingDevices, "clone-1"), path.join(paths.simulatorCaches, "dyld")];
+  for (const target of targets) {
+    fs.mkdirSync(target, { recursive: true });
+    fs.writeFileSync(path.join(target, "retained"), "fixture data");
+    age(target, 90);
+  }
+  return { paths, targets };
+}
+
 const darwin = { platform: "darwin" };
 
 test("xcode: setup step sets the preference once, remembers nothing when there was none, and is idempotent", { skip }, (t) => {
@@ -171,6 +184,43 @@ test("xcode: withdrawing the choice restores the preference", { skip }, (t) => {
   const declined = applyXcodeSettings(item.config({ derivedData: false, simulators: false }), item.env, darwin);
   assert.equal(declined.derivedData.action, "removed");
   assert.equal(item.preference(), null);
+});
+
+test("xcode: an unavailable or unreadable preference retains the restoration receipt for retry", { skip }, (t) => {
+  const item = fixture();
+  t.after(() => fs.rmSync(item.root, { recursive: true, force: true }));
+  fs.writeFileSync(item.store, "/owner/original\n");
+  const config = item.config({ derivedData: true, simulators: false });
+  applyXcodeSettings(config, item.env, darwin);
+  const receipt = xcodePaths(config).receipt;
+  const originalReceipt = fs.readFileSync(receipt, "utf8");
+
+  for (const env of [{ ...item.env, PATH: "" }, { ...item.env, FAKE_DEFAULTS_READ_FAILURE: "1" }]) {
+    for (const dryRun of [true, false]) {
+      assert.throws(() => restoreXcodeSettings(config, env, { ...darwin, dryRun }), /restoration receipt retained/);
+      assert.equal(fs.readFileSync(receipt, "utf8"), originalReceipt);
+      assert.equal(item.preference(), xcodePaths(config).derivedData);
+    }
+    assert.throws(() => applyXcodeSettings(item.config({ derivedData: false, simulators: false }), env, darwin), /restoration receipt retained/);
+    assert.equal(fs.readFileSync(receipt, "utf8"), originalReceipt);
+  }
+
+  assert.equal(restoreXcodeSettings(config, item.env, darwin).action, "restored");
+  assert.equal(item.preference(), "/owner/original");
+  assert.equal(fs.existsSync(receipt), false);
+});
+
+test("xcode: a definitely absent preference remains an owner change during restore", { skip }, (t) => {
+  const item = fixture();
+  t.after(() => fs.rmSync(item.root, { recursive: true, force: true }));
+  fs.writeFileSync(item.store, "/owner/original\n");
+  const config = item.config({ derivedData: true, simulators: false });
+  applyXcodeSettings(config, item.env, darwin);
+  fs.rmSync(item.store);
+
+  assert.equal(restoreXcodeSettings(config, item.env, darwin).action, "left-unchanged");
+  assert.equal(item.preference(), null);
+  assert.equal(fs.existsSync(xcodePaths(config).receipt), false);
 });
 
 test("xcode: other platforms are left completely alone", { skip }, (t) => {
@@ -312,6 +362,92 @@ test("xcode: when simctl cannot run, nothing simulator-related is removed", { sk
   assert.equal(status.simulators.usable, false);
 });
 
+test("xcode: malformed simulator device data never authorizes removal", { skip }, (t) => {
+  const item = fixture();
+  t.after(() => fs.rmSync(item.root, { recursive: true, force: true }));
+  const config = item.config({ derivedData: false, simulators: true });
+  const paths = xcodePaths(config);
+  fs.mkdirSync(path.join(paths.simulatorCaches, "dyld"), { recursive: true });
+  fs.mkdirSync(path.join(paths.testingDevices, "clone-1"), { recursive: true });
+  fs.writeFileSync(path.join(item.simctl, "unavailable.json"), JSON.stringify({ devices: { runtime: [{ udid: "A" }] } }));
+  const approved = xcodePrunePlan(config, item.env, darwin);
+  assert.equal(approved.entries.every((entry) => entry.eligible), true);
+
+  for (const value of [null, {}, [], { devices: null }, { devices: [] }, { devices: "unknown" },
+    { devices: { runtime: {} } }, { devices: { runtime: [null] } }, { devices: { runtime: [{}] } },
+    { devices: { runtime: [{ udid: 7 }] } }]) {
+    for (const name of ["booted-default", "booted-testing", "unavailable"]) {
+      fs.writeFileSync(path.join(item.simctl, `${name}.json`), JSON.stringify(value));
+    }
+    const plan = xcodePrunePlan(config, item.env, darwin);
+    assert.equal(plan.entries.every((entry) => !entry.eligible), true, JSON.stringify(value));
+    const outcome = applyXcodePrune(approved, config, item.env, darwin);
+    assert.equal(outcome.every((entry) => entry.status === "skipped"), true, JSON.stringify(value));
+    assert.equal(fs.existsSync(path.join(paths.simulatorCaches, "dyld")), true);
+    assert.equal(fs.existsSync(path.join(paths.testingDevices, "clone-1")), true);
+  }
+  assert.equal(item.calls().some((line) => /delete/.test(line)), false);
+  const status = xcodeStatus(config, item.env, darwin);
+  assert.equal(status.simulators.usable, false);
+  assert.equal(status.simulators.booted, null);
+  assert.equal(status.simulators.reason, "simctl-output-unreadable");
+});
+
+test("xcode: a valid empty simulator device map remains known idle state", { skip }, (t) => {
+  const item = fixture();
+  t.after(() => fs.rmSync(item.root, { recursive: true, force: true }));
+  const config = item.config({ derivedData: false, simulators: true });
+  const paths = xcodePaths(config);
+  fs.mkdirSync(path.join(paths.simulatorCaches, "dyld"), { recursive: true });
+  fs.mkdirSync(path.join(paths.testingDevices, "clone-1"), { recursive: true });
+  const status = xcodeStatus(config, item.env, darwin);
+  assert.equal(status.simulators.usable, true);
+  assert.equal(status.simulators.booted, 0);
+  assert.equal(status.simulators.unavailable, 0);
+  const plan = xcodePrunePlan(config, item.env, darwin);
+  assert.equal(plan.entries.find((entry) => entry.category === "testing-simulators").eligible, true);
+  assert.equal(plan.entries.find((entry) => entry.category === "simulator-caches").eligible, true);
+  assert.equal(item.calls().some((line) => /delete/.test(line)), false);
+});
+
+test("xcode: pruning does not traverse a simulator or DeviceSupport ancestor symlink", { skip }, (t) => {
+  const item = fixture();
+  t.after(() => fs.rmSync(item.root, { recursive: true, force: true }));
+  const config = item.config({ derivedData: false, simulators: true });
+  const { paths, targets } = developerPruneTargets(config);
+  const external = path.join(item.root, "external-developer");
+  fs.renameSync(paths.developer, external);
+  fs.symlinkSync(external, paths.developer, "dir");
+
+  const plan = xcodePrunePlan(config, item.env, darwin);
+  assert.equal(plan.entries.some((entry) => entry.eligible), false);
+  assert.deepEqual(applyXcodePrune(plan, config, item.env, darwin), []);
+  for (const target of targets) {
+    assert.equal(fs.existsSync(path.join(external, path.relative(paths.developer, target), "retained")), true);
+  }
+  assert.equal(item.calls().some((line) => /delete/.test(line)), false);
+});
+
+test("xcode: applying a plan rechecks an ancestor replaced by a symlink", { skip }, (t) => {
+  const item = fixture();
+  t.after(() => fs.rmSync(item.root, { recursive: true, force: true }));
+  const config = item.config({ derivedData: false, simulators: true });
+  const { paths, targets } = developerPruneTargets(config);
+  const plan = xcodePrunePlan(config, item.env, darwin);
+  assert.equal(plan.entries.filter((entry) => entry.eligible).length, 3);
+  const external = path.join(item.root, "external-developer");
+  fs.renameSync(paths.developer, external);
+  fs.symlinkSync(external, paths.developer, "dir");
+
+  const outcome = applyXcodePrune(plan, config, item.env, darwin);
+  assert.equal(outcome.length, 3);
+  assert.equal(outcome.every((entry) => entry.status === "skipped"), true);
+  for (const target of targets) {
+    assert.equal(fs.existsSync(path.join(external, path.relative(paths.developer, target), "retained")), true);
+  }
+  assert.equal(item.calls().some((line) => /delete/.test(line)), false);
+});
+
 test("xcode: status reports the preference and sizes without changing anything", { skip }, (t) => {
   const item = fixture();
   t.after(() => fs.rmSync(item.root, { recursive: true, force: true }));
@@ -322,6 +458,57 @@ test("xcode: status reports the preference and sizes without changing anything",
   assert.equal(status.preference.matchesManagedRoot, true);
   assert.equal(status.sizes.derivedData.status, "complete");
   assert.ok(status.sizes.derivedData.logicalBytes > 0);
+});
+
+test("xcode: status identifies retained test results without scanning or creating absent storage", { skip }, (t) => {
+  const item = fixture();
+  t.after(() => fs.rmSync(item.root, { recursive: true, force: true }));
+  const config = item.config({ derivedData: false, simulators: false });
+  const paths = xcodePaths(config);
+  const traversal = t.mock.method(fs, "opendirSync", () => assert.fail("status without --sizes must not traverse storage"));
+  const status = xcodeStatus(config, item.env, darwin);
+  assert.deepEqual(status.testResults, { path: paths.testResults, retention: "retained", prunable: false });
+  assert.equal(status.sizes, undefined);
+  assert.equal(traversal.mock.callCount(), 0);
+  assert.match(formatXcodeStatus(status), /Test results root: .* \(retained; not pruned\)/);
+  assert.equal(fs.existsSync(paths.xcodeRoot), false);
+  t.mock.restoreAll();
+
+  const measured = xcodeStatus(config, item.env, { sizes: true, ...darwin });
+  assert.equal(measured.sizes.testResults.status, "missing");
+  assert.equal(measured.sizes.testResults.logicalBytes, null);
+  assert.equal(fs.existsSync(paths.xcodeRoot), false, "measuring absent results creates no storage");
+  assert.equal(item.preference(), null);
+  assert.equal(item.calls().some((line) => /delete/.test(line)), false);
+});
+
+test("xcode: retained test results are measured but never become prune candidates", { skip }, (t) => {
+  const item = fixture();
+  t.after(() => fs.rmSync(item.root, { recursive: true, force: true }));
+  const config = item.config({ derivedData: true, simulators: true });
+  const paths = xcodePaths(config);
+  const resultBundle = path.join(paths.testResults, "fixture-run", "App.xcresult");
+  fs.mkdirSync(resultBundle, { recursive: true });
+  const sentinel = path.join(resultBundle, "retained-evidence");
+  const evidence = Buffer.from("retained test-run evidence\n");
+  fs.writeFileSync(sentinel, evidence);
+  age(paths.testResults, 90);
+  const oldBuild = project(paths.derivedData, "Old");
+
+  const status = xcodeStatus(config, item.env, { sizes: true, ...darwin });
+  assert.equal(status.sizes.testResults.status, "complete");
+  assert.equal(status.sizes.testResults.path, paths.testResults);
+  assert.equal(status.sizes.testResults.logicalBytes, evidence.length);
+  assert.equal(status.sizes.testResults.files, 1);
+  assert.equal(status.testResults.prunable, false);
+  assert.match(formatXcodeStatus(status), new RegExp(`testResults \\(retained; not pruned\\): ${evidence.length} bytes`));
+
+  const plan = xcodePrunePlan(config, item.env, darwin);
+  assert.equal(plan.entries.some((entry) => entry.path === paths.testResults || entry.path?.startsWith(`${paths.testResults}${path.sep}`)), false);
+  assert.equal(plan.entries.find((entry) => entry.path === oldBuild).eligible, true);
+  assert.equal(applyXcodePrune(plan, config, item.env, darwin).some((entry) => entry.path === oldBuild && entry.status === "done"), true);
+  assert.equal(fs.existsSync(oldBuild), false);
+  assert.deepEqual(fs.readFileSync(sentinel), evidence);
 });
 
 test("xcode: the setup questions default to no and treat closed input as no", async () => {

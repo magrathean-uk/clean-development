@@ -31,6 +31,31 @@ unclosed quote makes the remaining tail ambiguous and it is skipped as one entry
 POSIX PATH parsing is unchanged, including literal quote characters in filenames.
 The caller's environment is not rewritten.
 
+## Managed and npm-generated launchers
+
+Managed launchers escape percent characters in their fixed installation paths and
+disable inherited delayed expansion before invoking Node. That protection begins
+after the batch file has been entered. A caller that enables `/v:on` can expand
+bang characters in the launcher's own pathname before entry; use the adapter's
+`/v:off` dispatch for that pathname. The inherited-policy regression uses a plain
+entry pathname with identical generated contents, while retaining percent/bang
+characters in the installed runtime path it invokes.
+
+The child command is the launcher's final executable line. Batch EOF restores its
+local environment scope and preserves the child's native exit status. A trailing
+`exit /b`, `goto :eof`, or `endlocal` can reset that status; expanding `%ERRORLEVEL%`
+can instead read an independent caller-defined environment variable. The native
+regression checks success, nonzero and high unsigned 32-bit exit codes, exact
+argv/cwd, and preservation of the child's inherited `ERRORLEVEL` value.
+
+The native Node 20.12.0 / npm 10.5.0 lab also reproduced an external boundary:
+the [npm-generated wrapper](https://github.com/npm/cli/blob/v10.5.0/node_modules/cmd-shim/lib/index.js)
+uses unquoted `SET dp0=%~dp0`. An ampersand in npm's installation prefix can split
+that assignment before Clean Development executes. Use an ordinary installation
+prefix with this npm version. The package regression retains npm's actual
+generated launcher, uses an ordinary Windows install/temp prefix, and exercises
+adversarial names in its source cwd plus the separate managed-launcher path tests.
+
 ## Native regression matrix
 
 `test/windows-argv.test.js` exercises `.cmd` and `.bat` wrappers in ordinary and

@@ -12,13 +12,15 @@ jobs:
   native-contract:
     name: Native Windows / Node ${{ matrix.node }}
     runs-on: windows-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        node: [22, 24]
+        node: [20.12.0, 22, 24]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ matrix.node }}
@@ -31,15 +33,15 @@ jobs:
       - run: npm run check
       - name: Native lifecycle, launchers, real tools and process-tree cleanup
         run: node --test test/windows-contract.test.js
-      - name: Existing native batch argument contract
+      - name: Native batch arguments and case-insensitive Cargo markers
         if: ${{ !cancelled() }}
-        run: node --test --test-name-pattern="Windows batch" test/runtime-regressions.test.js
+        run: node --test --test-name-pattern="Windows" test/runtime-regressions.test.js
       - name: Extended batch and native argument contract
         if: ${{ !cancelled() }}
         run: node --test test/windows-argv.test.js
       - name: Literal executable paths and variable expansion boundaries
         if: ${{ !cancelled() }}
-        run: node --test test/windows-command-path.test.js test/windows-command-token.test.js
+        run: node --test test/windows-command-path.test.js test/windows-command-token.test.js test/windows-launcher-generation.test.js
       - name: Foreground child lifecycle and failed launch cleanup
         if: ${{ !cancelled() }}
         run: node --test test/process-runner.test.js
@@ -49,9 +51,21 @@ jobs:
       - name: Portable inspection, storage and probe contracts
         if: ${{ !cancelled() }}
         run: node --test test/measurement.test.js test/status.test.js test/inspection.test.js test/bounded-leases.test.js test/probe.test.js test/probe-process.test.js test/marketplace-portability.test.js
+      - name: Native environment, workspace identity and pruning boundaries
+        if: ${{ !cancelled() }}
+        run: node --test test/platform-precedence.test.js test/config-precedence.test.js test/workspace.test.js test/prune.test.js test/routing-environment.test.js
+      - name: Native PATH spelling in executable discovery
+        if: ${{ !cancelled() }}
+        run: node --test --test-name-pattern="native PATH key casing" test/safety-regressions.test.js
       - name: Effective-project routing boundaries and warning regressions
         if: ${{ !cancelled() }}
         run: node --test test/routing-context.test.js test/explain-cache-warnings.test.js
       - name: Probe process errors and uncertain cleanup
         if: ${{ !cancelled() }}
         run: node --test test/probe-error-lifecycle.test.js
+      - name: Installed-package regression with isolated synthetic history
+        if: ${{ !cancelled() }}
+        run: node --test test/package-verification.test.js
+      - name: Installed tarball and genuine preceding-release upgrade
+        if: ${{ !cancelled() }}
+        run: npm run test:package

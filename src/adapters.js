@@ -3,9 +3,9 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { SHIM_TOOLS } from "./constants.js";
 import { readJson, writeJsonAtomic } from "./io.js";
-import { canonicalizePotentialPath, environmentValue, isPathInside, setEnvironmentValue } from "./platform.js";
+import { canonicalizePotentialPath, environmentValue, isPathInside, matchingEnvironmentKeys, setEnvironmentValue } from "./platform.js";
 import { identifyWorkspace } from "./workspace.js";
-import { injectedEnvironment, isInjectedEnvironmentValue, recordInjectedEnvironment } from "./routing-environment.js";
+import { injectedEnvironment, isInjectedEnvironmentValue, matchingRoutedEnvironmentKeys, recordInjectedEnvironment } from "./routing-environment.js";
 
 export const OWNERSHIP_MARKER = ".clean-development-owned.json";
 
@@ -34,14 +34,8 @@ function definitions(config, workspace) {
   };
 }
 
-function matchingEnvironmentKeys(env, name) {
-  const normalized = name.toLowerCase();
-  return Object.keys(env).filter((key) => key.toLowerCase() === normalized);
-}
-
 function deleteEnvironmentValue(env, name) {
-  const normalized = name.toLowerCase();
-  for (const key of Object.keys(env)) if (key.toLowerCase() === normalized) delete env[key];
+  for (const key of matchingEnvironmentKeys(env, name)) delete env[key];
 }
 
 function assertRealDirectory(directory, label) {
@@ -147,7 +141,7 @@ export function environmentForTool(tool, args, { config, cwd = process.cwd(), en
   let ownedBuild = null;
   let cacheRootChecked = false;
   for (const [name, value] of Object.entries(desired)) {
-    const existingKeys = matchingEnvironmentKeys(childEnv, name);
+    const existingKeys = matchingRoutedEnvironmentKeys(childEnv, name);
     const explicitKeys = existingKeys.filter((key) => childEnv[key] && !isInjectedEnvironmentValue(childEnv, name, childEnv[key], injected));
     if (!force && explicitKeys.length > 0) {
       for (const key of existingKeys) {
@@ -156,7 +150,7 @@ export function environmentForTool(tool, args, { config, cwd = process.cwd(), en
       for (const key of explicitKeys) preserved[key] = childEnv[key];
       continue;
     }
-    deleteEnvironmentValue(childEnv, name);
+    for (const key of existingKeys) delete childEnv[key];
     childEnv[name] = value;
     applied[name] = value;
     if (name === "YARN_ENABLE_GLOBAL_CACHE" || name === "YARN_ENABLE_MIRROR") continue;

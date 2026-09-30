@@ -4,6 +4,27 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-30
+
+Prepared as a source version; npm publication and release-tag creation are separate actions. Verification remains tied to the exact tested source or package in the [verification ledger](docs/verification.md).
+
+### Added
+
+- Opt-in macOS `xcode test-run` and `xcode test-cleanup` for one fresh, receipted simulator. Cleanup rechecks the exact owned UDID, preserves unrelated activity, and retains failed cleanup for an explicit retry. Child argv, cwd, stdio, signals and exit status are preserved; result bundles remain retained and visible in `xcode status`, outside pruning.
+- Development-history lessons and management-skill guidance for exact-command diagnosis, simulator reuse, retained products, remote command boundaries and installed-runtime checks. Private transcripts and historical approvals are not bundled or consumed by the runtime.
+
+### Fixed
+
+- Xcode cleanup now blocks on malformed or unreadable simulator state and noncanonical directory ancestors, including apply-time replacement. Malformed device records retain the owned test device and retryable receipt instead of falsely proving absence. Preference restoration retains its receipt when the preference cannot be read and preserves independent user changes and explicit output overrides.
+- Environment lookup and routing now respect POSIX case-sensitive native variable names while preserving npm's case-insensitive aliases. Skip retains independent empty overrides, and nested Cargo commands use their actual cwd and effective project routing.
+- Windows executable discovery and routing preserve quoted PATH directories containing semicolons. Generated launchers keep fixed percent/bang paths literal and preserve native child exit status, including high unsigned 32-bit values and an independent inherited `ERRORLEVEL` variable.
+- The source-to-npm release audit skips generated managed npm shims during executable discovery while retaining its standard `npm-cli.js` requirement, allowing the audit to run through the required session wrapper.
+
+### Changed
+
+- Windows fixtures perform real NTFS-compatible executable replacement without weakening identity assertions. Installed-package verification invokes npm's actual `.cmd` wrapper and checks exact managed-shim argv/cwd, missing and broken shims, and genuine preceding-release upgrades; npm 10.5's ampersand install-prefix limitation remains explicit.
+- CI selects the exact Node 20.12.0 minimum alongside configured Node 20/22/24 on Ubuntu/macOS, and selected native Windows contracts on 20.12.0/22/24. Dated local ARM64 evidence, tool skips, known fault TODOs and remaining live-host acceptance are recorded separately from configured workflows.
+
 ## [0.3.1] - 2026-09-29
 
 Prepared for local runtime rollout; not yet published to npm or tagged.

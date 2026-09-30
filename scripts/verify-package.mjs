@@ -6,6 +6,9 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { isolatedEnvironment } from "./harness-utils.mjs";
 import { normalizeNpmPackReport } from "./npm-pack-report.mjs";
+import { resolveExecutable } from "../src/executable.js";
+import { windowsBatchInvocation } from "../src/windows-command.js";
+import { environmentValue, setEnvironmentValue } from "../src/platform.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
@@ -14,8 +17,17 @@ const previousRelease = "v0.2.0";
 const previousVersion = previousRelease.slice(1);
 
 function run(command, args, options = {}) {
-  const result = spawnSync(command, args, { cwd: root, encoding: "utf8", ...options });
-  if (result.status !== 0) throw new Error(`${command} ${args.join(" ")} failed:\n${result.stderr || result.stdout}`);
+  const cwd = options.cwd ?? root;
+  const env = options.env ?? process.env;
+  const executable = resolveExecutable(command, env, undefined, cwd);
+  if (!executable) throw new Error(`Cannot find package verification command: ${command}`);
+  const invocation = process.platform === "win32" && /\.(cmd|bat)$/i.test(executable)
+    ? windowsBatchInvocation(executable, args, env) : { command: executable, args };
+  const result = spawnSync(invocation.command, invocation.args, {
+    encoding: "utf8", ...options, cwd, env,
+    windowsVerbatimArguments: invocation.windowsVerbatimArguments || false
+  });
+  if (result.error || result.status !== 0) throw new Error(`${command} ${args.join(" ")} failed:\n${result.error?.message || result.stderr || result.stdout}`);
   return result;
 }
 
@@ -32,13 +44,13 @@ function fakeCargo(directory) {
   const child = path.join(directory, "capture-session-env.mjs");
   fs.writeFileSync(child, [
     "const names = ['CLEAN_DEVELOPMENT_SESSION_MODE', 'CLEAN_DEVELOPMENT_ACTIVE', 'CLEAN_DEVELOPMENT_RESOLVED_ROOT', 'CLEAN_DEVELOPMENT_WORKSPACE_ID', 'CARGO_TARGET_DIR'];",
-    "process.stdout.write(JSON.stringify(Object.fromEntries(names.map((name) => [name, process.env[name] || null]))));"
+    "process.stdout.write(JSON.stringify({ ...Object.fromEntries(names.map((name) => [name, process.env[name] || null])), argv: process.argv.slice(2), cwd: process.cwd() }));"
   ].join("\n"));
   if (process.platform === "win32") {
-    fs.writeFileSync(path.join(directory, "cargo.cmd"), `@echo off\r\n\"${process.execPath}\" \"${child}\"\r\n`);
+    fs.writeFileSync(path.join(directory, "cargo.cmd"), `@echo off\r\n\"${process.execPath}\" \"${child}\" %*\r\n`);
   } else {
     const command = path.join(directory, "cargo");
-    fs.writeFileSync(command, `#!/bin/sh\nexec ${shellQuote(process.execPath)} ${shellQuote(child)}\n`, { mode: 0o755 });
+    fs.writeFileSync(command, `#!/bin/sh\nexec ${shellQuote(process.execPath)} ${shellQuote(child)} "$@"\n`, { mode: 0o755 });
   }
   return directory;
 }
@@ -51,14 +63,12 @@ function verifyInstalledLaunchers(launcher, cwd, env) {
   assert.equal(run(launcher, ["--version"], { cwd, env }).stdout.trim(), packageJson.version);
   const binDir = path.dirname(launcher);
   const shim = path.join(binDir, process.platform === "win32" ? "cargo.cmd" : "cargo");
-  const routed = runJson(shim, [], {
-    cwd,
-    env: {
-      ...env,
-      PATH: `${binDir}${path.delimiter}${env.PATH || ""}`,
-      CLEAN_DEVELOPMENT_SESSION_MODE: "session-only"
-    }
-  });
+  const args = ["", "with spaces", "a&b", "%PACKAGE_LITERAL%", "unicode-é", 'quote"back\\slash'];
+  const childEnv = { ...env, CLEAN_DEVELOPMENT_SESSION_MODE: "session-only", PACKAGE_LITERAL: "must not expand" };
+  setEnvironmentValue(childEnv, "PATH", `${binDir}${path.delimiter}${environmentValue(env, "PATH") || ""}`);
+  const routed = runJson(shim, args, { cwd, env: childEnv });
+  assert.deepEqual(routed.argv, args, "installed tool shim changed argv");
+  assert.equal(fs.realpathSync.native(routed.cwd), fs.realpathSync.native(cwd), "installed tool shim changed cwd");
   const managed = fs.realpathSync.native(env.CLEAN_DEVELOPMENT_ROOT);
   assert.equal(routed.CLEAN_DEVELOPMENT_SESSION_MODE, "session-only");
   assert.equal(routed.CLEAN_DEVELOPMENT_ACTIVE, "1");
@@ -106,6 +116,7 @@ try {
     "hooks/session-start",
     "integrations/claude/hooks.json",
     "src/cli.js",
+    "src/xcode-test-run.js",
     "src/session.js",
     "src/explain.js",
     "src/status.js",
@@ -149,10 +160,8 @@ try {
   fs.mkdirSync(project);
   fs.writeFileSync(path.join(project, "Cargo.toml"), "[package]\nname='package-check'\nversion='0.1.0'\n");
   const fakeBin = fakeCargo(path.join(temporary, "fake-bin"));
-  const sessionEnv = {
-    ...isolatedEnvironment(temporary),
-    PATH: `${fakeBin}${path.delimiter}${process.env.PATH || ""}`
-  };
+  const sessionEnv = isolatedEnvironment(temporary);
+  setEnvironmentValue(sessionEnv, "PATH", `${fakeBin}${path.delimiter}${environmentValue(process.env, "PATH") || ""}`);
   const planned = runJson(binary, ["session", "--dry-run", "--json"], { cwd: project, env: sessionEnv });
   assert.deepEqual(planned.plan.detected.tools, ["cargo"]);
   assert.equal(fs.existsSync(path.join(project, ".clean-development.json")), false);

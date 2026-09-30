@@ -4,7 +4,7 @@ import { environmentForTool } from "./adapters.js";
 import { resolveConfig } from "./config.js";
 import { SHIM_TOOLS } from "./constants.js";
 import { environmentValue, platformPaths } from "./platform.js";
-import { isInjectedEnvironmentValue } from "./routing-environment.js";
+import { isInjectedEnvironmentValue, matchingRoutedEnvironmentKeys } from "./routing-environment.js";
 import { resolveExecutable } from "./runtime.js";
 import { environmentWithoutSessionRouting, normalizeSessionMode, planSession } from "./session.js";
 import { identifyWorkspace } from "./workspace.js";
@@ -115,7 +115,7 @@ export function explainCommand(command, args = [], { cwd = process.cwd(), env = 
   const applied = preview?.applied || plan.managed.environment;
   const preserved = preview?.preserved || plan.managed.preserved;
   for (const [name, value] of Object.entries(applied)) {
-    const injected = Object.entries(env).some(([key, item]) => key.toLowerCase() === name.toLowerCase() && isInjectedEnvironmentValue(env, key, item));
+    const injected = matchingRoutedEnvironmentKeys(env, name).some((key) => isInjectedEnvironmentValue(env, key, env[key]));
     const forced = environmentValue(env, "CLEAN_DEVELOPMENT_FORCE") === "1";
     // Fixed policy values come from the adapter, not the configurable cache root.
     const fixedYarnSetting = name === "YARN_ENABLE_GLOBAL_CACHE" || name === "YARN_ENABLE_MIRROR";

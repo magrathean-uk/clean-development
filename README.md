@@ -10,7 +10,9 @@
 
 `clean-development` routes new development caches and supported build output to a managed root. It is a local Node.js CLI for developers and coding agents. Routing is explicit and preserves existing environment values unless force mode is selected.
 
-The current source version is `0.3.1` and requires Node.js `20.12` or newer. The repository is MIT licensed. It has not been published to npm or listed in the official Codex or Claude directories; use this source checkout until a public release is available.
+The current source version is `0.4.0` and requires Node.js `20.12` or newer. The repository is MIT licensed. It has not been published to npm or listed in the official Codex or Claude directories; use this source checkout until a public release is available.
+
+Windows and Linux use their native environment, path, and storage semantics. See [platform support](docs/platform-support.md) for location overrides, quoted Windows PATH entries, WSL boundaries, and the distinction between configured CI checks and completed native acceptance.
 
 Directory review is separate from public availability. The Claude directory submission passed its automated security scan and is in manual policy review because the bundle contains executable files. The [Codex community submission](https://github.com/openai/community-plugins/pull/21) is open but not live. The global OpenAI directory listing is a draft and has not been submitted because its MCP form blocks the submission.
 
@@ -186,6 +188,8 @@ doctor [--json]
 probe --tool npm|go|uv [--execute] [--timeout-ms MS] [--json]
 prune [--older-than DAYS] [--apply] [--json]
 xcode [status|prune] [--older-than DAYS] [--apply] [--sizes] [--json]
+xcode test-run --device-type ID --runtime ID [--session session-only|skip] -- COMMAND [ARGS...]
+xcode test-cleanup RUN_ID [--json]
 pin WORKSPACE_ID
 unpin WORKSPACE_ID
 uninstall [--dry-run] [--json]
@@ -194,6 +198,11 @@ uninstall [--dry-run] [--json]
 Use `clean-development COMMAND --help` to display CLI usage. Child command options belong after `--`.
 
 `status` reports configured paths and workspace records. `doctor` checks managed directories and owned runtime files without repairing them. `update` refreshes the durable runtime and configured integrations. `uninstall` removes owned integrations and launchers while retaining configuration and managed data. Use `prune --json` first; add `--apply` only when the listed registered workspaces are intended for removal. `xcode status` and `xcode prune` (macOS, opt-in) follow the same dry-run-first rule.
+
+`xcode test-run` is an explicitly requested simulator lifecycle on macOS. It creates one receipt-owned simulator,
+runs a child with the selected local tool routing, and removes only that simulator when activity and ownership can
+be verified. Its test results are retained. See [Xcode management](docs/xcode.md) for the external-root requirement,
+child runner variables, and exact-ID cleanup after an interruption.
 
 ## Safety boundaries
 

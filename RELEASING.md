@@ -4,6 +4,8 @@ Before validating a release, run `node scripts/build-marketplace.mjs` to refresh
 
 Publishing requires maintainer access to the GitHub repository and npm package. A source version, local tag, or passing package check does not establish a public release.
 
+The `0.4.0` entry dated 30 September 2026 prepares a source version. A version bump or push to `main` does not create a release tag or publish to npm; those remain separate release actions. Validate the resulting source and package before recording acceptance for `0.4.0`.
+
 ## Before preparing a release
 
 Confirm package ownership, repository permissions, protected release refs, and npm trusted publishing for `.github/workflows/publish.yml`. Review private vulnerability reporting and repository security settings separately. The presence of workflow files does not establish that these remote settings are enabled.
@@ -33,7 +35,9 @@ Keep authentication outside the repository. If a first publication needs an inte
 4. Run relevant real-tool and named-host acceptance. Record actual command routing, destination paths, explicit override behavior, and the absence of unexpected project writes. Repeat lifecycle and sandbox checks where the change affects them.
 5. Record source revision, Node and OS versions, test totals and skips, package SHA-256, and the unpacked file manifest. Keep package hashes outside the hashed package. Update [verification](docs/verification.md) and the [integration matrix](docs/agent-integrations.md) without promoting untested routes.
 
-The checked-in CI definition covers Node 20, 22, and 24 on macOS and Ubuntu. This is its configured matrix, not a claim that a particular run passed. Native Windows and live host acceptance require their own evidence.
+The checked-in macOS/Ubuntu CI definition selects exact Node 20.12.0 and the configured 20, 22 and 24 majors for the full suite, requires Cargo/Go/npm artifact smoke, and runs installed-package upgrades on selected jobs. The [native Windows gate](docs/windows-contracts.md) selects exact Node 20.12.0 and the configured 22/24 majors for scoped contracts and installed-package upgrades, with Go explicitly provisioned and full preceding-release tag history. These are configured matrices; record completed workflow results separately.
+
+The [30 September native lab record](docs/verification.md#30-september-native-lab-record) applies to its identified `0.3.1` dirty source snapshot: Ubuntu ARM64 ran the full suite, and Windows ARM64 ran selected contracts serially, both on Node 20.12.0 with genuine preceding-release upgrades. The record retains unavailable Cargo/uv checks, known fault TODOs and artifact-build boundaries. It does not certify the newly versioned `0.4.0` package, other architectures or Node majors, configured GitHub jobs, or live agent workflows. Keep new acceptance tied to the resulting release candidate's revision and artifact hash.
 
 ## Publish and check the public artifact
 

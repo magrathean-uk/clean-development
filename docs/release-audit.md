@@ -12,6 +12,10 @@ Use a trusted POSIX host with Git, Node and its standard npm CLI. Record the exa
 versions; a match on one toolchain does not certify all npm, zlib or OS versions.
 Obtain the real preceding-release tag required by `scripts/verify-package.mjs`.
 Do not create a replacement tag or relabel current source as the preceding release.
+Run the audit through the required Clean Development session wrapper when the
+repository's policy requires it. npm discovery skips generated managed shims using
+the shared executable resolver; the selected real executable must still resolve
+to the standard `npm-cli.js`. No PATH or tool-home override is needed for this.
 
 ```sh
 git clone https://github.com/magrathean-uk/clean-development.git clean-development

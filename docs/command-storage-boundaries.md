@@ -41,6 +41,12 @@ include npm-style prefixes/directories, Go `-C`, and Cargo `-C`/`--manifest-path
 An explicit `--` stops selector inspection. Unknown scripts and absolute-path
 commands are not reinterpreted as supported tool invocations.
 
+For npm, repeated `--prefix PATH` or `--prefix=PATH` declarations select the
+last prefix before `--`, matching npm's scalar CLI configuration. Disabled-project
+and storage-boundary checks use that final project, while the original arguments
+and launch cwd are preserved. A final empty `--prefix=` selects the launch cwd.
+This precedence rule does not extend the parser to other tools or options.
+
 Canonical paths are used, so symlink/junction aliases and path-prefix similarities
 do not defeat the boundary or accidentally classify a sibling as a descendant.
 The existing exception for running from the home directory is retained: the home

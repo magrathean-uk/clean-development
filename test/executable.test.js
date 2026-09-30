@@ -21,6 +21,25 @@ function candidate(directory, name = "tool", contents = "#!/bin/sh\nexit 0\n") {
   const file = path.join(directory, `${name}${process.platform === "win32" ? ".cmd" : ""}`);
   fs.writeFileSync(file, contents, { mode: 0o755 }); return file;
 }
+function replaceOpenedCandidate(file, replacement, retired, descriptor) {
+  try {
+    const original = fs.fstatSync(descriptor, { bigint: true });
+    // NTFS can rename an open original but rejects replacing an existing open
+    // destination. Vacate the name first while retaining the inspected handle.
+    fs.renameSync(file, retired);
+    fs.renameSync(replacement, file);
+    const opened = fs.fstatSync(descriptor, { bigint: true });
+    const published = fs.statSync(file, { bigint: true });
+    assert.equal(opened.dev, original.dev);
+    assert.equal(opened.ino, original.ino);
+    assert.notEqual(published.ino, original.ino, "The pathname must refer to a real replacement");
+  } catch (error) {
+    // The mocked open has allocated a descriptor that its caller has not yet
+    // received. It remains the fixture's responsibility if the swap throws.
+    fs.closeSync(descriptor);
+    throw error;
+  }
+}
 function isolatedQuery(code, env) {
   return spawnSync(process.execPath, ["--input-type=module", "-e", code], {
     env, encoding: "utf8", timeout: 2000, killSignal: "SIGKILL", maxBuffer: 64 * 1024
@@ -91,13 +110,18 @@ test("executable prefix reads stay bounded and every opened descriptor is closed
 test("a file replaced after opening is skipped instead of being mistaken for the inspected executable", (t) => {
   const item = fixture(t), first = candidate(item.first), second = candidate(item.second);
   const replacement = path.join(item.root, "replacement"); fs.writeFileSync(replacement, "replacement", { mode: 0o755 });
+  const retired = path.join(item.root, "retired-original");
   const open = fs.openSync; let swapped = false;
   t.mock.method(fs, "openSync", (file, ...args) => {
     const descriptor = open(file, ...args);
-    if (file === first && !swapped) { swapped = true; fs.renameSync(replacement, first); }
+    if (file === first && !swapped) {
+      replaceOpenedCandidate(first, replacement, retired, descriptor);
+      swapped = true;
+    }
     return descriptor;
   });
   assert.equal(resolveExecutable("tool", item.env), second);
+  assert.equal(swapped, true, "The replacement must complete before the resolver rejects it");
 });
 
 test("execute-only regular files retain compatibility when prefix inspection is denied", (t) => {
@@ -140,13 +164,18 @@ test("a rejected replacement is not retried through duplicate PATH components", 
   const item = fixture(t), first = candidate(item.first), second = candidate(item.second);
   setEnvironmentValue(item.env, "PATH", [item.first, item.first, item.second].join(path.delimiter));
   const replacement = path.join(item.root, "replacement"); fs.writeFileSync(replacement, "changed", { mode: 0o755 });
-  const open = fs.openSync; let count = 0;
+  const retired = path.join(item.root, "retired-original");
+  const open = fs.openSync; let count = 0, swapped = false;
   t.mock.method(fs, "openSync", (file, ...args) => {
     const descriptor = open(file, ...args);
-    if (file === first && ++count === 1) fs.renameSync(replacement, first);
+    if (file === first && ++count === 1) {
+      replaceOpenedCandidate(first, replacement, retired, descriptor);
+      swapped = true;
+    }
     return descriptor;
   });
   assert.equal(resolveExecutable("tool", item.env), second);
+  assert.equal(swapped, true, "The replacement must complete before duplicate-path rejection");
   assert.equal(count, 1);
 });
 

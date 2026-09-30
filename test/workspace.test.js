@@ -224,6 +224,25 @@ test("an authoritative Cargo root overrides static discovery and is canonicalise
   assert.deepEqual(snapshot(root), before);
 });
 
+test("npm selects the final prefix before -- without rewriting arguments", (t) => {
+  const root = fixture(t);
+  const caller = directory(root, "caller"), first = directory(root, "first"), last = directory(root, "last");
+  for (const project of [caller, first, last]) manifest(project, "package.json");
+  const before = snapshot(root);
+  for (const flags of [
+    ["--prefix", first, `--prefix=${last}`],
+    [`--prefix=${first}`, "--prefix", path.relative(caller, last)]
+  ]) {
+    const args = Object.freeze([...flags, "test", "--", "--prefix", caller]);
+    const actual = identifyWorkspace("npm", args, caller);
+    assertRoot(actual, last);
+    assert.equal(actual.effectiveCwd, last);
+    assert.deepEqual(args, [...flags, "test", "--", "--prefix", caller]);
+  }
+  assertRoot(identifyWorkspace("npm", ["--prefix", first, "--prefix=", "prefix"], caller), caller);
+  assert.deepEqual(snapshot(root), before);
+});
+
 test("default cwd is re-evaluated after chdir, with relative and dot-segment spellings", (t) => {
   const root = fixture(t);
   const first = directory(root, "one", "checkout");

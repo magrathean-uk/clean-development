@@ -1,7 +1,7 @@
 {
   "name": "clean-development",
   "description": "Managed build and cache storage without prompt injection.",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "author": {
     "name": "MAGRATHEAN UK LTD"
   },

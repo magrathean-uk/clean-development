@@ -34,6 +34,7 @@ There is no MCP server. Routing does not need model judgment, a network service,
 - `src/state.js` records owned workspace build roots and active process leases.
 - `src/integrations.js` adds narrowly owned Claude, Codex, and Grok native pass-through entries plus launcher receipts.
 - `src/cli.js` exposes setup/update, launch, inspection, pinning, pruning, and uninstall commands.
+- `src/xcode-test-run.js` owns one opt-in simulator test device by exact UDID and receipt.
 
 ## Session planning and application
 
@@ -54,6 +55,8 @@ A session can change directories and build several repositories. A static sessio
 For nontrivial Cargo layouts, command dispatch asks the selected real Cargo executable for `locate-project --workspace` before acquiring workspace locks or creating ownership records. Static previews remain estimates; see [Cargo workspace discovery](cargo-workspaces.md).
 
 The shim resolves the real executable from `PATH` while skipping its own directory. It spawns direct executables without a shell, leaves the shim directory in the child `PATH` for nested supported commands, inherits stdio, forwards termination signals, and returns the child's status. On Windows, `.cmd` and `.bat` tools instead use an explicit `ComSpec` wrapper that escapes metacharacters, rejects multiline or NUL input, and passes the constructed command line verbatim.
+
+Environment provenance follows native key casing, with npm's own case-insensitive configuration aliases preserved. A shared PATH parser exposes decoded directories and their original spelling, so Windows lookup, prepend, skip, and persistent integration edits agree on quoted semicolon entries. Managed Windows launchers escape fixed percent paths and disable inherited delayed expansion while retaining child argv and status. See [platform support](platform-support.md) for configured checks and native acceptance limits.
 
 ## Runtime installation
 

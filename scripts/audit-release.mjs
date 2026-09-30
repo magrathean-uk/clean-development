@@ -5,6 +5,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { run, sha256, sourceInventory, readPackage, auditPackage, isolatedReleaseEnvironment } from "./release-audit-lib.mjs";
+import { resolveExecutable } from "../src/executable.js";
 
 const root = fs.realpathSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."));
 const args = process.argv.slice(2);
@@ -43,8 +44,7 @@ try {
   report.source = { commit, tree, gitVersion: git(["--version"]), trackedFiles: source.length, auditorCommit: git(["rev-parse", "HEAD"]), manifestSha256: sha256(JSON.stringify(publicSource)) };
   write("source-inventory.json", publicSource);
 
-  const npmLink = (process.env.PATH || "").split(path.delimiter).map((part) => path.join(part, "npm"))
-    .find((file) => { try { return fs.statSync(file).isFile(); } catch { return false; } });
+  const npmLink = resolveExecutable("npm", process.env);
   assert.ok(npmLink, "npm is required");
   const npmCli = fs.realpathSync(npmLink);
   assert.equal(path.basename(npmCli), "npm-cli.js", "Select a standard Node-installed npm CLI on PATH");

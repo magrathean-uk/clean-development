@@ -5,8 +5,10 @@ import path from "node:path";
 import test from "node:test";
 import { spawnSync } from "node:child_process";
 import { resolveExecutable, spawnInherited, windowsBatchInvocation } from "../src/runtime.js";
-import { setEnvironmentValue } from "../src/platform.js";
+import { prependUniquePath, setEnvironmentValue } from "../src/platform.js";
 import { windowsPathEntries } from "../src/executable.js";
+import { formatPathEntry, pathEntries } from "../src/path-entries.js";
+import { environmentWithoutSessionRouting } from "../src/session.js";
 import { withoutCleanDevelopmentEnvironment } from "../scripts/harness-utils.mjs";
 
 const variants = [
@@ -116,6 +118,36 @@ test("Windows PATH decoding does not repair malformed quotes into different dire
   assert.deepEqual(windowsPathEntries('first;"unclosed;not-a-separate-entry'), ["first"]);
   assert.deepEqual(windowsPathEntries('first;bad";fragment"tail;last'), ["first", "last"]);
   assert.deepEqual(windowsPathEntries('first;"""";last'), ["first", "last"]);
+});
+
+test("Windows PATH editing can retain original spelling without using malformed directories", () => {
+  const value = String.raw`;"";"C:\semi;colon";relative;bad"quote;tail`;
+  const entries = pathEntries(value, "win32");
+  assert.deepEqual(entries, [
+    { raw: "", value: "" }, { raw: '""', value: "" },
+    { raw: String.raw`"C:\semi;colon"`, value: String.raw`C:\semi;colon` },
+    { raw: "relative", value: "relative" }, { raw: 'bad"quote;tail', value: null }
+  ]);
+  assert.equal(entries.map((entry) => entry.raw).join(";"), value);
+  assert.equal(formatPathEntry(String.raw`C:\semi;colon`, "win32"), String.raw`"C:\semi;colon"`);
+  assert.equal(formatPathEntry("/literal;directory", "linux"), "/literal;directory");
+});
+
+test("native Windows prepend and skip preserve quoted semicolon PATH entries", { skip: process.platform !== "win32" }, (t) => {
+  const item = fixture(t), managed = path.join(item.root, "managed;bin"), real = path.join(item.root, "real;tools");
+  fs.mkdirSync(managed); fs.mkdirSync(real);
+  const command = path.join(real, "capture.cmd"); fs.writeFileSync(command, "@exit /b 0\r\n");
+  const original = `;"";"${managed}";"${real}";bad"quote;tail`;
+  const routed = prependUniquePath(original, managed);
+  assert.equal(routed, `"${managed}";;"";"${real}";bad"quote;tail`);
+  assert.deepEqual(windowsPathEntries(routed), [managed, real]);
+  const env = { ...item.env };
+  setEnvironmentValue(env, "PATH", routed); setEnvironmentValue(env, "PATHEXT", ".CMD");
+  assert.equal(resolveExecutable("capture", env, managed, item.root), command);
+  const skipped = environmentWithoutSessionRouting(env, managed);
+  assert.equal(skipped.PATH, `;"";"${real}";bad"quote;tail`);
+  assert.equal(resolveExecutable("capture", skipped, null, item.root), command);
+  assert.equal(env.PATH, routed, "The caller's environment remains unchanged");
 });
 
 test("POSIX PATH quotes and semicolons remain filename characters", { skip: process.platform === "win32" }, (t) => {

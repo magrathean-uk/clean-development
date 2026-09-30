@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { assertSafeManagedRoot, canonicalizePotentialPath, isPathInside } from "./platform.js";
+import { assertSafeManagedRoot, canonicalizePotentialPath, isPathInside, matchingEnvironmentKeys } from "./platform.js";
 
 // A deliberately bounded SwiftPM grammar, not a Swift compiler/plugin parser.
 // Unknown build/test options fail before storage preparation when opted in.
@@ -89,7 +89,7 @@ export function swiftpmWorkspace(args, cwd) {
 }
 
 const overlaps = (a, b) => a === b || isPathInside(a, b) || isPathInside(b, a);
-const nativeEnvironmentPresent = (env, name) => Object.keys(env).some((key) => key.toLowerCase() === name.toLowerCase() && env[key] !== undefined);
+const nativeEnvironmentPresent = (env, name) => matchingEnvironmentKeys(env, name).some((key) => env[key] !== undefined);
 
 /** Read-only command-local plan. Scratch contains products AND intermediates;
  * it is retained separately, never registered with Cargo's disposable storage. */

@@ -130,17 +130,24 @@ export function detectStack(cwd = process.cwd(), { home = os.homedir() } = {}) {
   };
 }
 
-function argumentValue(args, names) {
+function argumentValue(args, names, { last = false } = {}) {
+  let selected = null;
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
     if (argument === "--") break;
     for (const name of names) {
-      if (argument === name && args[index + 1]) return args[index + 1];
-      if (argument.startsWith(`${name}=`)) return argument.slice(name.length + 1);
-      if (name.length === 2 && !name.startsWith("--") && argument.startsWith(name) && argument.length > 2) return argument.slice(2);
+      let value = null;
+      if (argument === name && args[index + 1]) value = args[index + 1];
+      else if (argument.startsWith(`${name}=`)) value = argument.slice(name.length + 1);
+      else if (name.length === 2 && !name.startsWith("--") && argument.startsWith(name) && argument.length > 2) value = argument.slice(2);
+      if (value !== null) {
+        if (!last) return value;
+        selected = value;
+        break;
+      }
     }
   }
-  return null;
+  return selected;
 }
 
 function commandCwd(tool, args, cwd) {
@@ -153,6 +160,12 @@ function commandCwd(tool, args, cwd) {
   if (tool === "go") {
     const changed = argumentValue(args, ["-C"]);
     if (changed) return path.resolve(cwd, changed);
+  }
+  // npm's scalar CLI configuration uses the final --prefix declaration. Use
+  // the same project for routing checks without changing the native argv.
+  if (tool === "npm") {
+    const prefix = argumentValue(args, ["--prefix"], { last: true });
+    if (prefix !== null) return path.resolve(cwd, prefix);
   }
   if (["npm", "npx", "pnpm", "yarn"].includes(tool)) {
     const prefix = argumentValue(args, ["--prefix", "--dir", "-C"]);

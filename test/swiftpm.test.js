@@ -122,7 +122,8 @@ test("native scratch/cache controls are preserved even under force", async (t) =
   const cases = [
     { args: ["--scratch-path", "relative"] }, { args: ["--scratch-path=with = spaces"] },
     { args: ["--build-path", "legacy"] }, { env: { SWIFTPM_BUILD_DIR: "native-env" } },
-    { env: { SWIFTPM_BUILD_DIR: "" } }, { env: { swiftpm_build_dir: "case-variant" } },
+    { env: { SWIFTPM_BUILD_DIR: "" } },
+    ...(process.platform === "win32" ? [{ env: { swiftpm_build_dir: "case-variant" } }] : []),
     { args: ["--scratch-path", "s", "--cache-path", "c"], cache: true },
     { env: { SWIFTPM_BUILD_DIR: "e", SWIFTPM_CACHE_PATH: "caller-config" }, cache: true }
   ];
@@ -135,6 +136,15 @@ test("native scratch/cache controls are preserved even under force", async (t) =
     assert.equal(result.additions.includes("--cache-path"), !variant.cache);
     assert.deepEqual(snapshot(item.root), before);
   });
+});
+
+test("POSIX unrelated lowercase Swift variables do not suppress native uppercase routing", { skip: process.platform === "win32" }, (t) => {
+  const item = fixture(t), env = { ...item.env, swiftpm_build_dir: "independent", swiftpm_cache_path: "independent-cache" };
+  const result = plan(item, ["build"], { env });
+  assert.equal(result.additions.includes("--scratch-path"), true);
+  assert.equal(result.additions.includes("--cache-path"), true);
+  assert.equal(env.swiftpm_build_dir, "independent");
+  assert.equal(env.swiftpm_cache_path, "independent-cache");
 });
 
 test("configuration, security, SDK, module-cache and output controls remain user-owned", (t) => {

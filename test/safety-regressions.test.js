@@ -329,12 +329,16 @@ test("executable resolution skips stale Windows-style generated shims", (t) => {
   assert.equal(resolveExecutable("cargo.cmd", env), path.join(realBin, "cargo.cmd"));
 });
 
-test("executable resolution accepts a case-variant PATH environment key", (t) => {
+test("executable resolution uses native PATH key casing", (t) => {
   const item = fixture();
   t.after(() => fs.rmSync(item.root, { recursive: true, force: true }));
   const realBin = path.join(item.root, "case-path-bin");
   writeExecutable(path.join(realBin, "cargo"), "#!/bin/sh\nexit 0\n");
-  assert.equal(resolveExecutable("cargo", { Path: realBin }), path.join(realBin, "cargo"));
+  const executable = path.join(realBin, "cargo");
+  assert.equal(resolveExecutable("cargo", { Path: realBin }), process.platform === "win32" ? executable : null);
+  const env = Object.freeze({ PATH: realBin, Path: "independent-value" });
+  assert.equal(resolveExecutable("cargo", env), executable);
+  assert.equal(env.Path, "independent-value");
 });
 
 test("signal termination is converted to the conventional shell exit code", { skip: process.platform === "win32" }, async () => {

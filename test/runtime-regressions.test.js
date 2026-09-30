@@ -50,7 +50,7 @@ test("nested Cargo re-routes inherited managed output and still preserves a chan
   assert.equal(overridden.env.CLEAN_DEVELOPMENT_CARGO_TARGET_DIR, undefined);
 });
 
-test("Cargo recognizes lowercased inherited routing markers and emits one canonical marker set", (t) => {
+test("Windows Cargo recognizes lowercased inherited routing markers and emits one canonical marker set", { skip: process.platform !== "win32" }, (t) => {
   const item = fixture(t);
   const first = environmentForTool("cargo", [], { config: item.config, cwd: item.first, env: item.env, create: false });
   const inherited = { ...first.env };
@@ -78,6 +78,18 @@ test("Cargo recognizes lowercased inherited routing markers and emits one canoni
   ]) {
     assert.equal(Object.keys(rerouted.env).filter((key) => key.toLowerCase() === name.toLowerCase()).length, 1);
   }
+});
+
+test("POSIX Cargo routes uppercase target while preserving unrelated lowercase variables in the real child", { skip: process.platform === "win32" }, async (t) => {
+  const item = fixture(t), capture = path.join(item.root, "capture.json");
+  fakeCargo(item, "fs.writeFileSync(process.env.CAPTURE, JSON.stringify({ target: process.env.CARGO_TARGET_DIR, lower: process.env.cargo_target_dir, active: process.env.CLEAN_DEVELOPMENT_ACTIVE, lowerActive: process.env.clean_development_active, path: process.env.path }));");
+  const env = { ...item.env, CAPTURE: capture, cargo_target_dir: "independent-target", clean_development_active: "independent-active", path: "independent-path" };
+  assert.equal(await runTool("cargo", [], { config: item.config, cwd: item.first, env }), 0);
+  const workspace = identifyWorkspace("cargo", [], item.first);
+  assert.deepEqual(JSON.parse(fs.readFileSync(capture, "utf8")), {
+    target: path.join(item.config.buildRoot, workspace.id, "cargo", "target"),
+    lower: "independent-target", active: "1", lowerActive: "independent-active", path: "independent-path"
+  });
 });
 
 test("a Cargo child launched through another workspace shim receives its own registered target", { skip: process.platform === "win32" }, async (t) => {

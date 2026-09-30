@@ -144,11 +144,15 @@ storage root. Runtime, state and bin are children of the selected data directory
 
 Recognised custom and platform base variables must be non-empty absolute narrow
 paths. Relevant platform bases are validated even when custom locations mask
-their values. Irrelevant platform variables are not read. The environment helper
-matches keys case-insensitively; if a supplied JavaScript object contains multiple
-case spellings, the first enumerable match wins. Avoid conflicting duplicates;
-this is not a portable way to express priority. The setter removes existing case
-variants before writing a canonical key. These platform behaviours are unchanged.
+their values. Irrelevant platform variables are not read. On Linux/macOS, native
+environment keys match exactly, and setting `PATH` preserves an independent
+`path` key. On Windows, keys match case-insensitively; if a supplied JavaScript
+object contains multiple case spellings, the first enumerable match wins. Avoid
+conflicting Windows duplicates: Node subprocesses may select a different key
+when constructing the native environment. The Windows setter removes existing
+case variants before writing one canonical key. Tool-defined `npm_config_*`
+aliases remain case-insensitive on every host; other adapter variables follow
+native casing. See [platform support](platform-support.md).
 
 ## Managed roots inside a project
 

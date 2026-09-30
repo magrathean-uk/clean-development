@@ -6,6 +6,7 @@ import { SUPPORTED_AGENTS } from "./constants.js";
 import { ensureRealDirectory, readJson, readTextMetadata, writeJsonAtomic, writeJsonAtomicFollowingLeafSymlink, writeTextAtomicFollowingLeafSymlink } from "./io.js";
 import { canonicalizePotentialPath, environmentValue, isPathInside, prependUniquePath } from "./platform.js";
 import { environmentWithoutSessionRouting, SESSION_ENV_MARKER, SESSION_MODE_ENV } from "./session.js";
+import { pathEntries } from "./path-entries.js";
 
 function shellQuote(value) {
   return `'${String(value).replaceAll("'", `'\"'\"'`)}'`;
@@ -293,8 +294,8 @@ function isOwnedTomlBlock(lines, legacyBinDir) {
     const value = JSON.parse(encodedPath);
     if (typeof value !== "string" || !value || JSON.stringify(value) !== encodedPath) return false;
     if (legacyBinDir !== undefined) {
-      const first = value.split(path.delimiter)[0];
-      if (!path.isAbsolute(first)) return false;
+      const first = pathEntries(value)[0]?.value;
+      if (!first || !path.isAbsolute(first)) return false;
       const actual = canonicalizePotentialPath(first);
       const expected = canonicalizePotentialPath(legacyBinDir);
       if (process.platform === "win32" ? actual.toLowerCase() !== expected.toLowerCase() : actual !== expected) return false;
@@ -467,8 +468,8 @@ function persistentPath(pathValue, runtimeBin, { cwd, env, home }) {
     .filter((value) => value !== path.parse(value).root && value !== canonicalHome);
   const seen = new Set();
   const entries = [];
-  for (const entry of String(pathValue || "").split(path.delimiter).filter(Boolean)) {
-    if (!path.isAbsolute(entry)) continue;
+  for (const { raw, value: entry } of pathEntries(pathValue)) {
+    if (!entry || !path.isAbsolute(entry)) continue;
     const canonical = canonicalizePotentialPath(entry);
     const normalized = canonical.split(path.sep).join("/").toLowerCase();
     if (normalized.endsWith("/node_modules/.bin") || normalized.includes("/_npx/")) continue;
@@ -477,7 +478,7 @@ function persistentPath(pathValue, runtimeBin, { cwd, env, home }) {
     const key = process.platform === "win32" ? canonical.toLowerCase() : canonical;
     if (seen.has(key)) continue;
     seen.add(key);
-    entries.push(entry);
+    entries.push(raw);
   }
   return prependUniquePath(entries.join(path.delimiter), runtimeBin);
 }

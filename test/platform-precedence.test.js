@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { canonicalizePotentialPath, environmentValue, isPathInside, platformPaths, setEnvironmentValue } from "../src/platform.js";
+import { canonicalizePotentialPath, environmentValue, isPathInside, matchingEnvironmentKeys, platformPaths, prependUniquePath, setEnvironmentValue } from "../src/platform.js";
 
 function fixture(t) {
   const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "cd-platform-precedence-")));
@@ -80,16 +80,39 @@ test("base paths reject empty, relative and broad values without masking them be
   }
 });
 
-test("environment key matching is case-insensitive and duplicate spellings use enumeration order", (t) => {
+test("Windows environment key matching folds case and duplicate spellings use enumeration order", (t) => {
   const item = fixture(t);
   const env = Object.freeze({ clean_development_home: item.home, clean_development_data_home: path.join(item.root, "lower-data") });
-  assert.equal(platformPaths(env).home, item.home);
-  assert.equal(platformPaths(env).dataDir, env.clean_development_data_home);
-  assert.equal(environmentValue({ HOME: "first", home: "second" }, "home"), "first");
-  assert.equal(environmentValue({ home: "first", HOME: "second" }, "HOME"), "first");
+  assert.equal(platformPaths(env, "win32").home, item.home);
+  assert.equal(platformPaths(env, "win32").dataDir, env.clean_development_data_home);
+  assert.equal(environmentValue({ HOME: "first", home: "second" }, "home", "win32"), "first");
+  assert.equal(environmentValue({ home: "first", HOME: "second" }, "HOME", "win32"), "first");
   const changed = { HOME: "first", home: "second", keep: "unchanged" };
-  setEnvironmentValue(changed, "HOME", item.home);
+  setEnvironmentValue(changed, "HOME", item.home, "win32");
   assert.deepEqual(changed, { HOME: item.home, keep: "unchanged" });
+});
+
+for (const platform of ["linux", "darwin"]) test(`${platform}: native environment spelling preserves independent case variants`, (t) => {
+  const item = fixture(t), other = path.join(item.root, "independent");
+  const env = Object.freeze({ home: other, HOME: item.home,
+    clean_development_data_home: other, CLEAN_DEVELOPMENT_DATA_HOME: path.join(item.root, "data") });
+  assert.equal(platformPaths(env, platform).home, item.home);
+  assert.equal(platformPaths(env, platform).dataDir, env.CLEAN_DEVELOPMENT_DATA_HOME);
+  assert.equal(environmentValue(env, "home", platform), other);
+  assert.equal(environmentValue({ home: other }, "HOME", platform), undefined);
+  assert.deepEqual(matchingEnvironmentKeys(env, "HOME", platform), ["HOME"]);
+  const changed = { PATH: "old", path: "independent", keep: "unchanged" };
+  setEnvironmentValue(changed, "PATH", "selected", platform);
+  assert.deepEqual(changed, { PATH: "selected", path: "independent", keep: "unchanged" });
+});
+
+test("Windows PATH prepending preserves quoted semicolon entries and replaces the decoded managed alias", (t) => {
+  const item = fixture(t), bin = path.join(item.root, "runtime;bin"), other = path.join(item.root, "other;tools");
+  fs.mkdirSync(bin); fs.mkdirSync(other);
+  const original = `"${other}";"${bin}";;relative;"malformed`;
+  assert.equal(prependUniquePath(original, bin, "win32"), `"${bin}";"${other}";;relative;"malformed`);
+  assert.equal(prependUniquePath("", bin, "win32"), `"${bin}"`);
+  assert.equal(prependUniquePath(`"${other}";"${bin.toUpperCase()}"`, bin, "win32"), `"${bin}";"${other}"`);
 });
 
 test("canonical aliases with missing tails preserve containment without creating directories", (t) => {
