@@ -41,25 +41,25 @@ jobs:
         run: node --test test/windows-argv.test.js
       - name: Literal executable paths and variable expansion boundaries
         if: ${{ !cancelled() }}
-        run: node --test test/windows-command-path.test.js test/windows-command-token.test.js test/windows-launcher-generation.test.js
+        run: node --test --test-concurrency=1 test/windows-command-path.test.js test/windows-command-token.test.js test/windows-launcher-generation.test.js
       - name: Foreground child lifecycle and failed launch cleanup
         if: ${{ !cancelled() }}
         run: node --test test/process-runner.test.js
       - name: Executable discovery and terminal rendering contracts
         if: ${{ !cancelled() }}
-        run: node --test test/executable.test.js test/explain-rendering.test.js test/diagnostic-formatters.test.js test/diagnostic-public-exports.test.js test/native-cache-options.test.js
+        run: node --test --test-concurrency=1 test/executable.test.js test/explain-rendering.test.js test/diagnostic-formatters.test.js test/diagnostic-public-exports.test.js test/native-cache-options.test.js
       - name: Portable inspection, storage and probe contracts
         if: ${{ !cancelled() }}
         run: node --test --test-concurrency=1 test/measurement.test.js test/status.test.js test/inspection.test.js test/bounded-leases.test.js test/probe.test.js test/probe-process.test.js test/marketplace-portability.test.js
       - name: Native environment, workspace identity and pruning boundaries
         if: ${{ !cancelled() }}
-        run: node --test test/platform-precedence.test.js test/config-precedence.test.js test/workspace.test.js test/prune.test.js test/routing-environment.test.js
+        run: node --test --test-concurrency=1 test/platform-precedence.test.js test/config-precedence.test.js test/workspace.test.js test/prune.test.js test/routing-environment.test.js
       - name: Native PATH spelling in executable discovery
         if: ${{ !cancelled() }}
         run: node --test --test-name-pattern="native PATH key casing" test/safety-regressions.test.js
       - name: Effective-project routing boundaries and warning regressions
         if: ${{ !cancelled() }}
-        run: node --test test/routing-context.test.js test/explain-cache-warnings.test.js
+        run: node --test --test-concurrency=1 test/routing-context.test.js test/explain-cache-warnings.test.js
       - name: Probe process errors and uncertain cleanup
         if: ${{ !cancelled() }}
         run: node --test test/probe-error-lifecycle.test.js

@@ -35,8 +35,8 @@ checks still run on all platforms; the native job exercises actual .cmd launcher
 Independent test steps still run after a prior test failure to expose additional
 failures without making the workflow successful.
 
-The portable inspection/storage/probe group runs one test file at a time. This
-avoids competing scans and child-process fixtures on small Windows runners;
+Steps selecting multiple test files run one file at a time. This avoids
+competing scans and child-process fixtures on small Windows runners;
 real-tool probe deadlines and timeout/cleanup assertions remain unchanged.
 
 The [30 September native lab record](verification.md#30-september-native-lab-record)
@@ -55,7 +55,7 @@ Run the dedicated tests locally on Windows:
 node --test test/windows-contract.test.js
 node --test --test-name-pattern="Windows" test/runtime-regressions.test.js
 node --test --test-concurrency=1 test/measurement.test.js test/status.test.js test/inspection.test.js test/bounded-leases.test.js test/probe.test.js test/probe-process.test.js test/marketplace-portability.test.js
-node --test test/platform-precedence.test.js test/config-precedence.test.js test/workspace.test.js test/prune.test.js test/routing-environment.test.js
+node --test --test-concurrency=1 test/platform-precedence.test.js test/config-precedence.test.js test/workspace.test.js test/prune.test.js test/routing-environment.test.js
 node --test test/package-verification.test.js
 npm run test:package
 ```
