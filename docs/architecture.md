@@ -93,6 +93,15 @@ explicit preparation. Unregistered children remain unowned. Read-only planning
 and prune never create identity receipts or migrate workspace records. Existing
 legacy prune receipts retain their original marker checks; this adds no deletion
 authority. Filesystems reporting no positive directory inode/file ID fail closed.
+First approval and explicit replacement approval also verify a positive, stable
+birth time using one exclusive private empty child beneath the validated build
+root. The root's ctime must advance while its birth time stays fixed; a mutable
+ctime fallback, zero timestamp, or observation too coarse to distinguish them
+fails before the identity receipt is published. Cleanup uses only exact empty
+directory removal after identity checks, retaining changed or uncertain probes.
+Read-only validation and unchanged approval never create this probe.
+Node documents that missing filesystem birth time may be reported as ctime or
+zero in its [stat time semantics](https://nodejs.org/docs/latest-v20.x/api/fs.html#stat-time-values).
 The same Node metadata comparison is used on supported native platforms; its
 conservative remount detection is not a stable volume UUID or mount attestation.
 
@@ -100,8 +109,11 @@ Ownership-marker publication uses an existing staging directory and never
 recursively creates its parent. Its ancestor identities are captured and checked
 around marker writes and final directory publication; workspace receipt
 publication checks them again. A failed rollback preserves the initiating error
-object/code and adds a bounded cleanup code and retained stage path. Interrupted
-stages are not adopted or swept by a later command.
+object/code and adds a bounded cleanup code and retained stage path. If the final
+rename succeeds but subsequent validation fails, the error identifies the
+published path and phase, and no staging cleanup or removal of that path occurs.
+Interrupted stages and uncertain published directories are not adopted or swept
+by a later command.
 
 Prune requires all of the following:
 

@@ -140,11 +140,19 @@ export function ensureOwnedBuildRoot(config, workspace, existingRecord = null) {
     createdAt: new Date().toISOString()
   }, { expectedDirectories: stageDirectories });
   revalidateDirectoryIdentities(stageDirectories);
+  let published = false;
   try {
     fs.renameSync(temporary, buildPath);
+    published = true;
     revalidateDirectoryIdentities(baseDirectories);
     return { path: buildPath, ownershipId };
   } catch (error) {
+    if (published) {
+      const publicationCode = typeof error.code === "string" && /^[A-Z0-9_-]{1,48}$/.test(error.code) ? error.code : "UNKNOWN";
+      error.publication = { code: publicationCode, path: buildPath, phase: "post-rename-revalidation", retained: true };
+      error.message += `; published build path retained after post-rename validation failure (${publicationCode}): ${buildPath}`;
+      throw error;
+    }
     try {
       revalidateDirectoryIdentities(stageDirectories);
       fs.rmSync(temporary, { recursive: true, force: true });

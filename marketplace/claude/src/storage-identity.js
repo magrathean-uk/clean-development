@@ -16,10 +16,92 @@ function receiptPath(config) {
   return path.join(state, "storage-identities", `${key}.json`);
 }
 
+function sameDirectoryIdentity(stat, identity) {
+  return String(stat.dev) === String(identity.dev) && String(stat.ino) === String(identity.ino);
+}
+
 function currentIdentity(config) {
   const directories = directoryIdentities(config.buildRoot);
   if (BigInt(directories.at(-1).ino) <= 0n) throw new Error(`Filesystem supplies no stable directory identity: ${config.buildRoot}`);
-  return { buildRoot: path.resolve(config.buildRoot), identity: directories.at(-1), directories };
+  const root = directories.at(-1);
+  if (BigInt(root.birthtimeNs) <= 0n) throw new Error(`Filesystem supplies no usable stable directory birth time for managed storage: ${config.buildRoot}`);
+  const identity = { path: root.path, dev: root.dev, ino: root.ino, birthtimeNs: root.birthtimeNs };
+  return { buildRoot: path.resolve(config.buildRoot), identity, directories };
+}
+
+// Receipt creation is the only path allowed to probe timestamp stability. A
+// unique empty child changes the root ctime; stable birthtime must remain fixed.
+// Cleanup is an exact empty-directory rmdir, never recursive deletion.
+function verifyStableBirthtime(config, snapshots) {
+  const root = path.resolve(config.buildRoot);
+  revalidateDirectoryIdentities(snapshots);
+  const before = fs.lstatSync(root, { bigint: true });
+  if (!before.isDirectory() || before.isSymbolicLink() || before.birthtimeNs <= 0n) {
+    throw new Error(`Filesystem supplies no usable stable directory birth time for managed storage: ${root}`);
+  }
+  const probe = path.join(root, `.clean-development-identity-probe-${process.pid}-${crypto.randomUUID()}`);
+  let probeIdentity = null;
+  let probeCreated = false;
+  let primaryError = null;
+  try {
+    fs.mkdirSync(probe, { mode: 0o700 });
+    probeCreated = true;
+    const created = fs.lstatSync(probe, { bigint: true });
+    if (!created.isDirectory() || created.isSymbolicLink()) throw new Error(`Storage identity probe is not a real directory: ${probe}`);
+    probeIdentity = { dev: String(created.dev), ino: String(created.ino) };
+    const after = fs.lstatSync(root, { bigint: true });
+    if (!after.isDirectory() || after.isSymbolicLink() || !sameDirectoryIdentity(after, { dev: String(before.dev), ino: String(before.ino) })) {
+      throw new Error(`Managed storage directory changed during identity probe: ${root}`);
+    }
+    if (after.birthtimeNs !== before.birthtimeNs || after.ctimeNs === before.ctimeNs) {
+      throw new Error(`Filesystem does not provide a verifiably stable directory birth time for managed storage: ${root}`);
+    }
+  } catch (error) {
+    primaryError = error;
+  } finally {
+    if (probeIdentity) {
+      try {
+        // ctime may be unusable for identity, but dev/inode plus real-directory
+        // checks still ensure cleanup does not follow a replaced ancestor.
+        for (const snapshot of snapshots) {
+          const currentAncestor = fs.lstatSync(snapshot.path, { bigint: true });
+          if (!currentAncestor.isDirectory() || currentAncestor.isSymbolicLink() || !sameDirectoryIdentity(currentAncestor, snapshot)) {
+            throw new Error("ancestor-changed");
+          }
+        }
+        const current = fs.lstatSync(probe, { bigint: true });
+        if (!current.isDirectory() || current.isSymbolicLink() || !sameDirectoryIdentity(current, probeIdentity) || fs.readdirSync(probe).length !== 0) {
+          throw new Error(`Storage identity probe changed; retained for inspection: ${probe}`);
+        }
+        fs.rmdirSync(probe);
+      } catch (error) {
+        const cleanupCode = typeof error.code === "string" && /^[A-Z0-9_-]{1,48}$/.test(error.code) ? error.code : "UNKNOWN";
+        const cleanup = { code: cleanupCode, path: probe, retained: true };
+        if (!primaryError) {
+          primaryError = new Error(`Could not safely remove storage identity probe (${cleanupCode}): ${probe}`);
+          primaryError.code = "CLEAN_DEVELOPMENT_STORAGE_PROBE_CLEANUP";
+          primaryError.cleanup = cleanup;
+        } else {
+          primaryError.cleanup = cleanup;
+          primaryError.message += `; probe cleanup uncertain (${cleanupCode}): ${probe}`;
+        }
+      }
+    } else if (probeCreated) {
+      // Without a captured inode, never remove this path: it may have been
+      // replaced after creation. Preserve the original failure and identify
+      // the private directory that must be inspected.
+      const cleanup = { code: "IDENTITY_UNVERIFIED", path: probe, retained: true };
+      if (!primaryError) {
+        primaryError = new Error(`Storage identity probe could not be verified; retained for inspection: ${probe}`);
+        primaryError.code = "CLEAN_DEVELOPMENT_STORAGE_PROBE_UNVERIFIED";
+      } else {
+        primaryError.cleanup = cleanup;
+        primaryError.message += `; probe retained without verified identity: ${probe}`;
+      }
+    }
+  }
+  if (primaryError) throw primaryError;
+  revalidateDirectoryIdentities(snapshots);
 }
 
 export function sameStorageIdentity(left, right) {
@@ -37,7 +119,7 @@ function readReceipt(config) {
   const value = readJson(file);
   if (value?.schemaVersion !== 1 || value?.owner !== "clean-development" || value.buildRoot !== path.resolve(config.buildRoot)
     || value.identity?.path !== path.resolve(config.buildRoot)
-    || !/^\d+$/.test(value.identity?.dev ?? "") || !/^[1-9]\d*$/.test(value.identity?.ino ?? "") || !/^\d+$/.test(value.identity?.birthtimeNs ?? "")
+    || !/^\d+$/.test(value.identity?.dev ?? "") || !/^[1-9]\d*$/.test(value.identity?.ino ?? "") || !/^[1-9]\d*$/.test(value.identity?.birthtimeNs ?? "")
     || typeof value.approvedAt !== "string" || !Number.isFinite(Date.parse(value.approvedAt))) {
     throw new Error(`Invalid storage identity receipt: ${file}`);
   }
@@ -81,6 +163,7 @@ export function approveManagedBuildRoot(config, { reapprove = false, legacyValid
     if (reapprove && activeWorkspaceIds(config).size > 0) {
       throw new Error(`Cannot approve changed storage while Cargo leases are active or uncertain: ${config.buildRoot}`);
     }
+    verifyStableBirthtime(config, current.directories);
     revalidateDirectoryIdentities(current.directories);
     writeJsonAtomic(file, { schemaVersion: 1, owner: "clean-development", buildRoot: current.buildRoot,
       identity: current.identity, approvedAt: new Date().toISOString() }, { expectedDirectories: directoryIdentities(path.dirname(file)) });

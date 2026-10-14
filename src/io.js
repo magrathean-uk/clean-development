@@ -117,7 +117,7 @@ export function directoryIdentities(directory) {
   while (true) {
     validateRealDirectory(current, "Publication directory");
     const stat = fs.lstatSync(current, { bigint: true });
-    snapshots.unshift({ path: current, dev: String(stat.dev), ino: String(stat.ino), birthtimeNs: String(stat.birthtimeNs) });
+    snapshots.unshift({ path: current, dev: String(stat.dev), ino: String(stat.ino), birthtimeNs: String(stat.birthtimeNs), ctimeNs: String(stat.ctimeNs) });
     const parent = path.dirname(current);
     if (parent === current) return snapshots;
     current = parent;
@@ -128,7 +128,15 @@ export function revalidateDirectoryIdentities(snapshots) {
   for (const snapshot of snapshots) {
     validateRealDirectory(snapshot.path, "Publication directory");
     const stat = fs.lstatSync(snapshot.path, { bigint: true });
-    if (!sameIdentity(stat, snapshot) || String(stat.birthtimeNs) !== snapshot.birthtimeNs) {
+    if (!sameIdentity(stat, snapshot)) {
+      throw new Error(`Managed storage directory changed during publication: ${snapshot.path}`);
+    }
+    if (String(stat.birthtimeNs) !== snapshot.birthtimeNs) {
+      const birthtimeTracksCtime = snapshot.birthtimeNs === snapshot.ctimeNs
+        && String(stat.birthtimeNs) === String(stat.ctimeNs);
+      if (birthtimeTracksCtime) {
+        throw new Error(`Filesystem does not provide a stable directory birth time: ${snapshot.path}`);
+      }
       throw new Error(`Managed storage directory changed during publication: ${snapshot.path}`);
     }
   }
