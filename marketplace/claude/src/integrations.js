@@ -131,7 +131,9 @@ function installClaudeHook(config, runtime, env = process.env, previousEntries =
     settings.hooks.SessionStart,
     previousForFile.map((entry) => entry.command)
   ).entries;
-  const ownershipId = previousForFile.find((entry) => entry.ownershipId)?.ownershipId || randomUUID();
+  const currentGeneration = previousForFile.find((entry) => entry.ownershipId
+    && entry.command === hookCommand(runtime, entry.ownershipId));
+  const ownershipId = currentGeneration?.ownershipId || randomUUID();
   const command = hookCommand(runtime, ownershipId);
   settings.hooks.SessionStart.push({
     matcher: "startup|resume|clear|compact|fork",
@@ -484,8 +486,24 @@ function persistentPath(pathValue, runtimeBin, { cwd, env, home }) {
   return prependUniquePath(entries.join(path.delimiter), runtimeBin);
 }
 
-function installShellEnvironment(config, runtime, agent, file, env = process.env, previousEntries = [], cwd = process.cwd(), { repairMissing = false } = {}) {
+function installShellEnvironment(config, runtime, agent, file, env = process.env, previousEntries = [], cwd = process.cwd(), { repairMissing = false, onRepairFallback } = {}) {
   if (packageRunnerEnvironment(env)) {
+    if (repairMissing) {
+      const previousForFile = previousEntries.filter((entry) => entry.agent === agent
+        && entry.mode === "native-shell-environment" && entry.file === file);
+      if (previousForFile.length > 1) {
+        throw new Error(`Cannot update owned ${agent} integration safely in ${file}; multiple recorded blocks are ambiguous`);
+      }
+      if (previousForFile.length === 1) {
+        const entry = previousForFile[0];
+        const snapshot = inspectAbsentTomlBlock(config, entry);
+        if (snapshot.status !== "absent"
+          || !sameTomlSnapshot(snapshot, inspectAbsentTomlBlock(config, entry))) {
+          throw new Error(`Cannot update owned ${agent} integration safely in ${file}; the recorded block was changed, removed, or is ambiguous`);
+        }
+        onRepairFallback?.(entry);
+      }
+    }
     return launcherIntegration(
       agent,
       runtime,
@@ -515,6 +533,7 @@ function installShellEnvironment(config, runtime, agent, file, env = process.env
     if (repairSnapshot && !sameTomlSnapshot(repairSnapshot, inspectAbsentTomlBlock(config, previousForFile[0]))) {
       throw new Error(`Cannot update owned ${agent} integration safely in ${file}; configuration changed during repair`);
     }
+    if (repairSnapshot) onRepairFallback?.(previousForFile[0]);
     return launcherIntegration(agent, runtime, reason, file);
   };
   const ownershipId = previousForFile.find((entry) => entry.ownershipId)?.ownershipId || randomUUID();
@@ -651,7 +670,21 @@ export function installAgentIntegrations(config, runtime, agents, env = process.
     if (!Object.hasOwn(SUPPORTED_AGENTS, agent)) throw new Error(`Unsupported agent: ${agent}`);
     let integration;
     if (agent === "claude") integration = installClaudeHook(config, runtime, env, previousEntries);
-    else if (agent === "codex") integration = installShellEnvironment(config, runtime, agent, agentConfigPath(config, env, agent), env, previousEntries, cwd, options);
+    else if (agent === "codex") integration = installShellEnvironment(
+      config, runtime, agent, agentConfigPath(config, env, agent), env, previousEntries, cwd,
+      {
+        ...options,
+        onRepairFallback: (staleEntry) => {
+          let removed = false;
+          installed = installed.filter((entry) => {
+            if (entry !== staleEntry) return true;
+            removed = true;
+            return false;
+          });
+          if (!removed) throw new Error("Cannot replace the missing Codex integration receipt entry safely");
+        }
+      }
+    );
     else if (agent === "grok") {
       integration = installGrokCommandPrefix(
         config,
@@ -1308,21 +1341,25 @@ export function integrationHealth(config, env = process.env) {
 export function planMissingIntegrationRepairs(config, agents, env = process.env) {
   const selected = new Set(agents);
   const entries = readIntegrationReceipt(config, env, { enforcePaths: true }).integrations;
-  const observed = integrationHealth(config, env).integrations;
   const repairs = [];
-  for (const agent of ["codex"]) {
-    if (!selected.has(agent)) continue;
-    const matches = entries.filter((entry) => entry.agent === agent && entry.mode === "native-shell-environment");
-    if (matches.length !== 1) continue;
-    const entry = matches[0];
-    const health = observed.find((item) => item.agent === agent && item.file === entry.file);
-    if (health?.status !== "missing" || health.reason !== "owned-block-missing") continue;
-    if (inspectAbsentTomlBlock(config, entry).status !== "absent") continue;
-    repairs.push({
-      agent,
-      file: entry.file,
-      reason: "The recorded TOML block is absent; the existing file has no conflicting ownership markers or recognizable unmarked runtime block."
-    });
-  }
+  if (!selected.has("codex")) return repairs;
+  const codexEntries = entries.filter((entry) => entry.agent === "codex");
+  const nativeEntries = codexEntries.filter((entry) => entry.mode === "native-shell-environment");
+  const launcherEntries = codexEntries.filter((entry) => entry.mode === "zero-context-launcher");
+  const knownTransitionResidue = codexEntries.length === 2 && nativeEntries.length === 1 && launcherEntries.length === 1;
+  if (nativeEntries.length !== 1 || (codexEntries.length !== 1 && !knownTransitionResidue)) return repairs;
+  const entry = nativeEntries[0];
+  const observed = observedIntegrationText(entry);
+  if (observed.text === undefined) return repairs;
+  const health = tomlIntegrationHealth(config, entry, observed.text);
+  if (health.status !== "missing" || health.reason !== "owned-block-missing") return repairs;
+  if (inspectAbsentTomlBlock(config, entry).status !== "absent") return repairs;
+  repairs.push({
+    agent: "codex",
+    file: entry.file,
+    reason: knownTransitionResidue
+      ? "The recorded Codex TOML block is absent; its paired launcher entry is valid and the existing file has no conflicting markers or recognizable unmarked runtime block."
+      : "The recorded TOML block is absent; the existing file has no conflicting ownership markers or recognizable unmarked runtime block."
+  });
   return repairs;
 }

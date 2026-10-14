@@ -4,6 +4,17 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-10-14
+
+Prepared as a source version for local runtime activation. This entry records no npm package publication or release tag.
+
+### Fixed
+
+- Lock release and stale-owner recovery now serialize removal with a sibling guard and recheck the lock generation after claiming that guard. A delayed reclaimer cannot unlink a successor's live owner; unknown or interrupted guards remain retained.
+- Claude native hook ownership now follows the selected Node executable and versioned runtime command. Same-generation updates remain idempotent, while a superseded cached hook cannot authorize automatic publication of its older runtime.
+- Explicit repair of a completely missing Codex block now replaces its stale native ownership receipt when existing user settings require launcher fallback. A retry can reconcile the single native-plus-launcher residue from the earlier updater while retaining user configuration and refusing ambiguous native claims.
+- Missing-block previews use a read-only snapshot and apply rechecks that snapshot before editing or selecting launcher fallback.
+
 ## [0.4.1] - 2026-10-14
 
 Prepared as a source version for local runtime activation. This entry records no npm package publication or release tag.

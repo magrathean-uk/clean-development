@@ -53,7 +53,7 @@ clean-development setup --agents claude,codex,grok
 
 Installing or enabling plugin metadata alone does not activate routing. Claude, OpenCode, and Pi lifecycle code first checks for the runtime receipt created by explicit setup and otherwise returns without creating files or changing `PATH`. With a receipt, it may expose the stable path but still sets or preserves `skip` until an explicit session choice.
 
-- Claude: merges one owned SessionStart hook into `~/.claude/settings.json`, preserving unrelated hooks. Its command carries the receipt owner; `CLAUDE_ENV_FILE` is changed only when that owner matches exactly one recorded native hook. The generic packaged hook is inert without an owner argument.
+- Claude: merges one owned SessionStart hook into `~/.claude/settings.json`, preserving unrelated hooks. Its command carries a generation-bound receipt owner: repeat setup retains the owner while the exact Node and runtime CLI command is unchanged, while a runtime/Node command change gets a new owner so a retired hook cannot validate against the new receipt. `CLAUDE_ENV_FILE` is changed only when that owner matches exactly one recorded native hook. The generic packaged hook is inert without an owner argument.
 - Codex: adds a marked block with `allow_login_shell = false`, a stable PATH, and a `skip` session default only when it can preserve existing shell configuration. The launcher overrides that default with the reviewed selection. A compatible user-owned `allow_login_shell = false` is retained; other explicit values and incompatible policies are preserved and reported as launcher fallbacks.
 - Grok: adds an owned `toolset.bash.cmd_prefix` to `~/.grok/config.toml`. The prefix sources an owned runtime helper after Grok restores its login-shell environment, so the stable shim directory wins without adding model instructions. The helper defaults to pass-through `skip` and preserves an inherited explicit choice. An existing user `cmd_prefix` is preserved and reported as a launcher fallback.
 - Every selected CLI family receives a stable `clean-development-AGENT` launcher in the application-data `bin` directory. The `codex` launcher is for Codex CLI, not the Codex App GUI.
@@ -75,7 +75,11 @@ to refuse by default. Review the bounded candidate list with
 to selected Codex installations whose existing TOML has no conflicting
 ownership markers or recognizable unmarked runtime block. Preview and apply
 preserve unrelated settings, and apply rechecks the current file before writing.
-Grok's existing migration behavior is unchanged.
+If the existing Codex policy requires the launcher fallback, repair removes only
+the stale native receipt claim and records the launcher, without editing that
+policy. A single validated native-plus-launcher receipt pair from an interrupted
+earlier transition is also eligible for this explicit repair. Grok's existing
+migration behavior is unchanged.
 
 TOML ownership markers are comments, not table boundaries. If user settings after an owned block still belong to a table introduced inside it, setup/update and uninstall retain that table header and its separator. For example, a later Codex environment key must stay in `[shell_environment_policy.set]`, and a Grok bash timeout must stay in `[toolset.bash]`, rather than moving into the root or a preceding unrelated table. The retained header is unmarked and treated as user-owned on subsequent runs; unrelated settings and their line endings are preserved. A following table header or only trailing comments/whitespace does not require retaining an otherwise unused owned header.
 
