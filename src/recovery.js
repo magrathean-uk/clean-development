@@ -36,8 +36,8 @@ function receiptAt(config, bytes, label) {
   return value;
 }
 
-// The installer refreshes installedAt/source even when ownership is unchanged.
-// Those descriptive fields cannot invalidate an otherwise exact inventory.
+// Legacy installers refreshed installedAt/source without changing ownership.
+// Descriptive timestamps cannot invalidate an otherwise exact inventory.
 function sameReceiptOwnership(left, right) {
   return ["schemaVersion", "version", "status", "installationId", "node", "versionRoot", "binDir",
     "binDirectoryCreated", "ownedFiles", "runtimeFiles"].every((key) => equal(left[key], right[key]));

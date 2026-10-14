@@ -4,12 +4,14 @@ import path from "node:path";
 import { environmentForTool } from "./adapters.js";
 import { writeProjectConfig } from "./config.js";
 import { CONFIG_FILE } from "./constants.js";
-import { canonicalizePotentialPath, environmentValue, matchingEnvironmentKeys, prependUniquePath, setEnvironmentValue } from "./platform.js";
+import { canonicalizePotentialPath, environmentValue, matchingEnvironmentKeys, platformPaths, prependUniquePath, setEnvironmentValue } from "./platform.js";
 import { readTextMetadata } from "./io.js";
 import { detectStack } from "./workspace.js";
 import { repositoryManagedPaths } from "./routing-context.js";
 import { matchingRoutedEnvironmentKeys, recordInjectedEnvironment, removeInjectedEnvironment, SESSION_ENV_MARKER } from "./routing-environment.js";
 import { pathEntries } from "./path-entries.js";
+import { toolCoverage } from "./coverage.js";
+import { validateManagedBuildRoot } from "./storage-identity.js";
 
 export const SESSION_MODES = Object.freeze(["session-only", "persist", "skip"]);
 export const SESSION_MODE_ENV = "CLEAN_DEVELOPMENT_SESSION_MODE";
@@ -108,6 +110,7 @@ export function planSession({ cwd = process.cwd(), env = process.env, config } =
       cacheRoot: config.cacheRoot,
       buildRoot: config.buildRoot,
       scratchRoot: config.scratchRoot,
+      toolCoverage: toolCoverage(config, { detected: detection.tools }),
       environment: routing.environment,
       dynamic: routing.dynamic,
       preserved: routing.preserved,
@@ -190,11 +193,14 @@ function ensureManagedBase(directory) {
   validate();
 }
 
-export function prepareManagedDirectories(plan) {
+export function prepareManagedDirectories(plan, env = process.env) {
+  const storage = { ...plan.managed, locations: platformPaths(env) };
+  validateManagedBuildRoot(storage);
   const directories = [...new Set([
     plan.managed.root, plan.managed.cacheRoot, plan.managed.buildRoot, plan.managed.scratchRoot
   ])];
   for (const directory of directories) ensureManagedBase(directory);
+  validateManagedBuildRoot(storage);
   return directories;
 }
 
@@ -209,7 +215,7 @@ export function applySessionPlan(plan, mode, env = process.env) {
     throw new Error(`Managed storage must be outside the project for ${selected}: ${plan.managed.repositoryPaths.join(", ")}`);
   }
 
-  prepareManagedDirectories(plan);
+  prepareManagedDirectories(plan, env);
   const applied = {};
   for (const [name, value] of Object.entries(plan.managed.environment)) {
     if (matchingRoutedEnvironmentKeys(plan.managed.preserved, name).length) continue;

@@ -72,6 +72,8 @@ Existing keys such as `version`, `root`, `workspaces` (a count), `runtime` and
 | Key | Contract |
 | --- | --- |
 | `schemaVersion`, `inspectedAt` | Report schema and ISO timestamp. |
+| `integrationHealth` | Additive current host-configuration observation, separate from recorded `integrations` ownership; see [diagnostics](diagnostics.md). |
+| `toolCoverage` | Effective tool configuration, retained/native output and pruning scope; no execution or filesystem-write attestation. |
 | `workspaceDetails` | Present with workspace reporting; array of records with `workspaceId`, `name`, `workspace`, `buildRoot`, `path`, `lastUsedAt`, `pinned`, `activeOrUncertain`, `selectedBuildRoot`, `eligible`, `reason`, `size`. |
 | `workspaceScope`, `retentionBuildDays` | Scope statement and the unmodified configured age policy. |
 | `sizeMeasurements` | With sizes: `caches`, `builds`, `scratch` measurements. |

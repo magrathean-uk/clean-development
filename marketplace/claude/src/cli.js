@@ -4,12 +4,13 @@ import { createInterface } from "node:readline/promises";
 import { allToolEnvironments, environmentForTool } from "./adapters.js";
 import { resolveConfig, writeProjectConfig, writeUserConfig } from "./config.js";
 import { CONFIG_FILE, DEFAULT_CONFIG, SHIM_TOOLS, SUPPORTED_AGENTS, VERSION } from "./constants.js";
-import { installAgentIntegrations, integrationStatus, applyClaudeSessionEnvironment, removeOwnedAgentIntegrations, validateClaudeHookOwner } from "./integrations.js";
+import { installAgentIntegrations, integrationStatus, integrationHealth, applyClaudeSessionEnvironment, removeOwnedAgentIntegrations, validateClaudeHookOwner } from "./integrations.js";
 import { acquireDirectoryLock, readJson, writeJsonAtomic } from "./io.js";
 import { environmentValue, platformPaths, prependUniquePath } from "./platform.js";
 import { ensureRuntime, removeRuntime, resolveExecutable, runTool, runWithShims, runtimeHealth, runtimeRemovalPlan } from "./runtime.js";
 import { applySessionPlan, deferSessionRouting, normalizeSessionMode, planSession, selectSessionMode } from "./session.js";
 import { acquireWorkspaceLock, applyPrune, listWorkspaceRecords, prunePlan } from "./state.js";
+import { approveManagedBuildRoot, validateManagedBuildRoot } from "./storage-identity.js";
 import { explainCommand, formatExplanation } from "./explain.js";
 import { storageStatus, formatStorageStatus, parseByteSize } from "./status.js";
 import { probeTool, formatProbe } from "./probe.js";
@@ -17,6 +18,9 @@ import { preflightToolRouting, assertRoutingBoundary } from "./routing-context.j
 import { applyRecovery, beginLifecycleRecovery, checkpointLifecycleRecovery, formatRecovery, planRecovery } from "./recovery.js";
 import { applyXcodePrune, applyXcodeSettings, formatXcodePlan, formatXcodeStatus, promptXcodeChoice, restoreXcodeSettings, xcodePaths, xcodePrunePlan, xcodeSettings, xcodeStatus, xcodeSupported } from "./xcode.js";
 import { cleanupXcodeTestRun, runXcodeTest, validateXcodeTestRun } from "./xcode-test-run.js";
+import { planScratch, createScratch } from "./scratch.js";
+import { toolCoverage } from "./coverage.js";
+import { assertInspectionOperation } from "./inspection.js";
 
 const HELP = `clean-development ${VERSION}
 
@@ -26,6 +30,7 @@ Usage:
   clean-development setup [--root PATH] [--agents LIST] [--xcode | --no-xcode] [--dry-run] [--json]
   clean-development update [--root PATH] [--agents LIST] [--xcode | --no-xcode] [--dry-run] [--json]
   clean-development prepare [--dry-run] [--json]
+  clean-development scratch [--prefix NAME] [--dry-run] [--json]
   clean-development session [--session session-only|persist|skip] [--dry-run] [--json]
   clean-development init [--root PATH] [--force]
   clean-development agent AGENT [--session session-only|persist|skip] [-- ARGS...]
@@ -63,6 +68,7 @@ const COMMAND_OPTIONS = Object.freeze({
   setup: { root: "value", agents: "value", xcode: "boolean", "no-xcode": "boolean", "dry-run": "boolean", json: "boolean" },
   update: { root: "value", agents: "value", xcode: "boolean", "no-xcode": "boolean", "dry-run": "boolean", json: "boolean" },
   prepare: { "dry-run": "boolean", json: "boolean" },
+  scratch: { prefix: "value", "dry-run": "boolean", json: "boolean" },
   session: { session: "value", "dry-run": "boolean", json: "boolean" },
   init: { root: "value", force: "boolean", json: "boolean" },
   agent: { session: "value" },
@@ -117,7 +123,7 @@ function parse(argv, optionTypes) {
 
 function validateArguments(command, parsed) {
   const { positionals, passthrough } = parsed;
-  const noArguments = ["help", "version", "setup", "update", "prepare", "session", "init", "env", "status", "doctor", "probe", "prune", "uninstall", "recover"];
+  const noArguments = ["help", "version", "setup", "update", "prepare", "scratch", "session", "init", "env", "status", "doctor", "probe", "prune", "uninstall", "recover"];
   if (noArguments.includes(command) && (positionals.length > 0 || passthrough.length > 0)) {
     throw new Error(`${command} does not accept positional arguments`);
   }
@@ -224,6 +230,7 @@ async function setup(options, env, operation = "setup") {
   const releaseLock = await acquireDirectoryLock(path.join(config.locations.stateDir, "setup.lock"));
   try {
     for (const directory of [...new Set([config.root, config.cacheRoot, config.buildRoot, config.scratchRoot])]) ensureManagedBase(directory);
+    approveManagedBuildRoot(config, { reapprove: true });
     fs.mkdirSync(config.locations.stateDir, { recursive: true });
     const recovery = beginLifecycleRecovery(config, operation);
     config.agents = agents;
@@ -259,7 +266,10 @@ function prepare(options, env, cwd = process.cwd()) {
   const config = resolveConfig({ cwd, env });
   const directories = [...new Set([config.root, config.cacheRoot, config.buildRoot, config.scratchRoot])];
   const result = { dryRun: Boolean(options["dry-run"]), projectConfig: config.projectConfigPath, directories };
-  if (!result.dryRun) for (const directory of directories) ensureManagedBase(directory);
+  if (!result.dryRun) {
+    for (const directory of directories) ensureManagedBase(directory);
+    approveManagedBuildRoot(config, { reapprove: true });
+  }
   return result;
 }
 
@@ -278,6 +288,9 @@ function renderSessionPlan(plan, stream = process.stderr) {
   stream.write(`Detected: ${tools}\n`);
   stream.write(`Caches: ${plan.managed.cacheRoot}\n`);
   stream.write(`Builds: ${plan.managed.buildRoot}\n`);
+  for (const entry of plan.managed.toolCoverage || []) {
+    if (entry.tool === "swift") stream.write(`SwiftPM: ${entry.enabled ? "enabled" : "disabled"}; mixed products: ${entry.outputs.find((item) => item.kind === "mixed-products").destination}; no pruning.\n`);
+  }
   if (plan.managed.repositoryPaths.length) {
     stream.write(`Blocked repository storage: ${plan.managed.repositoryPaths.join(", ")}\n`);
   }
@@ -394,6 +407,7 @@ function doctorCommand(config, env) {
       const stat = fs.lstatSync(directory);
       if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error("not a real directory");
       fs.accessSync(directory, fs.constants.R_OK | fs.constants.W_OK | fs.constants.X_OK);
+      if (key === "buildRoot") validateManagedBuildRoot(config);
       ok = true;
     } catch (error) {
       detail = `${directory}: ${error.code || error.message}; mount the volume or run clean-development prepare`;
@@ -401,6 +415,14 @@ function doctorCommand(config, env) {
     checks.push({ name: `managed-${key}`, ok, detail });
   }
   checks.push({ name: "runtime", ...runtimeHealth(config) });
+  const integrations = integrationHealth(config, env);
+  checks.push({ name: "integration-receipt", ok: ["present", "missing"].includes(integrations.receipt.status),
+    status: integrations.receipt.status, detail: integrations.receipt.detail });
+  for (const entry of integrations.integrations) {
+    checks.push({ name: `integration:${entry.agent}`, ok: entry.status === "present", optional: !entry.selected,
+      status: entry.status, recorded: entry.recorded, selected: entry.selected, mode: entry.mode,
+      reason: entry.reason, detail: `${entry.file || entry.command || entry.agent}: ${entry.detail}` });
+  }
   if (xcodeSupported() && (config.xcode?.derivedData || config.xcode?.simulators)) {
     const report = xcodeStatus(config, env);
     const detail = report.settings.derivedData
@@ -412,7 +434,11 @@ function doctorCommand(config, env) {
     const executable = resolveExecutable(tool, env, config.locations.binDir);
     checks.push({ name: `tool:${tool}`, ok: Boolean(executable), optional: true, detail: executable || "not found" });
   }
-  return { ok: checks.filter((item) => !item.optional).every((item) => item.ok), checks };
+  const coverage = toolCoverage(config);
+  const swift = coverage.find((entry) => entry.tool === "swift");
+  checks.push({ name: "coverage:swift", ok: true, optional: true,
+    detail: `${swift.enabled ? "enabled" : "disabled"}; mixed products: ${swift.outputs.find((entry) => entry.kind === "mixed-products").destination}; native compiler/Xcode paths and overrides still apply; no pruning` });
+  return { ok: checks.filter((item) => !item.optional).every((item) => item.ok), checks, integrationScope: integrations.scope, toolCoverage: coverage };
 }
 
 function parseDays(value, fallback = DEFAULT_CONFIG.retention.buildDays) {
@@ -488,6 +514,7 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
   const optionTypes = COMMAND_OPTIONS[command];
   const parsed = parse(rest, optionTypes);
   validateArguments(command, parsed);
+  assertInspectionOperation(command, parsed, env);
   const json = Boolean(parsed.options.json);
   if (command === "help") {
     console.log(HELP);
@@ -496,6 +523,13 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
   if (command === "version") {
     console.log(VERSION);
     return 0;
+  }
+  if (command === "scratch") {
+    const config = resolveConfig({ env });
+    const options = { config, prefix: parsed.options.prefix };
+    const report = parsed.options["dry-run"] ? planScratch(options) : createScratch(options);
+    output(json ? report : report.path || `${report.status}: ${report.root}${report.reason ? ` (${report.reason})` : ""}`, json);
+    return ["available", "created"].includes(report.status) ? 0 : 1;
   }
   if (command === "setup") {
     output(await setup(parsed.options, env), json);

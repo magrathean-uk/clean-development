@@ -2,7 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { SHIM_TOOLS } from "./constants.js";
-import { readJson, writeJsonAtomic } from "./io.js";
+import { directoryIdentities, readJson, revalidateDirectoryIdentities, writeJsonAtomic } from "./io.js";
+import { ensureManagedBuildRootIdentity, sameStorageIdentity, validateManagedBuildRoot } from "./storage-identity.js";
 import { canonicalizePotentialPath, environmentValue, isPathInside, matchingEnvironmentKeys, setEnvironmentValue } from "./platform.js";
 import { identifyWorkspace } from "./workspace.js";
 import { injectedEnvironment, isInjectedEnvironmentValue, matchingRoutedEnvironmentKeys, recordInjectedEnvironment } from "./routing-environment.js";
@@ -55,11 +56,14 @@ function managedSubdirectory(root, target, { create, label }) {
   if (!relative || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
     throw new Error(`Refusing ${label.toLowerCase()} outside ${resolvedRoot}: ${resolvedTarget}`);
   }
+  const directories = directoryIdentities(resolvedRoot);
   let current = resolvedRoot;
   for (const segment of relative.split(path.sep)) {
+    revalidateDirectoryIdentities(directories);
     current = path.join(current, segment);
     if (fs.existsSync(current)) {
       assertRealDirectory(current, label);
+      directories.push(directoryIdentities(current).at(-1));
       continue;
     }
     if (!create) break;
@@ -69,7 +73,10 @@ function managedSubdirectory(root, target, { create, label }) {
       if (error.code !== "EEXIST") throw error;
     }
     assertRealDirectory(current, label);
+    revalidateDirectoryIdentities(directories);
+    directories.push(directoryIdentities(current).at(-1));
   }
+  revalidateDirectoryIdentities(directories);
 }
 
 export function ensureOwnedBuildRoot(config, workspace, existingRecord = null) {
@@ -77,13 +84,24 @@ export function ensureOwnedBuildRoot(config, workspace, existingRecord = null) {
     throw new Error(`Managed build root is unavailable: ${config.buildRoot}. Mount it or run 'clean-development prepare' before building.`);
   }
   assertRealDirectory(config.buildRoot, "Managed build root");
+  const storage = validateManagedBuildRoot(config);
+  const baseDirectories = directoryIdentities(config.buildRoot);
   const buildPath = path.join(config.buildRoot, workspace.id);
   if (!isPathInside(config.buildRoot, buildPath) || path.dirname(path.resolve(buildPath)) !== path.resolve(config.buildRoot)) {
     throw new Error(`Refusing unsafe managed build path: ${buildPath}`);
   }
   const markerPath = path.join(buildPath, OWNERSHIP_MARKER);
   const validateExisting = () => {
+    revalidateDirectoryIdentities(baseDirectories);
     assertRealDirectory(buildPath, "Managed build path");
+    const existingDirectories = directoryIdentities(buildPath);
+    let markerStat;
+    try { markerStat = fs.lstatSync(markerPath); }
+    catch (error) {
+      if (error.code !== "ENOENT") throw error;
+      throw new Error(`Refusing unowned existing build directory: ${buildPath}`);
+    }
+    if (!markerStat.isFile() || markerStat.isSymbolicLink()) throw new Error(`Refusing unowned existing build directory: ${buildPath}`);
     const marker = readJson(markerPath, null);
     if (marker?.owner !== "clean-development" || !marker?.ownershipId || marker?.workspaceId !== workspace.id || marker?.workspace !== workspace.root) {
       throw new Error(`Refusing unowned existing build directory: ${buildPath}`);
@@ -95,16 +113,24 @@ export function ensureOwnedBuildRoot(config, workspace, existingRecord = null) {
       || existingRecord.workspace !== workspace.root
       || path.resolve(existingRecord.buildRoot || "") !== path.resolve(config.buildRoot)
       || path.resolve(existingRecord.path || "") !== buildPath
+      || (existingRecord.storageIdentity && !storage && !sameStorageIdentity(existingRecord.storageIdentity, baseDirectories.at(-1)))
     ) {
       throw new Error(`Refusing existing build directory without a matching state receipt: ${buildPath}`);
     }
+    ensureManagedBuildRootIdentity(config, { legacyValidated: true });
+    revalidateDirectoryIdentities(existingDirectories);
     return { path: buildPath, ownershipId: marker.ownershipId };
   };
   if (fs.existsSync(buildPath)) return validateExisting();
 
+  ensureManagedBuildRootIdentity(config);
+  revalidateDirectoryIdentities(baseDirectories);
+
   const ownershipId = crypto.randomUUID();
   const temporary = path.join(config.buildRoot, `.clean-development-${workspace.id}-${process.pid}-${crypto.randomUUID()}`);
   fs.mkdirSync(temporary);
+  revalidateDirectoryIdentities(baseDirectories);
+  const stageDirectories = directoryIdentities(temporary);
   writeJsonAtomic(path.join(temporary, OWNERSHIP_MARKER), {
     schemaVersion: 1,
     owner: "clean-development",
@@ -112,12 +138,22 @@ export function ensureOwnedBuildRoot(config, workspace, existingRecord = null) {
     workspaceId: workspace.id,
     workspace: workspace.root,
     createdAt: new Date().toISOString()
-  });
+  }, { expectedDirectories: stageDirectories });
+  revalidateDirectoryIdentities(stageDirectories);
   try {
     fs.renameSync(temporary, buildPath);
+    revalidateDirectoryIdentities(baseDirectories);
     return { path: buildPath, ownershipId };
   } catch (error) {
-    fs.rmSync(temporary, { recursive: true, force: true });
+    try {
+      revalidateDirectoryIdentities(stageDirectories);
+      fs.rmSync(temporary, { recursive: true, force: true });
+    } catch (cleanupError) {
+      const cleanupCode = typeof cleanupError.code === "string" && /^[A-Z0-9_-]{1,48}$/.test(cleanupError.code) ? cleanupError.code : "UNKNOWN";
+      error.cleanup = { code: cleanupCode, path: temporary, retained: true };
+      error.message += `; staging cleanup uncertain (${error.cleanup.code}): ${temporary}`;
+      throw error;
+    }
     if (!["EEXIST", "ENOTEMPTY"].includes(error.code)) throw error;
     return validateExisting();
   }

@@ -100,12 +100,38 @@ export function readJson(file, fallback = null) {
   }
 }
 
-export function writeJsonAtomic(file, value) {
-  writeTextAtomic(file, `${JSON.stringify(value, null, 2)}\n`);
+export function writeJsonAtomic(file, value, options) {
+  writeTextAtomic(file, `${JSON.stringify(value, null, 2)}\n`, options);
 }
 
 function sameIdentity(stat, identity) {
   return String(stat.dev) === String(identity.dev) && String(stat.ino) === String(identity.ino);
+}
+
+// Capture every existing ancestor so publication cannot silently move onto a
+// replacement directory at the same pathname. These snapshots grant no deletion
+// authority and are used only within one synchronous operation.
+export function directoryIdentities(directory) {
+  const snapshots = [];
+  let current = path.resolve(directory);
+  while (true) {
+    validateRealDirectory(current, "Publication directory");
+    const stat = fs.lstatSync(current, { bigint: true });
+    snapshots.unshift({ path: current, dev: String(stat.dev), ino: String(stat.ino), birthtimeNs: String(stat.birthtimeNs) });
+    const parent = path.dirname(current);
+    if (parent === current) return snapshots;
+    current = parent;
+  }
+}
+
+export function revalidateDirectoryIdentities(snapshots) {
+  for (const snapshot of snapshots) {
+    validateRealDirectory(snapshot.path, "Publication directory");
+    const stat = fs.lstatSync(snapshot.path, { bigint: true });
+    if (!sameIdentity(stat, snapshot) || String(stat.birthtimeNs) !== snapshot.birthtimeNs) {
+      throw new Error(`Managed storage directory changed during publication: ${snapshot.path}`);
+    }
+  }
 }
 
 export function writeJsonExclusive(file, value, { expectedParent = null } = {}) {
@@ -148,8 +174,9 @@ export function writeJsonExclusive(file, value, { expectedParent = null } = {}) 
   }
 }
 
-export function writeTextAtomic(file, contents, { mode = 0o600 } = {}) {
-  fs.mkdirSync(path.dirname(file), { recursive: true });
+export function writeTextAtomic(file, contents, { mode = 0o600, expectedDirectories = null } = {}) {
+  if (expectedDirectories) revalidateDirectoryIdentities(expectedDirectories);
+  else fs.mkdirSync(path.dirname(file), { recursive: true });
   let outputMode = mode;
   try {
     outputMode = fs.statSync(file).mode & 0o777;
@@ -158,8 +185,11 @@ export function writeTextAtomic(file, contents, { mode = 0o600 } = {}) {
   }
   const temporary = `${file}.tmp-${process.pid}-${crypto.randomUUID()}`;
   fs.writeFileSync(temporary, contents, { mode: outputMode });
+  if (expectedDirectories) revalidateDirectoryIdentities(expectedDirectories);
   fs.chmodSync(temporary, outputMode);
+  if (expectedDirectories) revalidateDirectoryIdentities(expectedDirectories);
   fs.renameSync(temporary, file);
+  if (expectedDirectories) revalidateDirectoryIdentities(expectedDirectories);
 }
 
 function leafSymlinkReferent(file) {

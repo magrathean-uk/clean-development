@@ -60,8 +60,9 @@ checks. Cargo and uv were unavailable; two Rust fixture lanes were skipped, so
 the six-lane fixture aggregate correctly exited 1. Its standalone fault lab also
 exited 1 with no infrastructure errors and the three known violations:
 `missing-during-marker/storage-identity`, `replaced-managed-root/storage-identity`,
-and `publication-cleanup-error/original-error`. These are unresolved findings,
-not safety passes; see [the fault cases](../test/fault-lab/FINDINGS.md).
+and `publication-cleanup-error/original-error`. These were unresolved findings
+at that checkpoint, not safety passes; see [the fault cases](../test/fault-lab/FINDINGS.md)
+and the 14 October resolution below.
 
 ## 0.4.0 source preparation
 
@@ -150,6 +151,45 @@ node --test test/package-verification.test.js
 Its disposable repository creates a **synthetic** `v0.2.0` tag solely to exercise the verifier offline. It covers a complete package, a nested `.npmignore` that excludes the shim, and an included shim that exits unsuccessfully. This is verification-harness evidence, not compatibility evidence for the genuine `v0.2.0` release. The fixture does not create or replace tags in the working checkout. The verifier resolves each command from its child cwd/environment and uses the batch adapter for native Windows `.cmd` launchers; ordinary executables retain direct argv dispatch. Native Windows execution is configured as a separate gate, and results must be recorded from that host.
 
 `npm run test:package` still requires the genuine preceding-release tag. A source ZIP without Git history cannot complete that check: record the missing tag as a limitation, fetch the real tag, and rerun before claiming release-upgrade coverage. Neither the synthetic regression nor an installed-package check establishes npm publication or live-agent acceptance.
+
+## 14 October diagnostics, storage and verification implementation
+
+This is an unreleased dirty overlay on
+`207389e87f267b4f3e2a1ad17122462b19802508`, still version `0.4.0`.
+Checks ran on macOS 26.7.1 (25G241), ARM64, Node 26.10.0 and npm 12.2.0.
+The 62-file product/harness fingerprint is
+`041d15f05322e87e0db84823a361819f6ed7bb6a5756fa4c2bcb3f88c682b1d2`;
+its scope is sorted paths/content digests in `bin/`, `src/`, `scripts/` and
+`package.json`, excluding documentation, tests and the release tarball.
+
+| Check | Recorded result | Boundary |
+| --- | --- | --- |
+| Source and full suite | Source/version/bundle check passed; 1,211 passed, 48 skipped, zero failed/TODOs; coverage gate passed with the same counts | Both full runs use `--test-concurrency=4`. Default parallel execution exceeded two 2.5-second fuzz bounds; isolated fuzz recheck and unchanged bounded assertions pass. Platform/opt-in skips remain visible. |
+| Fault replay | 12 scenarios, 95 required checks, no violations or infrastructure errors | Original three failures were replayed before correction; no remaining fault TODOs. Physical directory replacement and selected synthetic ENOSPC, not a real disk-full or unmount test. |
+| Real SwiftPM | Seven tests passed with Apple Swift 6.4 (swiftlang-6.4.0.34.1) | Actual binary/test/archive bytes, cold/warm reuse and explicit native overrides; complete unchanged selected disposable-home cache metadata for enabled build/test. No Xcode or downloaded-dependency acceptance. |
+| Host verification | 34 focused tests and independent reproduction rechecks passed | Real subprocesses with synthetic lifecycle events; full disposable HOME leak detection, source/fixture digests and background-child uncertainty. No model-host lifecycle acceptance. |
+| Real tools and offline fixtures | Cargo 1.99.0, Go 1.27.2, npm 12.2.0 and uv 0.13.0 smoke passed; all six Rust/Node/Go cases passed | Offline tiny fixture artifacts, separate from agent integration and installer/updater behavior. |
+| Boundary fuzzing | 136/136 cases passed, complete, no skips | Recorded seed 20261014 and bounded observations; not an exhaustive input or filesystem proof. |
+| Package lifecycle | Genuine `v0.2.0` upgrade and fresh consumer gate passed; 124 packaged files | Disposable native HOME/cache/config/temp and exact installed child routing; no publication or shared-runtime activation. |
+| Older installed Node | 62 focused tests passed on Node 24.21.0 | Changed diagnostics/storage/inspection/harness paths; no new native Windows or Node 20 minimum run. |
+| Paired overhead harness | All timing/artifact assertions passed: 100 short pairs, two cold/cache-hit pairs, eight warm and eight concurrent pairs | One loaded machine, Go only, no controlled host load; not a performance improvement or general overhead claim. |
+
+The exact fault product hash and report digests are in
+[resolution evidence](../test/fault-lab/resolution-evidence.json); historical
+baseline evidence is retained. New read-only health, explicit scratch allocation,
+physical-root admission and cleanup-status behavior are documented in
+[diagnostics](diagnostics.md), [scratch](scratch.md) and
+[architecture](architecture.md). [Host installer observation](host-installation-footprints.md)
+and [Codex lifecycle verification](codex-acceptance.md) retain their separate
+credential/profile and live-event requirements. Metadata-only installed-host
+preflight observed Codex 0.162.0-alpha.17.2 and Claude 2.1.299; it proves version/help only.
+
+The machine inspection/audit scripts were synchronized with retained backups.
+The shared installed Clean Development runtime and active Claude configuration
+were preserved. Source doctor correctly reports the existing absent Codex native
+block and the old installed runtime inventory. Those observations are not a
+successful activation of this overlay. Antigravity/Gemini/AWS owning lifecycle
+checks and actual authenticated model-host lifecycle acceptance remain pending.
 
 ## Remaining acceptance
 

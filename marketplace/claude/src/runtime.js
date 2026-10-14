@@ -2,18 +2,20 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { isDeepStrictEqual } from "node:util";
 import { environmentForTool, OWNERSHIP_MARKER } from "./adapters.js";
 import { SHIM_TOOLS, SUPPORTED_AGENTS, VERSION } from "./constants.js";
 import { acquireDirectoryLockSync, ensureRealDirectory, readJson, writeJsonAtomic } from "./io.js";
 import { canonicalizePotentialPath, environmentValue, isPathInside, prependUniquePath, setEnvironmentValue } from "./platform.js";
 import { environmentWithoutSessionRouting, normalizeSessionMode, SESSION_MODE_ENV } from "./session.js";
-import { acquireWorkspaceLock, createLease, listWorkspaceRecords, recordWorkspace, workspaceRecord } from "./state.js";
+import { acquireWorkspaceLock, createLease, listWorkspaceRecords, recordWorkspace, workspaceRecord, assertWorkspaceAdmission } from "./state.js";
 import { cargoInvocationCwd, resolveCargoWorkspace } from "./cargo-workspace.js";
 import { windowsBatchInvocation } from "./windows-command.js";
 import { spawnInherited } from "./process-runner.js";
 import { resolveExecutable } from "./executable.js";
 import { prepareSwiftpm } from "./swiftpm.js";
 import { preflightToolRouting, commandStorageConflicts, assertRoutingBoundary } from "./routing-context.js";
+import { validateManagedBuildRoot } from "./storage-identity.js";
 
 export { windowsBatchInvocation, spawnInherited, resolveExecutable };
 
@@ -371,7 +373,12 @@ function ensureRuntimeUnlocked(config, { automatic = false } = {}) {
     writeExecutable(specification.path, specification.contents);
   }
   const ownedFiles = specifications.map(({ path: file, sha256: digest }) => ({ path: file, sha256: digest }));
-  writeJsonAtomic(receiptFile, {
+  const now = new Date().toISOString();
+  const sameInstallation = previous?.installationId === installationId && previous?.status === "installed";
+  const installedAt = sameInstallation && typeof previous.installedAt === "string"
+    ? previous.installedAt
+    : (typeof marker.createdAt === "string" ? marker.createdAt : now);
+  const receipt = {
     schemaVersion: 2,
     version: VERSION,
     status: "installed",
@@ -383,8 +390,14 @@ function ensureRuntimeUnlocked(config, { automatic = false } = {}) {
     binDirectoryCreated: previous?.binDirectoryCreated === true || !binExisted,
     ownedFiles,
     runtimeFiles,
-    installedAt: new Date().toISOString()
-  });
+    installedAt
+  };
+  // Successful verification is an observation, not another installation. Keep
+  // the receipt's bytes and timestamps stable when its content is unchanged.
+  const previousContent = previous && Object.fromEntries(Object.entries(previous).filter(([key]) => key !== "updatedAt"));
+  if (!isDeepStrictEqual(previousContent, receipt)) {
+    writeJsonAtomic(receiptFile, { ...receipt, updatedAt: now });
+  }
   return { versionRoot, binDir: config.locations.binDir, cli };
 }
 
@@ -612,6 +625,18 @@ function rejectUnownedManagedTarget(config, target, cwd, owners) {
   }
 }
 
+function noteDispatchCleanupFailure(primary, stage, cleanup) {
+  const code = typeof cleanup?.code === "string" && /^[A-Z0-9_-]{1,48}$/.test(cleanup.code) ? cleanup.code : "UNKNOWN";
+  const originalStack = primary.stack;
+  primary.cleanupFailureCount = (primary.cleanupFailureCount || 0) + 1;
+  primary.cleanupFailures ||= [];
+  if (primary.cleanupFailures.length < 16) {
+    primary.cleanupFailures.push({ stage, code });
+    primary.message += `; ${stage} cleanup uncertain (${code})`;
+  }
+  primary.stack = originalStack;
+}
+
 export async function runTool(tool, args, { config, cwd = process.cwd(), env = process.env, onSpawn } = {}) {
   if (!SHIM_TOOLS.includes(tool)) throw new Error(`Unsupported shim tool: ${tool}`);
   const sessionMode = normalizeSessionMode(environmentValue(env, SESSION_MODE_ENV));
@@ -652,8 +677,11 @@ export async function runTool(tool, args, { config, cwd = process.cwd(), env = p
   let targetOwners = [];
   const releaseLocks = [];
   const leases = [];
+  const admitted = [];
   let execution = null;
   let routed;
+  let dispatchFailure;
+  const completionCleanup = new Error("Cleanup uncertainty");
   try {
     for (let attempt = 0; tool === "cargo" && attempt < 5; attempt += 1) {
       targetOwners = managedCargoTargetOwners(effectiveConfig, targetDirectory, targetCwd);
@@ -683,15 +711,17 @@ export async function runTool(tool, args, { config, cwd = process.cwd(), env = p
       : null;
     routed = environmentForTool(tool, args, { config: effectiveConfig, cwd, env, create: true, existingBuildRecord, workspace });
     if (routed.ownedBuild) {
-      recordWorkspace(effectiveConfig, routed.workspace, routed.ownedBuild);
+      admitted.push({ config: effectiveConfig, record: recordWorkspace(effectiveConfig, routed.workspace, routed.ownedBuild).record });
     }
     for (const targetOwner of targetOwners) {
       if (targetOwner.path === routed.ownedBuild?.path) continue;
-      recordWorkspace(
-        { ...effectiveConfig, buildRoot: targetOwner.buildRoot },
+      const ownerConfig = { ...effectiveConfig, buildRoot: targetOwner.buildRoot };
+      const { record } = recordWorkspace(
+        ownerConfig,
         { id: targetOwner.workspaceId, root: targetOwner.workspace },
         { path: targetOwner.path, ownershipId: targetOwner.ownershipId }
       );
+      admitted.push({ config: ownerConfig, record });
     }
     if (tool === "cargo") {
       leases.push(createLease(effectiveConfig, routed.workspace, tool));
@@ -701,6 +731,9 @@ export async function runTool(tool, args, { config, cwd = process.cwd(), env = p
         leases.push(createLease(effectiveConfig, { id: targetOwner.workspaceId, root: targetOwner.workspace }, tool));
         leasedIds.add(targetOwner.workspaceId);
       }
+      if (routed.ownedBuild) validateManagedBuildRoot(effectiveConfig);
+      for (const targetOwner of targetOwners) validateManagedBuildRoot({ ...effectiveConfig, buildRoot: targetOwner.buildRoot });
+      for (const admission of admitted) assertWorkspaceAdmission(admission.config, admission.record);
       execution = spawnInherited(executable, args, {
         cwd,
         env: routed.env,
@@ -711,17 +744,45 @@ export async function runTool(tool, args, { config, cwd = process.cwd(), env = p
       });
     }
   } catch (error) {
-    for (const lease of leases) lease.release();
+    dispatchFailure = error;
+    for (const lease of leases) {
+      try { lease.release(); }
+      catch (cleanup) { noteDispatchCleanupFailure(error, "lease", cleanup); }
+    }
     throw error;
   } finally {
-    for (const release of releaseLocks.reverse()) release();
+    for (const release of releaseLocks.reverse()) {
+      try {
+        if (release() === false) noteDispatchCleanupFailure(dispatchFailure || completionCleanup, "workspace-lock", { code: "LOCK_RETAINED" });
+      }
+      catch (cleanup) {
+        noteDispatchCleanupFailure(dispatchFailure || completionCleanup, "workspace-lock", cleanup);
+      }
+    }
   }
   execution ||= spawnInherited(executable, args, { cwd, env: routed.env, onSpawn });
+  let childStatus;
+  let childFailure;
   try {
-    return await execution;
+    childStatus = await execution;
+  } catch (error) {
+    childFailure = error;
   } finally {
-    for (const lease of leases) lease.release();
+    for (const lease of leases) {
+      try { lease.release(); }
+      catch (cleanup) { noteDispatchCleanupFailure(childFailure || completionCleanup, "lease", cleanup); }
+    }
   }
+  if (childFailure) {
+    for (const failure of completionCleanup.cleanupFailures || []) noteDispatchCleanupFailure(childFailure, failure.stage, failure);
+    throw childFailure;
+  }
+  if (completionCleanup.cleanupFailures?.length) {
+    // Keep the child's exit status and await its completion even if a cleanup
+    // operation fails. Retained leases continue to protect uncertain storage.
+    process.stderr.write(`clean-development: cleanup uncertainty (${completionCleanup.cleanupFailures.map((entry) => `${entry.stage}:${entry.code}`).join(", ")}); child exit status preserved\n`);
+  }
+  return childStatus;
 }
 
 export async function runWithShims(command, args, { config, cwd = process.cwd(), env = process.env, onSpawn, configureAgent = true } = {}) {

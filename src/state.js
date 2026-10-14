@@ -2,8 +2,9 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { OWNERSHIP_MARKER } from "./adapters.js";
-import { acquireDirectoryLock, ensureRealDirectory, readJson, writeJsonAtomic } from "./io.js";
+import { acquireDirectoryLock, directoryIdentities, ensureRealDirectory, readJson, revalidateDirectoryIdentities, writeJsonAtomic } from "./io.js";
 import { canonicalizePotentialPath, isPathInside } from "./platform.js";
+import { sameStorageIdentity, validateManagedBuildRoot } from "./storage-identity.js";
 
 function registryKey(workspaceId, buildRoot) {
   const digest = crypto.createHash("sha256").update(path.resolve(buildRoot)).digest("hex").slice(0, 8);
@@ -78,6 +79,8 @@ function ownedBuildReasonUnchecked(config, value) {
   if (!fs.existsSync(configuredRoot)) return "missing";
   const rootStat = fs.lstatSync(configuredRoot);
   if (!rootStat.isDirectory() || rootStat.isSymbolicLink() || canonicalizePotentialPath(configuredRoot) !== configuredRoot) return "unsafe-build-root";
+  const storage = validateManagedBuildRoot(config);
+  if (value.storageIdentity && (!storage || !sameStorageIdentity(value.storageIdentity, storage.identity))) return "storage-changed";
   if (!fs.existsSync(value.path)) return "missing";
   const targetStat = fs.lstatSync(value.path);
   if (!targetStat.isDirectory() || targetStat.isSymbolicLink() || canonicalizePotentialPath(value.path) !== path.resolve(value.path)) return "unsafe-path";
@@ -95,13 +98,14 @@ function ownedBuildReason(config, value) {
     return ownedBuildReasonUnchecked(config, value);
   } catch (error) {
     // An inspection race or permission failure is not evidence of ownership.
-    return error.code === "ENOENT" ? "missing" : "unreadable";
+    return error.code === "ENOENT" ? "missing" : error.code === "CLEAN_DEVELOPMENT_STORAGE_CHANGED" ? "storage-changed" : "unreadable";
   }
 }
 
 export function recordWorkspace(config, workspace, ownedBuild) {
   if (!ownedBuild?.path || !ownedBuild?.ownershipId) throw new Error("Cannot record a build directory without ownership proof");
   const workspaceBuildRoot = path.resolve(ownedBuild.path);
+  const buildDirectories = directoryIdentities(workspaceBuildRoot);
   const record = {
     schemaVersion: 1,
     workspaceId: workspace.id,
@@ -112,13 +116,30 @@ export function recordWorkspace(config, workspace, ownedBuild) {
     lastUsedAt: new Date().toISOString(),
     pinned: false
   };
+  const storage = validateManagedBuildRoot(config);
+  if (storage) record.storageIdentity = storage.identity;
   const unsafe = ownedBuildReason(config, record);
   if (unsafe) throw new Error(`Cannot record build directory (${unsafe}): ${workspaceBuildRoot}`);
   const { file, value: previous } = workspaceRecord(config, workspace.id, config.buildRoot);
   if (previous?.pinned) record.pinned = true;
   stateCollection(config, "workspaces", { create: true });
+  revalidateDirectoryIdentities(buildDirectories);
   writeJsonAtomic(file, record);
+  revalidateDirectoryIdentities(buildDirectories);
+  const after = ownedBuildReason(config, record);
+  if (after) throw new Error(`Cannot record build directory after publication (${after}): ${workspaceBuildRoot}`);
   return { file, record };
+}
+
+/** Recheck the exact ownership admitted for this command, not a later approval. */
+export function assertWorkspaceAdmission(config, expected) {
+  const current = workspaceRecord(config, expected.workspaceId, expected.buildRoot).value;
+  if (!current || ["workspaceId", "workspace", "ownershipId", "buildRoot", "path"].some((key) => current[key] !== expected[key])
+    || JSON.stringify(current.storageIdentity) !== JSON.stringify(expected.storageIdentity)) {
+    throw Object.assign(new Error(`Managed workspace admission changed before execution: ${expected.workspaceId}`), { code: "CLEAN_DEVELOPMENT_ADMISSION_CHANGED" });
+  }
+  const reason = ownedBuildReason(config, expected);
+  if (reason) throw Object.assign(new Error(`Managed workspace admission is no longer valid (${reason}): ${expected.workspaceId}`), { code: "CLEAN_DEVELOPMENT_ADMISSION_CHANGED" });
 }
 
 export function createLease(config, workspace, tool) {

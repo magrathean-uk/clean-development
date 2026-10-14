@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { SUPPORTED_AGENTS } from "./constants.js";
-import { ensureRealDirectory, readJson, readTextMetadata, writeJsonAtomic, writeJsonAtomicFollowingLeafSymlink, writeTextAtomicFollowingLeafSymlink } from "./io.js";
+import { ensureRealDirectory, MAX_METADATA_BYTES, readJson, readTextMetadata, writeJsonAtomic, writeJsonAtomicFollowingLeafSymlink, writeTextAtomicFollowingLeafSymlink } from "./io.js";
 import { canonicalizePotentialPath, environmentValue, isPathInside, prependUniquePath } from "./platform.js";
 import { environmentWithoutSessionRouting, SESSION_ENV_MARKER, SESSION_MODE_ENV } from "./session.js";
 import { pathEntries } from "./path-entries.js";
@@ -945,4 +945,300 @@ export function applyClaudeSessionEnvironment(config, runtime, env = process.env
 
 export function integrationStatus(config, env = process.env, options = {}) {
   return readIntegrationReceipt(config, env, options);
+}
+
+function healthResult(status, reason, detail) {
+  return { status, reason, detail };
+}
+
+function expectedIntegrationFile(config, env, agent) {
+  return agent === "claude" ? claudeSettingsPath(config, env) : agentConfigPath(config, env, agent);
+}
+
+// Observe a snapshot only. Leaf symlinks installed intentionally are supported;
+// changed referents and symlinked parent directories do not establish presence.
+function observedIntegrationText(entry) {
+  try {
+    const leaf = fs.lstatSync(entry.file);
+    if (!leaf.isFile() && !leaf.isSymbolicLink()) return healthResult("unavailable", "not-regular-file", "Configuration is not a regular file or supported leaf symlink");
+    ensureRealDirectory(path.dirname(entry.file), { label: "Integration configuration directory" });
+    if (fs.realpathSync(entry.file) !== entry.referent) return healthResult("modified", "referent-changed", "Configuration referent differs from the recorded installation");
+    const before = fs.statSync(entry.file);
+    const text = readTextMetadata(entry.file);
+    const after = fs.statSync(entry.file);
+    if (fs.realpathSync(entry.file) !== entry.referent || before.dev !== after.dev || before.ino !== after.ino
+      || before.size !== after.size || before.mtimeMs !== after.mtimeMs) {
+      return healthResult("unavailable", "configuration-changed-during-read", "Configuration changed while being inspected");
+    }
+    return { text };
+  } catch (error) {
+    return error.code === "ENOENT"
+      ? healthResult("missing", "configuration-missing", "Recorded configuration file is missing")
+      : healthResult("unavailable", "configuration-unreadable", `Configuration could not be inspected: ${error.code || error.message}`);
+  }
+}
+
+function claudeIntegrationHealth(entry, text) {
+  let settings;
+  try { settings = JSON.parse(text); } catch {
+    return healthResult("modified", "invalid-json", "Configuration is not valid JSON");
+  }
+  if (!isObject(settings) || (settings.hooks !== undefined && !isObject(settings.hooks))
+    || (settings.hooks?.SessionStart !== undefined && !Array.isArray(settings.hooks.SessionStart))) {
+    return healthResult("modified", "hook-shape-changed", "Claude SessionStart configuration has an unsupported shape");
+  }
+  const candidates = [];
+  for (const group of settings.hooks?.SessionStart || []) {
+    for (const hook of Array.isArray(group?.hooks) ? group.hooks : []) {
+      if (typeof hook?.command === "string" && (hook.command === entry.command || hook.command.includes(entry.ownershipId))) {
+        candidates.push({ group, hook });
+      }
+    }
+  }
+  if (!candidates.length) return healthResult("missing", "owned-hook-missing", "Recorded Claude SessionStart hook is missing");
+  if (candidates.length !== 1) return healthResult("ambiguous", "owned-hook-duplicated", "More than one hook claims the recorded Claude owner");
+  const { group, hook } = candidates[0];
+  if (group.matcher !== "startup|resume|clear|compact|fork" || hook.type !== "command" || hook.command !== entry.command
+    || Object.keys(hook).some((key) => !["type", "command"].includes(key))
+    || Object.keys(group).some((key) => !["matcher", "hooks"].includes(key))) {
+    return healthResult("modified", "owned-hook-changed", "Recorded Claude hook command or lifecycle shape changed");
+  }
+  return healthResult("present", "owned-hook-matched", "Recorded Claude hook command and lifecycle shape are present");
+}
+
+// This is deliberately a bounded subset validator, not a native host parser.
+// A matching owned block cannot make an invalid surrounding file loadable.
+// Syntax we cannot establish conservatively is unavailable, never present.
+function tomlConfigurationHealth(text) {
+  const source = text.replaceAll("\r\n", "\n");
+  let index = 0, entries = 0, values = 0, definitionBytes = 0, table = [];
+  const definitions = new Map();
+  const reject = (unsupported = false) => { throw { unsupported }; };
+  const horizontal = () => { while (source[index] === " " || source[index] === "\t") index += 1; };
+  const space = () => {
+    while (index < source.length) {
+      if (/[ \t\n]/.test(source[index])) index += 1;
+      else if (source[index] === "#") { while (index < source.length && source[index] !== "\n") index += 1; }
+      else break;
+    }
+  };
+  const endLine = () => {
+    horizontal();
+    if (source[index] === "#") { while (index < source.length && source[index] !== "\n") index += 1; }
+    if (index < source.length && source[index] !== "\n") reject();
+  };
+  function string(key = false) {
+    const quote = source[index];
+    const multiline = source.startsWith(quote.repeat(3), index);
+    if (multiline && key) reject();
+    index += multiline ? 3 : 1;
+    let decoded = "";
+    while (index < source.length) {
+      if (source[index] === quote) {
+        if (!multiline) { index += 1; return decoded; }
+        let count = 0;
+        while (source[index + count] === quote) count += 1;
+        if (count >= 3) {
+          if (count > 5) reject();
+          decoded += quote.repeat(count - 3); index += count; return decoded;
+        }
+      }
+      const character = source[index++];
+      if ((character.charCodeAt(0) < 32 && character !== "\t" && !(multiline && character === "\n")) || character.charCodeAt(0) === 127) reject();
+      if (quote !== '"' || character !== "\\") { decoded += character; continue; }
+      if (multiline && /[ \t\n]/.test(source[index] || "")) {
+        horizontal();
+        if (source[index] !== "\n") reject();
+        while (/[ \t\n]/.test(source[index] || "")) index += 1;
+        continue;
+      }
+      const escape = source[index++];
+      const simple = { b: "\b", t: "\t", n: "\n", f: "\f", r: "\r", '"': '"', "\\": "\\" };
+      if (Object.hasOwn(simple, escape)) decoded += simple[escape];
+      else if (escape === "u" || escape === "U") {
+        const length = escape === "u" ? 4 : 8, digits = source.slice(index, index + length);
+        if (digits.length !== length || !/^[0-9a-f]+$/i.test(digits)) reject();
+        const point = Number.parseInt(digits, 16);
+        if (point > 0x10ffff || (point >= 0xd800 && point <= 0xdfff)) reject();
+        decoded += String.fromCodePoint(point); index += length;
+      } else if (escape === "e" || escape === "x") reject(true); // Newer native syntax is outside this subset.
+      else reject();
+    }
+    reject();
+  }
+  function keys() {
+    const parts = [];
+    while (true) {
+      horizontal();
+      if (source[index] === '"' || source[index] === "'") parts.push(string(true));
+      else {
+        const start = index;
+        while (/[A-Za-z0-9_-]/.test(source[index] || "")) index += 1;
+        if (index === start) reject();
+        parts.push(source.slice(start, index));
+      }
+      horizontal();
+      if (parts.length > 32 || parts.at(-1).length > 4096) reject(true);
+      if (source[index] !== ".") return parts;
+      index += 1;
+    }
+  }
+  function value(depth = 0) {
+    if (depth > 32 || ++values > 50_000) reject(true);
+    if (source[index] === '"' || source[index] === "'") { string(); return; }
+    if (source[index] === "{") reject(true);
+    if (source[index] === "[") {
+      index += 1; space();
+      while (source[index] !== "]") {
+        value(depth + 1); space();
+        if (source[index] === "]") break;
+        if (source[index++] !== ",") reject();
+        space();
+      }
+      index += 1; return;
+    }
+    const start = index;
+    while (index < source.length && !/[ \t\n#\],}]/.test(source[index])) index += 1;
+    const token = source.slice(start, index);
+    const integer = "(?:0|[1-9](?:_?[0-9])*)", fraction = "[0-9](?:_?[0-9])*";
+    if (/^(?:true|false|[+-]?(?:inf|nan))$/.test(token)
+      || new RegExp(`^[+-]?${integer}$`).test(token)
+      || /^0x[0-9a-f](?:_?[0-9a-f])*$/i.test(token) || /^0o[0-7](?:_?[0-7])*$/.test(token) || /^0b[01](?:_?[01])*$/.test(token)
+      || new RegExp(`^[+-]?${integer}(?:\\.${fraction}(?:[eE][+-]?${fraction})?|[eE][+-]?${fraction})$`).test(token)) return;
+    if (/^(?:[0-9]{4}-[0-9]{2}-|[0-9]{2}:[0-9]{2}:)/.test(token)) reject(true);
+    reject();
+  }
+  function define(parts, kind) {
+    if (parts.length > 64) reject(true);
+    const store = (key, type) => {
+      definitionBytes += Buffer.byteLength(key);
+      if (definitionBytes > MAX_METADATA_BYTES * 2) reject(true);
+      definitions.set(key, type);
+    };
+    for (let length = 1; length < parts.length; length += 1) {
+      const key = JSON.stringify(parts.slice(0, length)), existing = definitions.get(key);
+      if (existing === "value") reject();
+      if (!existing) store(key, kind === "value" ? "dotted-table" : "implicit-table");
+    }
+    const key = JSON.stringify(parts), existing = definitions.get(key);
+    if (existing && !(kind === "table" && existing === "implicit-table")) reject();
+    store(key, kind);
+  }
+  try {
+    if (/[\x00-\x08\x0b-\x1f\x7f]/.test(source)) reject();
+    space();
+    while (index < source.length) {
+      if (++entries > 10_000) reject(true);
+      if (source[index] === "[") {
+        if (source[index + 1] === "[") reject(true);
+        index += 1; table = keys();
+        if (source[index++] !== "]") reject();
+        define(table, "table");
+      } else {
+        const parts = [...table, ...keys()];
+        if (source[index++] !== "=") reject();
+        horizontal(); value(); define(parts, "value");
+      }
+      endLine(); space();
+    }
+    return null;
+  } catch (error) {
+    return error?.unsupported
+      ? healthResult("unavailable", "native-toml-form-unverified", "Surrounding TOML uses inline/array tables, datetime values, newer escapes or nesting/entry limits outside the bounded diagnostic subset; native configuration loadability was not established")
+      : healthResult("modified", "invalid-native-toml", "Surrounding TOML has invalid value/key syntax or duplicate/redefined keys/tables");
+  }
+}
+
+function tomlIntegrationHealth(config, entry, text) {
+  const originalLines = text.split(/\r?\n/);
+  const syntax = tomlSyntaxLines(originalLines);
+  if (!syntax) return healthResult("modified", "unsupported-toml", "Configuration has unterminated or unsupported TOML syntax");
+  const { begin, end } = receiptTomlMarkers(entry);
+  const starts = [], finishes = [];
+  for (let index = 0; index < syntax.length; index += 1) {
+    if (syntax[index] === begin) starts.push(index);
+    if (syntax[index] === end) finishes.push(index);
+  }
+  if (starts.length > 1 || finishes.length > 1) return healthResult("ambiguous", "owned-block-duplicated", "Recorded native block markers occur more than once");
+  if (!starts.length && !finishes.length) {
+    const escapedAgent = entry.agent.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const otherMarkers = syntax.some((line) => new RegExp(`^\\s*#\\s*clean-development\\s+(?:begin|end)\\s*\\(${escapedAgent}\\)`).test(line));
+    return otherMarkers ? healthResult("modified", "owner-markers-changed", "Native ownership markers differ from the recorded installation")
+      : healthResult("missing", "owned-block-missing", "Recorded native block is missing");
+  }
+  if (starts.length !== 1 || finishes.length !== 1 || finishes[0] <= starts[0]) {
+    return healthResult("modified", "owned-markers-changed", "Recorded native block has incomplete or reordered ownership markers");
+  }
+  const body = originalLines.slice(starts[0] + 1, finishes[0]);
+  const commandPrefix = body.at(-1)?.startsWith("cmd_prefix = ");
+  const shapeMatchesAgent = entry.agent !== "codex" || !commandPrefix;
+  if (!shapeMatchesAgent || !isOwnedTomlBlock(body, entry.blockSha256 ? undefined : config.locations.binDir)
+    || (entry.blockSha256 && tomlBlockSha256(originalLines.slice(starts[0], finishes[0] + 1)) !== entry.blockSha256)) {
+    return healthResult("modified", "owned-block-changed", "Recorded native block content or supported shape changed");
+  }
+  // A marked assignment without its own table header still relies on the host
+  // table immediately preceding it. Markers alone cannot establish its scope.
+  const precedingHeader = syntax.slice(0, starts[0]).findLast((line) => /^\s*\[/.test(line));
+  const expectedHeader = commandPrefix ? /^\s*\[toolset\.bash\]\s*(?:#.*)?$/
+    : /^\s*\[shell_environment_policy\.set\]\s*(?:#.*)?$/;
+  if ((body[0] === "allow_login_shell = false" && precedingHeader !== undefined)
+    || (body[0] !== "allow_login_shell = false" && !body[0]?.startsWith("[")
+      && !expectedHeader.test(precedingHeader || ""))) {
+    return healthResult("modified", "owned-block-scope-changed", "Recorded native assignments are outside their expected TOML table");
+  }
+  const configuration = tomlConfigurationHealth(text);
+  if (configuration) return configuration;
+  return healthResult("present", entry.blockSha256 ? "owned-block-hash-matched" : "legacy-owned-block-matched",
+    entry.blockSha256 ? "Recorded normalized native block and supported shape are present" : "Legacy native block shape and runtime-bin prefix are present");
+}
+
+/** Read-only observed integration health, separate from ownership authority. */
+export function integrationHealth(config, env = process.env) {
+  const file = path.join(config.locations.stateDir, "integrations.json");
+  let recorded = { schemaVersion: 1, integrations: [] };
+  let receipt;
+  try {
+    const leaf = fs.lstatSync(file);
+    if (!leaf.isFile() || leaf.isSymbolicLink()) {
+      receipt = healthResult("invalid", "not-real-receipt", "Integration receipt is not a real file");
+    } else {
+      recorded = readIntegrationReceipt(config, env);
+      receipt = healthResult("present", "receipt-valid", "Integration ownership receipt is valid");
+    }
+  } catch (error) {
+    receipt = error.code === "ENOENT" ? healthResult("missing", "receipt-missing", "No integration ownership receipt was found")
+      : healthResult(error.code === "EACCES" || error.code === "EPERM" ? "unavailable" : "invalid", "receipt-unreadable-or-invalid", `Integration receipt could not be validated: ${error.message}`);
+  }
+  const selectedAgents = new Set(config.agents || []);
+  const integrations = recorded.integrations.map((entry) => {
+    const result = { agent: entry.agent, mode: entry.mode, recorded: true, selected: selectedAgents.has(entry.agent),
+      ...(entry.file ? { file: entry.file } : { command: entry.command }) };
+    if (recorded.integrations.filter((candidate) => candidate.agent === entry.agent).length !== 1) {
+      return { ...result, ...healthResult("ambiguous", "multiple-recorded-integrations", "More than one installation entry is recorded for this host") };
+    }
+    if (entry.mode === "zero-context-launcher") {
+      try {
+        const details = fs.lstatSync(entry.command);
+        return { ...result, scope: "launcher-path-only", ...(details.isFile() && !details.isSymbolicLink()
+          ? healthResult("present", "launcher-present", "Recorded launcher file is present; runtime inventory is checked separately")
+          : healthResult("modified", "launcher-shape-changed", "Recorded launcher is not a real file")) };
+      } catch (error) {
+        return { ...result, ...healthResult(error.code === "ENOENT" ? "missing" : "unavailable", "launcher-unavailable", `Recorded launcher could not be inspected: ${error.code || error.message}`) };
+      }
+    }
+    const expectedFile = expectedIntegrationFile(config, env, entry.agent);
+    if (path.resolve(entry.file) !== path.resolve(expectedFile)) {
+      return { ...result, expectedFile, ...healthResult("modified", "configuration-path-changed", "Current host configuration path differs from the recorded installation") };
+    }
+    const observed = observedIntegrationText(entry);
+    return { ...result, ...(observed.text === undefined ? observed : entry.mode === "native-hook"
+      ? claudeIntegrationHealth(entry, observed.text) : tomlIntegrationHealth(config, entry, observed.text)) };
+  });
+  for (const agent of new Set(["claude", "codex", "grok", ...selectedAgents])) {
+    if (integrations.some((entry) => entry.agent === agent)) continue;
+    integrations.push({ agent, recorded: false, selected: selectedAgents.has(agent),
+      ...healthResult("missing", "integration-not-recorded", "No integration is recorded for this host; host availability is not inferred") });
+  }
+  return { schemaVersion: 1, receipt: { file, ...receipt }, recorded, integrations,
+    scope: "Configuration snapshot only; command wrappers, shell startup and already-running host environments are independent and are not tested" };
 }

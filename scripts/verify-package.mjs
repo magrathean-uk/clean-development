@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { isolatedEnvironment } from "./harness-utils.mjs";
+import { isolatedNativeEnvironment } from "./harness-utils.mjs";
 import { normalizeNpmPackReport } from "./npm-pack-report.mjs";
 import { resolveExecutable } from "../src/executable.js";
 import { windowsBatchInvocation } from "../src/windows-command.js";
@@ -16,10 +16,40 @@ const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), 
 const temporary = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "clean-development-package-")));
 const previousRelease = "v0.2.0";
 const previousVersion = previousRelease.slice(1);
+const managedRootNames = ["CLEAN_DEVELOPMENT_ROOT", "CLEAN_DEVELOPMENT_CACHE_ROOT", "CLEAN_DEVELOPMENT_BUILD_ROOT", "CLEAN_DEVELOPMENT_SCRATCH_ROOT"];
+
+function managedEnvironment(managedRoot) {
+  const scratch = path.join(managedRoot, "scratch");
+  const tmp = path.join(scratch, "tmp");
+  return { CLEAN_DEVELOPMENT_ROOT: managedRoot, CLEAN_DEVELOPMENT_CACHE_ROOT: path.join(managedRoot, "caches"),
+    CLEAN_DEVELOPMENT_BUILD_ROOT: path.join(managedRoot, "builds"), CLEAN_DEVELOPMENT_SCRATCH_ROOT: scratch,
+    TMPDIR: tmp, TMP: tmp, TEMP: tmp };
+}
+
+function assertAbsentFixtureState(env) {
+  for (const name of [...managedRootNames, "CLEAN_DEVELOPMENT_HOME", "CLEAN_DEVELOPMENT_DATA_HOME", "CLEAN_DEVELOPMENT_CONFIG_HOME"]) {
+    assert.equal(fs.existsSync(env[name]), false, `${name} was created before routing: ${env[name]}`);
+  }
+}
+
+function assertChildRootDeclarations(child, env) {
+  for (const name of [...managedRootNames, "TMPDIR", "TMP", "TEMP"]) {
+    assert.equal(child[name], env[name], `child changed its fixture's ${name}`);
+  }
+}
+// Package-manager subprocesses must not inherit a contributor's native HOME,
+// config or cache even when the lifecycle fixture overrides Clean Development.
+const packageEnvironment = isolatedNativeEnvironment(path.join(temporary, "package-runner"), process.env, { overrides: {
+  npm_config_offline: "true", npm_config_audit: "false", npm_config_fund: "false",
+  npm_config_update_notifier: "false", GIT_CONFIG_NOSYSTEM: "1", GIT_TERMINAL_PROMPT: "0"
+} });
+for (const name of ["HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "TMPDIR", "CARGO_HOME"]) {
+  fs.mkdirSync(packageEnvironment[name], { recursive: true });
+}
 
 function run(command, args, options = {}) {
   const cwd = options.cwd ?? root;
-  const env = options.env ?? process.env;
+  const env = options.env ?? packageEnvironment;
   const executable = resolveExecutable(command, env, undefined, cwd);
   if (!executable) throw new Error(`Cannot find package verification command: ${command}`);
   const invocation = process.platform === "win32" && /\.(cmd|bat)$/i.test(executable)
@@ -44,7 +74,7 @@ function fakeCargo(directory) {
   fs.mkdirSync(directory);
   const child = path.join(directory, "capture-session-env.mjs");
   fs.writeFileSync(child, [
-    "const names = ['CLEAN_DEVELOPMENT_SESSION_MODE', 'CLEAN_DEVELOPMENT_ACTIVE', 'CLEAN_DEVELOPMENT_RESOLVED_ROOT', 'CLEAN_DEVELOPMENT_WORKSPACE_ID', 'CARGO_TARGET_DIR'];",
+    "const names = ['CLEAN_DEVELOPMENT_SESSION_MODE', 'CLEAN_DEVELOPMENT_ACTIVE', 'CLEAN_DEVELOPMENT_RESOLVED_ROOT', 'CLEAN_DEVELOPMENT_WORKSPACE_ID', 'CARGO_TARGET_DIR', 'CLEAN_DEVELOPMENT_ROOT', 'CLEAN_DEVELOPMENT_CACHE_ROOT', 'CLEAN_DEVELOPMENT_BUILD_ROOT', 'CLEAN_DEVELOPMENT_SCRATCH_ROOT', 'TMPDIR', 'TMP', 'TEMP'];",
     "process.stdout.write(JSON.stringify({ ...Object.fromEntries(names.map((name) => [name, process.env[name] || null])), argv: process.argv.slice(2), cwd: process.cwd() }));"
   ].join("\n"));
   if (process.platform === "win32") {
@@ -68,6 +98,7 @@ function verifyInstalledLaunchers(launcher, cwd, env) {
   const childEnv = { ...env, CLEAN_DEVELOPMENT_SESSION_MODE: "session-only", PACKAGE_LITERAL: "must not expand" };
   setEnvironmentValue(childEnv, "PATH", `${binDir}${path.delimiter}${environmentValue(env, "PATH") || ""}`);
   const routed = runJson(shim, args, { cwd, env: childEnv });
+  assertChildRootDeclarations(routed, env);
   assert.deepEqual(routed.argv, args, "installed tool shim changed argv");
   assert.equal(fs.realpathSync.native(routed.cwd), fs.realpathSync.native(cwd), "installed tool shim changed cwd");
   const managed = fs.realpathSync.native(env.CLEAN_DEVELOPMENT_ROOT);
@@ -81,7 +112,7 @@ function verifyInstalledLaunchers(launcher, cwd, env) {
 try {
   const previousTag = spawnSync("git", ["rev-parse", "--verify", `${previousRelease}^{commit}`], {
     cwd: root,
-    encoding: "utf8"
+    encoding: "utf8", env: packageEnvironment
   });
   if (previousTag.status !== 0) {
     throw new Error(`Installed upgrade verification requires the ${previousRelease} Git tag. Fetch full tag history before running npm run test:package.`);
@@ -122,11 +153,17 @@ try {
     "src/explain.js",
     "src/status.js",
     "src/measurement.js",
+    "src/scratch.js",
+    "src/coverage.js",
+    "src/inspection.js",
+    "src/storage-identity.js",
     "src/probe.js",
     "src/probe-process.js",
     "docs/probe.md",
     "docs/explain.md",
     "docs/status.md",
+    "docs/scratch.md",
+    "docs/diagnostics.md",
     "plugin.json",
     "skills/clean-development/SKILL.md",
     "skills/clean-development/agents/openai.yaml",
@@ -152,7 +189,7 @@ try {
     "const plugin = await import('clean-development');",
     "const api = await import('clean-development/api');",
     "if (typeof plugin.default !== 'function') process.exit(9);",
-    "for (const name of ['resolveConfig', 'planSession', 'explainCommand', 'formatExplanation', 'storageStatus', 'formatStorageStatus', 'parseByteSize', 'measureDirectory', 'createSizeScanner', 'planProbe', 'probeTool', 'formatProbe']) if (typeof api[name] !== 'function') throw new Error('Missing API export: ' + name);",
+    "for (const name of ['resolveConfig', 'planSession', 'explainCommand', 'formatExplanation', 'storageStatus', 'formatStorageStatus', 'parseByteSize', 'measureDirectory', 'createSizeScanner', 'planProbe', 'probeTool', 'formatProbe', 'planScratch', 'createScratch', 'toolCoverage']) if (typeof api[name] !== 'function') throw new Error('Missing API export: ' + name);",
     "if (api.parseByteSize('1KiB') !== 1024 || api.DEFAULT_SCAN_LIMITS.maxEntries !== 200000) process.exit(10);"
   ].join("\n")], { cwd: prefix });
   assert.equal(contract.status, 0);
@@ -161,33 +198,44 @@ try {
   fs.mkdirSync(project);
   fs.writeFileSync(path.join(project, "Cargo.toml"), "[package]\nname='package-check'\nversion='0.1.0'\n");
   const fakeBin = fakeCargo(path.join(temporary, "fake-bin"));
-  const sessionEnv = isolatedEnvironment(temporary);
+  const sessionEnv = isolatedNativeEnvironment(temporary, packageEnvironment);
   setEnvironmentValue(sessionEnv, "PATH", `${fakeBin}${path.delimiter}${environmentValue(process.env, "PATH") || ""}`);
   const planned = runJson(binary, ["session", "--dry-run", "--json"], { cwd: project, env: sessionEnv });
   assert.deepEqual(planned.plan.detected.tools, ["cargo"]);
   assert.equal(fs.existsSync(path.join(project, ".clean-development.json")), false);
-  assert.equal(fs.existsSync(managed), false);
+  assertAbsentFixtureState(sessionEnv);
+  for (const [key, name] of [["root", "CLEAN_DEVELOPMENT_ROOT"], ["cacheRoot", "CLEAN_DEVELOPMENT_CACHE_ROOT"],
+    ["buildRoot", "CLEAN_DEVELOPMENT_BUILD_ROOT"], ["scratchRoot", "CLEAN_DEVELOPMENT_SCRATCH_ROOT"]]) {
+    assert.equal(planned.plan.managed[key], sessionEnv[name]);
+  }
 
   const skipProject = path.join(temporary, "fresh-skip-project");
   fs.mkdirSync(skipProject);
   fs.writeFileSync(path.join(skipProject, "Cargo.toml"), "[package]\nname='package-skip-check'\nversion='0.1.0'\n");
+  const skipManaged = path.join(temporary, "skip-managed");
   const skipEnv = {
     ...sessionEnv,
     CLEAN_DEVELOPMENT_HOME: path.join(temporary, "skip-home"),
     CLEAN_DEVELOPMENT_DATA_HOME: path.join(temporary, "skip-data"),
     CLEAN_DEVELOPMENT_CONFIG_HOME: path.join(temporary, "skip-config"),
-    CLEAN_DEVELOPMENT_ROOT: path.join(temporary, "skip-managed")
+    ...managedEnvironment(skipManaged)
   };
+  const skippedPlan = runJson(binary, ["session", "--dry-run", "--json"], { cwd: skipProject, env: skipEnv });
+  for (const [key, expected] of [["root", skipManaged], ["cacheRoot", path.join(skipManaged, "caches")],
+    ["buildRoot", path.join(skipManaged, "builds")], ["scratchRoot", path.join(skipManaged, "scratch")]]) {
+    assert.equal(skippedPlan.plan.managed[key], expected, `skip fixture retained another mode's ${key}`);
+  }
+  assertAbsentFixtureState(skipEnv);
   const freshSkip = sessionChild(binary, "skip", skipProject, skipEnv);
+  assertChildRootDeclarations(freshSkip, skipEnv);
   assert.equal(freshSkip.CLEAN_DEVELOPMENT_SESSION_MODE, "skip");
   assert.equal(freshSkip.CLEAN_DEVELOPMENT_ACTIVE, null);
   assert.equal(freshSkip.CARGO_TARGET_DIR, null);
-  assert.equal(fs.existsSync(skipEnv.CLEAN_DEVELOPMENT_DATA_HOME), false);
-  assert.equal(fs.existsSync(skipEnv.CLEAN_DEVELOPMENT_CONFIG_HOME), false);
-  assert.equal(fs.existsSync(skipEnv.CLEAN_DEVELOPMENT_ROOT), false);
+  assertAbsentFixtureState(skipEnv);
   assert.equal(fs.existsSync(path.join(skipProject, ".clean-development.json")), false);
 
   const sessionOnly = sessionChild(binary, "session-only", project, sessionEnv);
+  assertChildRootDeclarations(sessionOnly, sessionEnv);
   const canonicalManaged = fs.realpathSync.native(managed);
   assert.equal(sessionOnly.CLEAN_DEVELOPMENT_SESSION_MODE, "session-only");
   assert.equal(sessionOnly.CLEAN_DEVELOPMENT_ACTIVE, "1");
@@ -198,6 +246,7 @@ try {
   assert.equal(fs.existsSync(path.join(project, "target")), false);
 
   const persisted = sessionChild(binary, "persist", project, sessionEnv);
+  assertChildRootDeclarations(persisted, sessionEnv);
   assert.equal(persisted.CLEAN_DEVELOPMENT_SESSION_MODE, "session-only");
   assert.equal(persisted.CLEAN_DEVELOPMENT_ACTIVE, "1");
   assert.equal(persisted.CLEAN_DEVELOPMENT_RESOLVED_ROOT, canonicalManaged);
@@ -210,6 +259,7 @@ try {
   assert.equal(projectConfig.tools.cargo, true);
 
   const skipped = sessionChild(binary, "skip", project, sessionEnv);
+  assertChildRootDeclarations(skipped, sessionEnv);
   assert.equal(skipped.CLEAN_DEVELOPMENT_SESSION_MODE, "skip");
   assert.equal(skipped.CLEAN_DEVELOPMENT_ACTIVE, null);
   assert.equal(skipped.CLEAN_DEVELOPMENT_RESOLVED_ROOT, null);
@@ -237,7 +287,7 @@ try {
     CLEAN_DEVELOPMENT_HOME: path.join(temporary, "lifecycle-home"),
     CLEAN_DEVELOPMENT_DATA_HOME: path.join(temporary, "lifecycle-data"),
     CLEAN_DEVELOPMENT_CONFIG_HOME: path.join(temporary, "lifecycle-config"),
-    CLEAN_DEVELOPMENT_ROOT: lifecycleRoot,
+    ...managedEnvironment(lifecycleRoot),
     CODEX_HOME: path.join(temporary, "lifecycle-codex")
   };
   const installed = runJson(previousBinary, ["setup", "--agents", "codex", "--json"], { cwd: temporary, env: lifecycleEnv });
@@ -267,12 +317,13 @@ try {
   assert.equal(fs.existsSync(path.join(lifecycleEnv.CLEAN_DEVELOPMENT_DATA_HOME, "runtime", packageJson.version)), false);
   assert.equal(fs.existsSync(path.join(lifecycleEnv.CLEAN_DEVELOPMENT_DATA_HOME, "runtime", previousVersion)), false);
 
+  const currentLifecycleRoot = path.join(temporary, "current-managed");
   const currentLifecycleEnv = {
     ...sessionEnv,
     CLEAN_DEVELOPMENT_HOME: path.join(temporary, "current-home"),
     CLEAN_DEVELOPMENT_DATA_HOME: path.join(temporary, "current-data"),
     CLEAN_DEVELOPMENT_CONFIG_HOME: path.join(temporary, "current-config"),
-    CLEAN_DEVELOPMENT_ROOT: path.join(temporary, "current-managed"),
+    ...managedEnvironment(currentLifecycleRoot),
     CODEX_HOME: path.join(temporary, "current-codex")
   };
   const currentInstalled = runJson(binary, ["setup", "--agents", "codex", "--json"], { cwd: temporary, env: currentLifecycleEnv });

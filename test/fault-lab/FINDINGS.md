@@ -175,3 +175,29 @@ was 76,428 bytes; retained fixture files, excluding that report, totalled 28,221
 bytes. Source/bin content and mode hashes were identical before and after the
 lab. Native Windows cases and the unavailable real-Cargo check remain normal
 full-suite skips; this lab executes only its own tiny fake tools.
+
+## Resolution replay, 2026-10-14
+
+The preceding findings and baseline counts remain historical evidence. The
+implementation replay on macOS ARM64 first reproduced the exact three failures,
+then passed all 95 required standalone checks with no infrastructure errors.
+[Separate resolution evidence](resolution-evidence.json) records the checkout
+revision, dirty-source fingerprints, Node version and bounded report hashes.
+All three TODO annotations have been removed. The additional check requires
+bounded cleanup uncertainty to be visible while the original ENOSPC object/code
+remains primary.
+
+FL-01 now publishes its marker without recursive parent creation and checks
+ancestor identities around publication. Its injected disappearance moved from
+the removed recursive mkdir to the first marker write at the same pre-marker
+boundary. FL-02 now uses an outside-disposable build-root identity receipt:
+ordinary dispatch and session preparation reject replacements, while explicit
+prepare/setup can reapprove inactive storage. Legacy marker/state pairs remain
+usable; unknown directories and prior records acquire no new prune authority.
+FL-03 retains the initiating error and the uncertain stage when cleanup fails.
+
+The separate storage identity suite checks preparation previews, explicit
+reapproval, active leases, modeled remount identity, legacy migration, override
+preservation, and replacement during marker, workspace-receipt and lease
+publication. These are disposable fixture observations, not real mounted-volume,
+native Windows, real-compiler or live Claude/Codex acceptance.

@@ -632,10 +632,16 @@ test("a valid-shaped but changed inventory cannot overrule its independent witne
   assert.deepEqual(tree(item.root), before);
 });
 
-test("ordinary runtime refresh timestamps do not invalidate otherwise identical ownership evidence", async (t) => {
+test("unchanged ensures and legacy timestamp-only refresh retain exact recovery ownership", async (t) => {
   const item = fixture(t);
   const before = fs.readFileSync(item.receiptFile);
   ensureRuntime(item.config());
+  assert.deepEqual(fs.readFileSync(item.receiptFile), before);
+  // Earlier installers advanced installedAt on every ensure. Retain recovery
+  // compatibility with that descriptive change without weakening inventory.
+  const refreshed = item.receipt();
+  refreshed.installedAt = "2026-01-02T03:04:05.000Z";
+  fs.writeFileSync(item.receiptFile, JSON.stringify(refreshed) + "\n");
   assert.notDeepEqual(fs.readFileSync(item.receiptFile), before);
   const absent = missingLauncher(item);
   const report = plan(item);
