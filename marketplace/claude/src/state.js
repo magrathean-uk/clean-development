@@ -106,6 +106,7 @@ export function recordWorkspace(config, workspace, ownedBuild) {
   if (!ownedBuild?.path || !ownedBuild?.ownershipId) throw new Error("Cannot record a build directory without ownership proof");
   const workspaceBuildRoot = path.resolve(ownedBuild.path);
   const buildDirectories = directoryIdentities(workspaceBuildRoot);
+  const { file, value: previous } = workspaceRecord(config, workspace.id, config.buildRoot);
   const record = {
     schemaVersion: 1,
     workspaceId: workspace.id,
@@ -118,9 +119,9 @@ export function recordWorkspace(config, workspace, ownedBuild) {
   };
   const storage = validateManagedBuildRoot(config);
   if (storage) record.storageIdentity = storage.identity;
+  else if (previous?.storageIdentity) record.storageIdentity = previous.storageIdentity;
   const unsafe = ownedBuildReason(config, record);
   if (unsafe) throw new Error(`Cannot record build directory (${unsafe}): ${workspaceBuildRoot}`);
-  const { file, value: previous } = workspaceRecord(config, workspace.id, config.buildRoot);
   if (previous?.pinned) record.pinned = true;
   stateCollection(config, "workspaces", { create: true });
   revalidateDirectoryIdentities(buildDirectories);

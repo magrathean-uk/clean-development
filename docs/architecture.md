@@ -90,8 +90,12 @@ Older installations with a surviving matching workspace marker and state record
 can bind their existing root during that workspace's next routed build. An absent
 identity receipt with legacy records but no surviving ownership proof requires
 explicit preparation. Unregistered children remain unowned. Read-only planning
-and prune never create identity receipts or migrate workspace records. Existing
-legacy prune receipts retain their original marker checks; this adds no deletion
+and prune never create identity receipts or migrate workspace records. Previously
+bound workspace records retain their storage identity when a global receipt is
+missing; record refresh and explicit-target owner routing then refuse before
+rewriting the record or launching a child. Receipt loss cannot downgrade a bound
+record into a legacy record.
+Legacy prune receipts retain their original marker checks; this adds no deletion
 authority. Filesystems reporting no positive directory inode/file ID fail closed.
 First approval and explicit replacement approval also verify a positive, stable
 birth time using one exclusive private empty child beneath the validated build
