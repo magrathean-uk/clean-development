@@ -10,7 +10,8 @@ import { withoutCleanDevelopmentEnvironment } from "../scripts/harness-utils.mjs
 const cli = path.resolve("bin/clean-development.js");
 
 function fixture() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "clean-development-cli-"));
+  const tempRoot = fs.realpathSync.native(os.tmpdir());
+  const root = fs.realpathSync.native(fs.mkdtempSync(path.join(tempRoot, "clean-development-cli-")));
   const home = path.join(root, "home");
   const claude = path.join(root, "claude");
   const codex = path.join(root, "codex");

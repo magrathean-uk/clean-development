@@ -9,7 +9,10 @@ import { isolatedNativeEnvironment } from "../scripts/harness-utils.mjs";
 
 function fixture(t) {
   const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "cd-completion-")));
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  t.after(() => {
+    t.mock.restoreAll();
+    fs.rmSync(root, { recursive: true, force: true });
+  });
   const project = path.join(root, "project"), tools = path.join(root, "tools");
   fs.mkdirSync(project); fs.mkdirSync(tools);
   fs.writeFileSync(path.join(project, "Cargo.toml"), '[package]\nname="completion"\nversion="0.0.0"\n');
@@ -24,7 +27,8 @@ function fixture(t) {
 test("completed child status survives lease removal failure with bounded uncertainty", { skip: process.platform === "win32" }, async (t) => {
   const item = fixture(t), unlink = fs.unlinkSync, messages = [];
   t.mock.method(fs, "unlinkSync", (file) => {
-    if (file.startsWith(path.join(item.config.locations.stateDir, "leases") + path.sep)) throw Object.assign(new Error("private-cleanup-details"), { code: "EACCES" });
+    const filename = Buffer.isBuffer(file) ? file.toString() : file;
+    if (typeof filename === "string" && filename.startsWith(path.join(item.config.locations.stateDir, "leases") + path.sep)) throw Object.assign(new Error("private-cleanup-details"), { code: "EACCES" });
     return unlink(file);
   });
   t.mock.method(process.stderr, "write", (message) => { messages.push(message); return true; });
@@ -39,7 +43,8 @@ test("asynchronous spawn callback failure remains primary after failed lease cle
   const item = fixture(t), unlink = fs.unlinkSync;
   const primary = Object.assign(new Error("spawn-callback-failed"), { code: "SPAWN_CALLBACK" });
   t.mock.method(fs, "unlinkSync", (file) => {
-    if (file.startsWith(path.join(item.config.locations.stateDir, "leases") + path.sep)) throw Object.assign(new Error("ignored cleanup details"), { code: "EACCES" });
+    const filename = Buffer.isBuffer(file) ? file.toString() : file;
+    if (typeof filename === "string" && filename.startsWith(path.join(item.config.locations.stateDir, "leases") + path.sep)) throw Object.assign(new Error("ignored cleanup details"), { code: "EACCES" });
     return unlink(file);
   });
   await assert.rejects(runTool("cargo", ["build"], { ...item, cwd: item.project, onSpawn: () => { throw primary; } }), (error) => {

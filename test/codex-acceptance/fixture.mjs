@@ -25,8 +25,9 @@ export function sourceIdentity() {
 
 export function makeFixture({ backend = "fixture", scratchRoot = os.tmpdir(), npm = null } = {}) {
   assert.ok(["fixture", "live"].includes(backend));
-  assert.ok(ensureRealDirectory(scratchRoot));
-  const root = fs.mkdtempSync(path.join(scratchRoot, PREFIX));
+  const canonicalScratchRoot = fs.realpathSync.native(scratchRoot);
+  assert.ok(ensureRealDirectory(canonicalScratchRoot));
+  const root = fs.realpathSync.native(fs.mkdtempSync(path.join(canonicalScratchRoot, PREFIX)));
   const env = hostBoundaryEnvironment(root, { PATH: "/usr/bin:/bin" });
   // Let the actual host/session choose tool caches. Independent unrelated
   // overrides remain explicit controls in the fixture.
