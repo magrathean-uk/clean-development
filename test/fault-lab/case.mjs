@@ -229,8 +229,9 @@ export async function runCase(labRoot, name) {
     && path.dirname(from) === item.config.buildRoot && path.basename(from).startsWith(".clean-development-");
   let fired = false;
   if (name === "missing-during-marker") {
-    hook("mkdirSync", (directory, options) => !fired && options?.recursive === true
-      && path.dirname(directory) === item.config.buildRoot && path.basename(directory).startsWith(".clean-development-"), (original, args) => {
+    // The repaired writer no longer creates its parent. Inject at the first
+    // marker write, the same post-staging/pre-marker publication boundary.
+    hook("writeFileSync", (file) => !fired && stagedMarker(file), (original, args) => {
       fired = true;
       fs.renameSync(item.config.root, retired);
       retiredBefore = fingerprint(retired);
@@ -343,6 +344,8 @@ export async function runCase(labRoot, name) {
     "retain marker-only build; next CLI rejects it rather than adopts/reroutes", { afterFirst, later });
   } else if (name === "publication-cleanup-error") {
     check("uncertain-stage-retained", Boolean(staging && fs.existsSync(staging)), "failed cleanup retains staged evidence", Boolean(staging && fs.existsSync(staging)));
+    check("cleanup-uncertainty-visible", first.error?.message.includes("staging cleanup uncertain (EACCES)") && observedError?.cleanup?.path === staging,
+      "primary error reports the bounded cleanup code and retained stage path", first.error);
   }
   if (!["missing-managed-root", "missing-build", "missing-cache", "missing-during-marker", "replaced-managed-root", "enospc-record-publish"].includes(name)) {
     check("retry-same-target", later.status === 23 && later.capture?.target === expectedTarget,

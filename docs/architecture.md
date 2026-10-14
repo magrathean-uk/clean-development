@@ -72,6 +72,53 @@ There is no `postinstall` script. Merely installing or inspecting the npm packag
 
 State lives outside the disposable root. Before Cargo output is routed, the runtime atomically creates a direct child containing a random ownership ID. The same ID, source path, workspace ID, exact build root, managed path, last-used time, and pin state are recorded outside the disposable root. A running shim transfers its PID lease to the real child process, so killing the wrapper cannot make a live build look idle. Cache-only tools do not create build records.
 
+The first routed Cargo build also binds the canonical build root to a separate
+`state/storage-identities/<path-sha256>.json` receipt outside every managed base.
+It records the directory's Node filesystem device, inode/file ID and birth time.
+Ordinary dispatch and session preparation refuse a changed or absent approved
+root. A remount that changes those values, a recreated build base, or a deliberate
+storage replacement requires explicit `prepare` or `setup`; neither chooses a
+different destination. Reapproval retains all old build records and does not
+claim their contents. It refuses while any Cargo lease is active or uncertain.
+New workspace records carry the approved identity, so reapproval cannot make an
+old record eligible on a new storage object. A later actual routed build may
+resume a surviving exact marker/state pair and record its current approved
+identity; this supports explicit reapproval after a normal remount without
+claiming other directories.
+
+Older installations with a surviving matching workspace marker and state record
+can bind their existing root during that workspace's next routed build. An absent
+identity receipt with legacy records but no surviving ownership proof requires
+explicit preparation. Unregistered children remain unowned. Read-only planning
+and prune never create identity receipts or migrate workspace records. Previously
+bound workspace records retain their storage identity when a global receipt is
+missing; record refresh and explicit-target owner routing then refuse before
+rewriting the record or launching a child. Receipt loss cannot downgrade a bound
+record into a legacy record.
+Legacy prune receipts retain their original marker checks; this adds no deletion
+authority. Filesystems reporting no positive directory inode/file ID fail closed.
+First approval and explicit replacement approval also verify a positive, stable
+birth time using one exclusive private empty child beneath the validated build
+root. The root's ctime must advance while its birth time stays fixed; a mutable
+ctime fallback, zero timestamp, or observation too coarse to distinguish them
+fails before the identity receipt is published. Cleanup uses only exact empty
+directory removal after identity checks, retaining changed or uncertain probes.
+Read-only validation and unchanged approval never create this probe.
+Node documents that missing filesystem birth time may be reported as ctime or
+zero in its [stat time semantics](https://nodejs.org/docs/latest-v20.x/api/fs.html#stat-time-values).
+The same Node metadata comparison is used on supported native platforms; its
+conservative remount detection is not a stable volume UUID or mount attestation.
+
+Ownership-marker publication uses an existing staging directory and never
+recursively creates its parent. Its ancestor identities are captured and checked
+around marker writes and final directory publication; workspace receipt
+publication checks them again. A failed rollback preserves the initiating error
+object/code and adds a bounded cleanup code and retained stage path. If the final
+rename succeeds but subsequent validation fails, the error identifies the
+published path and phase, and no staging cleanup or removal of that path occurs.
+Interrupted stages and uncertain published directories are not adopted or swept
+by a later command.
+
 Prune requires all of the following:
 
 1. The record is old enough.
@@ -87,11 +134,23 @@ Cache and scratch eviction are not implemented in `0.2.0`. Package-manager cache
 
 ## Failure behavior
 
+Cargo admission captures the exact workspace records after publication and
+rechecks them after lease acquisition, immediately before launching the child.
+A concurrent explicit root reapproval cannot redirect an already admitted
+command into an unowned replacement at the same pathname. Changed admission
+fails with `CLEAN_DEVELOPMENT_ADMISSION_CHANGED` and releases its own leases.
+
+Cleanup never replaces the initiating publication/launch error or a completed
+child's numeric exit status. Cleanup uncertainty is bounded to stage/error-code
+metadata, and failed lease removal retains protection. An unchanged runtime ensure
+does not rewrite its receipt; installation identity and initial time survive
+content refreshes, whose time is recorded separately.
+
 - An existing explicit tool environment variable is preserved.
 - An existing Codex login-shell choice or incompatible `shell_environment_policy` is not overwritten; setup reports a Codex launcher fallback. Fresh native integration owns `allow_login_shell = false` and a `skip` mode so macOS login startup cannot reorder the stable PATH or authorize routing. The routed launcher overrides the mode after consent.
 - Codex PATH persistence removes entries inside the setup cwd, active Python/Conda environments, package-runner bins, and temporary directories; npm/npx setup falls back to a launcher rather than snapshotting its ambient PATH.
 - Grok setup owns only its marked `toolset.bash.cmd_prefix`. The prefix sources the owned runtime environment helper after Grok applies its captured login-shell PATH. The helper defaults to `skip`, so PATH precedence alone does not authorize routing. Existing user prefixes and unsupported TOML forms are preserved with a visible launcher fallback.
-- A missing external cache or build base produces a direct error. `setup`, `prepare`, and session preparation require its direct parent to exist; ordinary tool runs never recreate a missing base or select another drive.
+- A missing external cache or build base produces a direct error. `setup` and `prepare` require its direct parent to exist. Session preparation can prepare an unapproved base but refuses a missing or changed approved build root; ordinary tool runs never recreate a missing base or select another drive.
 - If the real tool cannot be found outside the shim directory, the shim fails with a direct error instead of recursively invoking itself.
 - Unregistered directories are never inferred to be owned from names such as `target`, `build`, or `.cache`.
 - Uninstall requires receipts at the currently resolved application-data location and the same Claude, Codex, and Grok config-home choices used by setup. A changed data-home/XDG or relevant agent config location is reported before any edit rather than followed or treated as an empty successful uninstall.

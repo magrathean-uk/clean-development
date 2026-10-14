@@ -13,8 +13,10 @@ output path is accepted. Do not point any fixture at contributor storage.
 
 Exit status is **0** for all invariants satisfied, **1** for observed invariant
 violations, and **2** for incomplete/infrastructure evidence. At the tested main
-revision this command deliberately exits **1**, with three violations; see
+revision the historical baseline exited **1**, with three violations; see
 [the defect report](FINDINGS.md) and [recorded baseline evidence](baseline-evidence.json).
+The repaired implementation requires all checks to pass; current observations
+are recorded separately in [resolution evidence](resolution-evidence.json).
 An exit of 23 inside a case is the fake tool's
 intentional nonzero exit, not a harness failure.
 
@@ -24,20 +26,18 @@ npm run check
 npm test
 ```
 
-The test wrapper keeps the three reported failures as actual failing assertions
-with named `TODO` annotations, not assertions that unsafe behaviour is correct.
-Node's test runner does not count TODO failures towards its failure exit status.
-Every other failed check is an ordinary test failure. The standalone lab has no
-allowlist and exits nonzero for **any** violated invariant. Remove a corresponding
-TODO when its product workstream fixes the issue. Helper-module discovery by
+The test wrapper now treats every check as a required assertion, including the
+three formerly annotated TODOs. The standalone lab has no allowlist and exits
+nonzero for **any** violated invariant. Helper-module discovery by
 `node --test` is inert; only the explicit `--run` flag starts the CLI lab.
 
 ## Contracts checked
 
 The first four are based on [the safety model](../../docs/safety-model.md) and
 [architecture](../../docs/architecture.md), or on preserving the initiating error.
-The fifth is an explicitly stronger storage-identity expectation: the existing
-documents acknowledge same-user races and do not promise persistent mount identity.
+The fifth originally exceeded the documented identity guarantee. The repaired
+implementation now binds build-root identity outside disposable storage, with
+explicit preparation for changed identities and conservative remount handling.
 
 1. Source, Git metadata, credentials, final deliverables and unregistered data
    remain outside deletion authority. Every lane fingerprints its entire source
@@ -69,7 +69,7 @@ The lab does not mistake an absent capture for a successful build.
 | `missing-managed-root` | Rename the whole configured root away before ordinary dispatch; check that both invocations reject it. |
 | `missing-build` | Rename only the configured build base away before dispatch. |
 | `missing-cache` | Rename only the cache base away before an npm shim command. |
-| `missing-during-marker` | After staging-directory creation, rename the entire managed root away immediately before the marker writer's recursive parent mkdir. |
+| `missing-during-marker` | After staging-directory creation, rename the entire managed root away immediately before the first marker write. The historical fixture targeted the removed recursive parent mkdir at the same pre-marker boundary. |
 | `replaced-managed-root` | Seed a registered build, move the managed root away, and create a different real root containing an empty `builds` directory and an unowned sentinel. |
 | `enospc-marker-write` | Write exactly 17 bytes of the marker temporary file, then throw synthetic ENOSPC. |
 | `enospc-marker-rename` | Throw ENOSPC on the temporary-marker-to-marker rename. |
@@ -120,7 +120,8 @@ completed run's own root after checking its canonical path, regular ownership
 marker, token and device/inode identity. Unexpected test or infrastructure
 failures retain the evidence. No product cleanup path is used for lab teardown.
 
-Only Linux execution has been recorded for this change. The lab rejects native
+Historical baseline execution was recorded on Linux; the resolution replay was
+recorded on macOS ARM64. Neither is native Windows acceptance. The lab rejects native
 Windows rather than treating unexecuted POSIX fixtures as acceptance evidence;
 the wrapper reports a platform skip there. This lab neither changes nor audits
 Windows quoting, executable discovery, other PRs' product code, or live agent

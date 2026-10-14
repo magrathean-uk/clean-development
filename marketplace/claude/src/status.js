@@ -1,7 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { VERSION } from "./constants.js";
-import { integrationStatus } from "./integrations.js";
+import { integrationHealth } from "./integrations.js";
+import { toolCoverage } from "./coverage.js";
 import { readJson } from "./io.js";
 import { createSizeScanner } from "./measurement.js";
 import { activeWorkspaceIds, listWorkspaceRecords, prunePlan } from "./state.js";
@@ -42,13 +43,17 @@ export function storageStatus(config, { workspaces = false, sizes = false, build
   const scanner = sizes ? createSizeScanner({ maxEntries, maxDurationMs }) : null;
   const active = activeWorkspaceIds(config);
   const records = listWorkspaceRecords(config);
+  const observedIntegrations = integrationHealth(config, env);
   const result = {
     schemaVersion: 1, version: VERSION, inspectedAt: new Date().toISOString(),
     configured: fs.existsSync(config.locations.configPath), configFile: config.locations.configPath,
     projectConfig: config.projectConfigPath, root: config.root, rootSource: config.rootSource,
     cacheRoot: config.cacheRoot, buildRoot: config.buildRoot, scratchRoot: config.scratchRoot,
+    toolCoverage: toolCoverage(config),
     runtime: readJson(path.join(config.locations.stateDir, "runtime.json"), null),
-    integrations: integrationStatus(config, env).integrations,
+    integrations: observedIntegrations.recorded.integrations,
+    integrationHealth: { schemaVersion: observedIntegrations.schemaVersion, receipt: observedIntegrations.receipt,
+      integrations: observedIntegrations.integrations, scope: observedIntegrations.scope },
     workspaces: records.length, activeWorkspaces: [...active].sort()
   };
   if (workspaces) {

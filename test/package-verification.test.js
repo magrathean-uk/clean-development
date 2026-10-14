@@ -80,6 +80,19 @@ test("package verification exercises installed tool shims", async (t) => {
     assert.equal(result.status, 0, result.error?.message || result.stderr || result.stdout);
     assert.match(result.stdout, /Verified clean-development-/);
   });
+  await t.test("a skip-root override cannot retain another mode's derived destinations", () => {
+    const verifier = path.join(item.root, "scripts", "verify-package.mjs");
+    const original = fs.readFileSync(verifier, "utf8");
+    assert.ok(original.includes("...managedEnvironment(skipManaged)"));
+    fs.writeFileSync(verifier, original.replace("...managedEnvironment(skipManaged)", "CLEAN_DEVELOPMENT_ROOT: skipManaged"));
+    try {
+      const result = item.run();
+      assert.notEqual(result.status, 0, "verifier accepted derived destinations inherited from another mode");
+      assert.match(result.stderr, /skip fixture retained another mode's cacheRoot/);
+    } finally {
+      fs.writeFileSync(verifier, original);
+    }
+  });
   await t.test("an npmignore rule cannot hide the tool-shim entry point", () => {
     const ignore = path.join(item.root, "bin", ".npmignore");
     fs.writeFileSync(ignore, "clean-development-shim.js\n");

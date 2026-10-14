@@ -8,6 +8,7 @@ import { performance } from "node:perf_hooks";
 import test from "node:test";
 import { resolveConfig } from "../src/config.js";
 import { planSwiftpm } from "../src/swiftpm.js";
+import { snapshotFootprint, compareFootprints } from "../scripts/footprint-utils.mjs";
 
 const cli = path.resolve("bin/clean-development.js");
 const enabled = process.env.CLEAN_DEVELOPMENT_REAL_SWIFT === "1";
@@ -52,13 +53,19 @@ test("REAL SwiftPM: build/test reuse, project switch, native precedence and reta
   const a = path.join(root, "A space", "checkout"), b = path.join(root, "B space", "checkout"), outputs = path.join(root, "deliverables");
   const nativeConfig = path.join(root, "native-config"), nativeSecurity = path.join(root, "native-security");
   for (const directory of [home, retained, storage, outputs, nativeConfig, nativeSecurity, path.join(root, "tmp")]) fs.mkdirSync(directory, { recursive: true });
-  // Deliberately discard contributor credentials, preloads and Swift overrides.
-  const env = { PATH: process.env.PATH, HOME: home, USERPROFILE: home, CLEAN_DEVELOPMENT_HOME: home,
+  // Discard credentials, preloads and output overrides, while retaining the
+  // caller's installed SDK/toolchain selection.
+  const pins = Object.fromEntries(["DEVELOPER_DIR", "SDKROOT", "TOOLCHAINS", "SWIFT_EXEC", "SWIFT_DRIVER_SWIFT_FRONTEND_EXEC"]
+    .filter((key) => process.env[key] !== undefined).map((key) => [key, process.env[key]]));
+  const env = { ...pins, PATH: process.env.PATH, HOME: home, USERPROFILE: home, CLEAN_DEVELOPMENT_HOME: home,
     CLEAN_DEVELOPMENT_CONFIG_HOME: path.join(root, "cd-config"), CLEAN_DEVELOPMENT_DATA_HOME: path.join(root, "cd-data"),
     XDG_CONFIG_HOME: path.join(home, "config"), XDG_CACHE_HOME: path.join(home, "cache"), XDG_DATA_HOME: path.join(home, "data"),
+    XDG_STATE_HOME: path.join(home, "state"),
     TMPDIR: path.join(root, "tmp"), TMP: path.join(root, "tmp"), TEMP: path.join(root, "tmp"),
     GIT_CONFIG_GLOBAL: path.join(home, "gitconfig"), GIT_CONFIG_NOSYSTEM: "1", GIT_TERMINAL_PROMPT: "0", LC_ALL: "C", NO_COLOR: "1" };
   const nativePaths = ["--config-path", nativeConfig, "--security-path", nativeSecurity];
+  const nativeCacheRoots = [".cache", ".swiftpm", "Library/Caches", "Library/Developer"]
+    .map((relative, index) => ({ name: `native-${index}`, path: path.join(home, relative) }));
   const report = { schemaVersion: 1, kind: "real-swiftpm", status: "running", platform: process.platform, architecture: process.arch,
     node: process.version, swift: null, checks: [], observations: {}, limitations: [
       "Dependency-free packages; shared manifest-cache reuse, not downloaded dependency-cache acceptance.",
@@ -108,6 +115,8 @@ test("REAL SwiftPM: build/test reuse, project switch, native precedence and reta
     assert.notEqual(pa.workspace.id, pb.workspace.id);
     assert.equal(fs.existsSync(pa.scratch.path), false); assert.equal(fs.existsSync(pa.cache.path), false);
     await phase("cold build/test and warm reuse", () => {
+      const nativeBefore = snapshotFootprint(nativeCacheRoots);
+      assert.equal(nativeBefore.complete, true, "native cache preflight must be complete");
       routed(buildArgs(), { label: "A cold build" });
       const bin = routed([...buildArgs(), "--show-bin-path"], { label: "A show-bin-path" }).stdout.trim();
       assert.ok(bin.startsWith(`${pa.scratch.path}${path.sep}`));
@@ -125,6 +134,9 @@ test("REAL SwiftPM: build/test reuse, project switch, native precedence and reta
       report.observations.reusedObjectCount = Object.keys(cold).filter((file) => file.endsWith(".o")).length;
       report.observations.sharedManifestCacheFiles = manifests.length;
       report.observations.binaryASha256 = hash(exe); report.observations.xunitSha256 = hash(xml);
+      const nativeAfter = snapshotFootprint(nativeCacheRoots), comparison = compareFootprints(nativeBefore, nativeAfter);
+      report.observations.supportedCommandNativeCaches = { before: nativeBefore, after: nativeAfter, comparison };
+      assert.equal(comparison.clean, true, "enabled SwiftPM cold/warm build/test must leave selected native home caches unchanged");
       noDisposableProducts();
     });
     await phase("A to B to A and nested package selection", () => {

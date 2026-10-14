@@ -4,6 +4,22 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-10-14
+
+Prepared as a source version for local runtime activation. This entry records no npm package publication or release tag.
+
+### Added
+
+- Read-only observed integration health and effective tool coverage in status/session diagnostics; doctor now identifies broken selected host configuration independently of installation receipts.
+- Explicit private scratch allocation, status-preserving logging guidance, and bounded native-home/installer footprint verification with disposable Claude/Codex lifecycle fixtures.
+- Physical Cargo build-root identity binding outside disposable storage, with explicit reapproval and exact command-admission checks.
+
+### Fixed
+
+- Ownership publication no longer recreates a vanished managed ancestor. Storage replacement during publication or admission refuses child launch.
+- Cleanup failures preserve the initiating error and completed child exit status. Unchanged runtime receipts preserve installation time, identity and bytes.
+- Native verification and package consumers use disposable homes, configuration and temporary paths while preserving selected installed toolchains and SDKs.
+
 ## [0.4.0] - 2026-09-30
 
 Prepared as a source version; npm publication and release-tag creation are separate actions. Verification remains tied to the exact tested source or package in the [verification ledger](docs/verification.md).

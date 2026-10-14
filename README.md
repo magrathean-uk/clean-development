@@ -63,6 +63,12 @@ triggers cleanup. Shared caches are not arbitrarily attributed to projects.
 See [workspace status and size limits](docs/status.md) and
 [read-only inspection guarantees](docs/inspection.md).
 
+Status also separates recorded integration ownership from current host
+configuration health. Doctor fails for a broken selected integration. Both are
+read-only; neither repairs settings or changes a running session. Effective tool
+coverage makes disabled Swift routing and native `.build` output visible. See
+[diagnostics](docs/diagnostics.md).
+
 ## What it manages
 
 When a routed session is active, the CLI provides adapters for:
@@ -83,7 +89,7 @@ When a routed session is active, the CLI provides adapters for:
 
 On macOS, `setup` also asks whether to manage Xcode DerivedData and simulator leftovers (default no); see [Xcode management](docs/xcode.md). It does not move `node_modules`, virtual environments, final Go binaries, release archives, Xcode archives, Rust toolchains, credentials, or arbitrary framework output. `CARGO_HOME` is not relocated because it can contain configuration, credentials, installed binaries, and caches together.
 
-The default managed layout is one root with `caches/`, `builds/`, and `scratch/` children. Routed Cargo build workspaces receive ownership records and active-build leases. Scratch storage is reserved; automatic scratch registration and cleanup are not implemented. Pruning is limited to registered direct children of the managed build root and is a dry run unless `--apply` is supplied.
+The default managed layout is one root with `caches/`, `builds/`, and `scratch/` children. Routed Cargo build workspaces receive ownership records and active-build leases. `clean-development scratch --prefix verification --json` explicitly allocates a private directory beneath an existing selected scratch root; see [scratch and status-preserving logs](docs/scratch.md). Automatic scratch cleanup is not implemented. Pruning is limited to registered direct children of the managed build root and is a dry run unless `--apply` is supplied.
 
 ## Install and develop from this checkout
 

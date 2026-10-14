@@ -42,7 +42,15 @@ WSL Linux tools and Windows executables can consume different path forms and sto
 
 ## Large local storage
 
-Prefer a configured external root for large managed build and test output. Verify the effective destination and available space before relying on routing. Place VMs, private labs, and test datasets at explicit external locations through their owning tools; they are not disposable managed build cache. Never treat VM images, private lab state, original evidence, or final deliverables as prune candidates.
+During storage setup, let each user choose a preferred external cache root and a local fallback. For this workspace, use `/Volumes/4TB/cache` when the 4TB volume is mounted and writable; when that volume is not mounted, use `~/dev/cache`, expanded to an absolute path. These are machine-specific choices, not universal defaults. Other users can configure their own volume and fallback.
+
+For new sessions, detect the actual volume mount and usable destination before selecting a root; the existence of a mount-point directory alone is insufficient. A mounted but unwritable destination is an error, not permission to fall back silently. Keep the selected destination fixed for an active routed session. If its volume disappears, stop that work and select a destination for a new session.
+
+Automatic selection belongs in the configured machine environment or an approved launcher; the CLI resolves supplied paths and does not discover external drives itself. Supply the selected root through `CLEAN_DEVELOPMENT_ROOT` and `CLEAN_DEVELOPMENT_CACHE_ROOT`, with `CLEAN_DEVELOPMENT_BUILD_ROOT` and `CLEAN_DEVELOPMENT_SCRATCH_ROOT` set to its `builds/` and `scratch/` children. Preview the resulting setup/session and inspect effective native overrides before applying a storage change. Existing explicit tool paths still win; reconcile them only within the authorized change, without force mode or silently unsetting them.
+
+Scratch work, temporary previews, and verification intermediates belong under the selected cache root's `scratch/`, not a separate source or development-root scratch folder. Local fallback covers ordinary caches and disposable small-job output. In this workspace, video-generation and SpecieX projects require external storage and have no internal fallback. Large projects, large builds, models, VMs, and private datasets configured for external storage must also stop when it is unavailable. Keep durable source, original evidence, and final deliverables outside disposable cache storage.
+
+Verify effective destinations and available space before relying on routing. Place VMs, private labs, and test datasets at explicit external locations through their owning tools; they are not disposable managed build cache. Never treat VM images, private lab state, original evidence, or final deliverables as prune candidates.
 
 Configure tools that reject symlink path components with physical external paths; compatibility links alone do not establish runtime acceptance.
 
@@ -71,4 +79,4 @@ The standalone `session` command cannot change its parent agent's environment. T
 
 For example, launch AGY with `clean-development agent antigravity --session session-only -- ...`, not `agent agy`. The Codex App uses the current-agent command wrapper; the `codex` launcher starts Codex CLI.
 
-Preserve explicit user environment overrides and host sandbox policies. If an external volume or required writable path is unavailable, report it; do not bypass the sandbox or fall back to repository-local storage. Do not edit `.env`, `.envrc`, `.gitignore`, manifests, build files, or agent guidance to activate routing. Source, credentials, toolchains, release deliverables, and unregistered directories remain externally owned. Shims and native hooks must not inject prompt bootstrap text or invoke this skill.
+Preserve explicit user environment overrides and host sandbox policies. If storage required by an external-only workload or a required writable path is unavailable, report it; use an approved local cache fallback only for a new session that permits it. Do not bypass the sandbox or fall back to repository-local storage. Do not edit `.env`, `.envrc`, `.gitignore`, manifests, build files, or agent guidance to activate routing. Source, credentials, toolchains, release deliverables, and unregistered directories remain externally owned. Shims and native hooks must not inject prompt bootstrap text or invoke this skill.

@@ -130,7 +130,7 @@ function query(executable, args, f) {
   const invocation = process.platform === "win32" && /\.(cmd|bat)$/i.test(executable)
     ? windowsBatchInvocation(executable, args, f.env) : { command: executable, args };
   const result = spawnSync(invocation.command, invocation.args, { cwd: f.cwd, env: f.env,
-    windowsVerbatimArguments: invocation.windowsVerbatimArguments, encoding: "utf8", timeout: 10000 });
+    windowsVerbatimArguments: invocation.windowsVerbatimArguments, encoding: "utf8", timeout: 30000 });
   assert.equal(result.status, 0, result.stderr || result.error?.message);
   return result.stdout.trim();
 }

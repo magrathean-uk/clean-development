@@ -52,6 +52,19 @@ function bytes(value) {
 
 export function formatStorageStatus(report) {
   const lines = [`Clean Development ${report.version} — read-only storage status`, `Build root: ${report.buildRoot}`];
+  if (report.toolCoverage) {
+    const swift = report.toolCoverage.find((entry) => entry.tool === "swift");
+    if (swift) lines.push(`SwiftPM: ${swift.enabled ? "enabled" : "disabled"}; mixed products: ${swift.outputs.find((entry) => entry.kind === "mixed-products").destination}; no pruning.`);
+    lines.push("Coverage describes configuration only; native script output and caller overrides still apply.");
+  }
+  if (report.integrationHealth) {
+    lines.push(`Integration receipt: ${report.integrationHealth.receipt.status}`);
+    for (const entry of report.integrationHealth.integrations) {
+      if (!entry.recorded && !entry.selected) continue;
+      lines.push(`Integration ${entry.agent}: ${entry.status} (${entry.reason})`, `  ${entry.detail}`);
+    }
+    lines.push(report.integrationHealth.scope);
+  }
   if (report.workspaceDetails) {
     lines.push(`Retention: ${report.retentionBuildDays} days. Valid registered records: ${report.workspaces}.`, "");
     for (const row of report.workspaceDetails) {

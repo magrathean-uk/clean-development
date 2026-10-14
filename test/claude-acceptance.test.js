@@ -193,3 +193,38 @@ test("Claude live launcher refuses fixture backends and unavailable tools before
   assert.throws(() => launch(item, "native", "normal"), /Live launch blocked/);
   assert.equal(fs.readdirSync(path.join(item.root, "evidence")).some((file) => file.startsWith("launch-")), false);
 });
+
+test("Claude loader rejects omitted/traversing protected inventory and credential/startup fields before execution", posix, async (t) => {
+  const { loadFixture } = await import("./claude-acceptance/fixture.mjs");
+  const item = lab(t), file = path.join(item.root, "lab.json"), original = fs.readFileSync(file, "utf8");
+  for (const mutate of [
+    (value) => { value.protected = {}; },
+    (value) => { value.protected[path.join(item.root, "..", "outside-secret")] = "must-not-read"; },
+    (value) => { value.env.NODE_OPTIONS = "--require /nonexistent-reviewer-input"; },
+    (value) => { value.env.ANTHROPIC_API_KEY = "synthetic-not-a-key"; },
+    (value) => { delete value.env.CARGO_NET_OFFLINE; }
+  ]) {
+    const changed = JSON.parse(original); mutate(changed); fs.writeFileSync(file, JSON.stringify(changed));
+    assert.throws(() => loadFixture(item.root)); assert.throws(() => product(item, ["status", "--json"]));
+    assert.throws(() => intact({ ...item, protected: {} }));
+    fs.writeFileSync(file, original);
+  }
+  const packageFile = path.join(item.projects.normal, "package.json"), packageOriginal = fs.readFileSync(packageFile, "utf8");
+  fs.writeFileSync(packageFile, '{"changed":true}\n');
+  try { assert.throws(() => intact({ ...item, protected: {} }), /changed|Expected|claude-acceptance/); }
+  finally { fs.writeFileSync(packageFile, packageOriginal); fs.writeFileSync(file, original); }
+});
+
+test("Claude loader bounds metadata and refuses metadata/source aliases", posix, async (t) => {
+  const { loadFixture } = await import("./claude-acceptance/fixture.mjs");
+  const item = lab(t), file = path.join(item.root, "lab.json"), original = fs.readFileSync(file, "utf8");
+  fs.writeFileSync(file, " ".repeat(1024 * 1024 + 1));
+  assert.throws(() => loadFixture(item.root), /bounded real file/); fs.writeFileSync(file, original);
+  const saved = path.join(item.root, "lab-saved.json"); fs.renameSync(file, saved); fs.symlinkSync(saved, file);
+  try { assert.throws(() => loadFixture(item.root), /bounded real file/); }
+  finally { fs.unlinkSync(file); fs.renameSync(saved, file); }
+  const source = path.join(item.projects.normal, "package.json"), other = path.join(item.root, "source-saved.json");
+  fs.renameSync(source, other); fs.symlinkSync(other, source);
+  try { assert.throws(() => loadFixture(item.root), /regular file/); }
+  finally { fs.unlinkSync(source); fs.renameSync(other, source); }
+});

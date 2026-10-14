@@ -6,14 +6,6 @@ import test from "node:test";
 import { SCENARIOS, isolatedEnvironment } from "./case.mjs";
 import { removeCompletedLab, runLab, sanitise } from "./lab.mjs";
 
-// These remain real failing assertions, not assertions that unsafe behaviour is
-// correct. The standalone lab exits 1 for them. Unexpected failures fail npm test.
-const KNOWN = new Map([
-  ["missing-during-marker/storage-identity", "FL-01: ordinary ownership publication recreates a disappeared base"],
-  ["replaced-managed-root/storage-identity", "FL-02: no persistent physical identity for a replaced managed base"],
-  ["publication-cleanup-error/original-error", "FL-03: cleanup EACCES masks publication ENOSPC"]
-]);
-
 test("fault lab uses no inherited homes, routes, preloads or tool search paths", () => {
   const root = path.resolve(os.tmpdir(), "not-created-fault-lab");
   const env = isolatedEnvironment(root);
@@ -67,8 +59,8 @@ test("disposable storage fault lab", { skip: process.platform === "win32" ? "POS
   for (const item of report.cases) {
     for (const check of item.checks) {
       const name = `${item.scenario}/${check.id}`;
-      unexpected ||= !check.passed && !KNOWN.has(name);
-      await t.test(name, { todo: KNOWN.get(name) || false }, () => {
+      unexpected ||= !check.passed;
+      await t.test(name, () => {
         assert.equal(check.passed, true, JSON.stringify({ expected: check.expected, actual: check.actual }));
       });
     }
