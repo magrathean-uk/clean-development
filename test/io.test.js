@@ -132,14 +132,24 @@ async function lockWorker() {
   const fs = (await import("node:fs")).default;
   const path = (await import("node:path")).default;
   const { acquireDirectoryLock, acquireDirectoryLockSync } = await import(process.argv[2]);
-  const { lock, mode, timeoutMs = 5_000, gate = null, probeError = null } = JSON.parse(process.argv[3]);
+  const { lock, mode, timeoutMs = 5_000, gate = null, probeError = null, guardGate = null } = JSON.parse(process.argv[3]);
   const waiter = new Int32Array(new SharedArrayBuffer(4));
   const send = (message) => process.send({ ...message, pid: process.pid });
   const watchdog = setTimeout(() => process.exit(98), 15_000);
   process.on("disconnect", () => process.exit(0));
   const mkdirSync = fs.mkdirSync;
   let reported = false;
+  let guardReported = false;
   fs.mkdirSync = (file, ...args) => {
+    if (guardGate && !guardReported && path.resolve(file) === `${path.resolve(lock)}.removal-guard`) {
+      guardReported = true;
+      send({ type: "guard-attempt" });
+      const deadline = Date.now() + 10_000;
+      while (!fs.existsSync(guardGate)) {
+        if (Date.now() >= deadline) throw new Error("Removal-guard barrier timed out");
+        Atomics.wait(waiter, 0, 0, 10);
+      }
+    }
     try { return mkdirSync(file, ...args); } catch (error) {
       if (error.code === "EEXIST" && path.resolve(file) === lock && !reported) {
         reported = true;
@@ -251,6 +261,77 @@ function ageLock(lock) {
 }
 
 for (const mode of ["async", "sync"]) {
+  test(`${mode} stale reclaim retains an unknown removal guard`, async (t) => {
+    const { root, lock, owner } = staleLockFixture(t);
+    const guard = `${lock}.removal-guard`;
+    fs.mkdirSync(guard);
+    const sentinel = path.join(guard, "keep.txt");
+    fs.writeFileSync(sentinel, "unknown guard\\n");
+    const original = fs.readFileSync(owner, "utf8");
+    const acquire = mode === "sync" ? acquireDirectoryLockSync : acquireDirectoryLock;
+    if (mode === "sync") assert.throws(() => acquire(lock, { timeoutMs: 0 }), /Timed out waiting for runtime lock/);
+    else await assert.rejects(acquire(lock, { timeoutMs: 0 }), /Timed out waiting for setup lock/);
+    assert.equal(fs.readFileSync(sentinel, "utf8"), "unknown guard\\n");
+    assert.equal(fs.readFileSync(owner, "utf8"), original);
+  });
+
+  test(`${mode} stale reclaim never follows a removal-guard symlink`, async (t) => {
+    const { lock, owner } = staleLockFixture(t);
+    const root = path.dirname(lock);
+    const guard = `${lock}.removal-guard`;
+    const target = path.join(root, "unknown-guard");
+    fs.mkdirSync(target);
+    const sentinel = path.join(target, "keep.txt");
+    fs.writeFileSync(sentinel, "unknown symlink target\\n");
+    try { fs.symlinkSync(target, guard, process.platform === "win32" ? "junction" : "dir"); }
+    catch (error) {
+      if (process.platform !== "win32" || error.code !== "EPERM") throw error;
+      t.skip("Directory symlinks require Windows developer mode or elevated privileges");
+      return;
+    }
+    const original = fs.readFileSync(owner, "utf8");
+    const acquire = mode === "sync" ? acquireDirectoryLockSync : acquireDirectoryLock;
+    if (mode === "sync") assert.throws(() => acquire(lock, { timeoutMs: 0 }), /Timed out waiting for runtime lock/);
+    else await assert.rejects(acquire(lock, { timeoutMs: 0 }), /Timed out waiting for setup lock/);
+    assert.equal(fs.lstatSync(guard).isSymbolicLink(), true);
+    assert.equal(fs.readFileSync(sentinel, "utf8"), "unknown symlink target\\n");
+    assert.equal(fs.readFileSync(owner, "utf8"), original);
+  });
+
+  test(`${mode} stale reclaim serializes removal and does not unlink the successor owner`, async (t) => {
+    const { root, lock, owner, start } = processLockFixture(t);
+    fs.mkdirSync(lock);
+    fs.writeFileSync(owner, `${JSON.stringify({
+      schemaVersion: 1,
+      token: "stale-generation",
+      pid: 2_147_483_647,
+      acquiredAt: new Date(Date.now() - 10_000).toISOString()
+    })}\n`);
+    ageLock(lock);
+
+    const gate = path.join(root, "continue-removal");
+    const delayed = start(mode, { timeoutMs: 500, guardGate: gate });
+    await delayed.expect("contended");
+    await delayed.expect("guard-attempt");
+
+    // The delayed worker already captured the old snapshot and is paused
+    // before the guard mkdir. This worker reclaims and immediately owns the
+    // newly published generation before the old remover resumes.
+    const successor = start(mode);
+    const acquired = await successor.expect("acquired");
+    assert.notEqual(acquired.owner.token, "stale-generation");
+    const liveOwner = fs.readFileSync(owner, "utf8");
+    fs.writeFileSync(gate, "continue\n");
+
+    const result = await delayed.expect(["failed", "acquired"]);
+    assert.equal(result.type, "failed");
+    assert.match(result.error, /Timed out waiting for .* lock/);
+    assert.equal(fs.existsSync(lock), true);
+    assert.equal(fs.readFileSync(owner, "utf8"), liveOwner);
+    assert.equal(await successor.release(), true);
+    assert.equal(fs.existsSync(lock), false);
+  });
+
   test(`${mode} real processes serialize acquisition, time out and reject a repeated old release`, async (t) => {
     const { lock, owner, start } = processLockFixture(t);
     const first = start(mode);

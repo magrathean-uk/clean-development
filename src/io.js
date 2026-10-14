@@ -297,24 +297,51 @@ function readLockSnapshot(directory) {
 }
 
 function removeLockDirectory(directory, expected) {
-  const current = readLockSnapshot(directory);
-  if (
-    !current || !expected || current.contents !== expected.contents
-    || !sameIdentity(current.identity, expected.identity)
-    || !sameIdentity(current.ownerIdentity, expected.ownerIdentity)
-  ) return false;
+  const guard = `${directory}.removal-guard`;
+  let guardIdentity;
   try {
+    validateRealDirectory(path.dirname(directory), "Lock parent");
+    fs.mkdirSync(guard, { mode: 0o700 });
+    validateRealDirectory(guard, "Lock removal guard");
+    guardIdentity = fs.lstatSync(guard, { bigint: true });
+    if (!guardIdentity.isDirectory() || guardIdentity.isSymbolicLink()) return false;
+  } catch {
+    // An existing, malformed, or replaced guard is uncertain evidence. Never
+    // reclaim it: a crashed remover must leave future cleanup fail-closed.
+    return false;
+  }
+
+  let removed = false;
+  try {
+    validateRealDirectory(guard, "Lock removal guard");
+    if (!sameIdentity(fs.lstatSync(guard, { bigint: true }), guardIdentity)) return false;
+    const current = readLockSnapshot(directory);
+    if (
+      !current || !expected || current.contents !== expected.contents
+      || !sameIdentity(current.identity, expected.identity)
+      || !sameIdentity(current.ownerIdentity, expected.ownerIdentity)
+    ) return false;
     fs.unlinkSync(path.join(directory, "owner.json"));
+    try {
+      fs.rmdirSync(directory);
+      removed = true;
+    } catch (error) {
+      if (error.code === "ENOENT") removed = true;
+    }
   } catch {
     return false;
+  } finally {
+    // Only remove the empty guard directory created above. If its identity is
+    // uncertain or it gained contents, retain it as an explicit fail-closed
+    // signal rather than touching an unknown replacement.
+    try {
+      validateRealDirectory(guard, "Lock removal guard");
+      if (sameIdentity(fs.lstatSync(guard, { bigint: true }), guardIdentity)) fs.rmdirSync(guard);
+    } catch {
+      // A retained guard blocks later release/recovery attempts safely.
+    }
   }
-  try {
-    fs.rmdirSync(directory);
-    return true;
-  } catch (error) {
-    if (error.code === "ENOENT") return true;
-    return false;
-  }
+  return removed;
 }
 
 export async function acquireDirectoryLock(directory, { timeoutMs = 30_000 } = {}) {

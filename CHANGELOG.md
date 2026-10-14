@@ -10,6 +10,7 @@ Prepared as a source version for local runtime activation. This entry records no
 
 ### Fixed
 
+- Lock release and stale-owner recovery now serialize removal with a sibling guard and recheck the lock generation after claiming that guard. A delayed reclaimer cannot unlink a successor's live owner; unknown or interrupted guards remain retained.
 - Explicit repair of a completely missing Codex block now replaces its stale native ownership receipt when existing user settings require launcher fallback. A retry can reconcile the single native-plus-launcher residue from the earlier updater while retaining user configuration and refusing ambiguous native claims.
 - Missing-block previews use a read-only snapshot and apply rechecks that snapshot before editing or selecting launcher fallback.
 
