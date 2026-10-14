@@ -55,7 +55,7 @@ export function makeFixture({ backend = "fixture", scratchRoot = os.tmpdir(), np
     env.PATH = `${path.dirname(npm)}:${env.PATH}`;
   }
   env.PATH = `${tools}:${env.PATH}`; env.CD_CODEX_LAB = root;
-  const item = { schemaVersion: 1, owner: "clean-development-codex-acceptance", root, scratchRoot: path.resolve(scratchRoot), backend,
+  const item = { schemaVersion: 1, owner: "clean-development-codex-acceptance", root, scratchRoot: canonicalScratchRoot, backend,
     env, tools, projects, outputs, evidence, managed: path.join(root, "managed"), bin: path.join(root, "data", "bin"), originalConfig,
     npm, source: sourceIdentity(), protected: Object.fromEntries(Object.values(projects).flatMap((project) => ["package.json", "artifact.txt",
       ...(project === projects.disabled ? [".clean-development.json"] : [])].map((name) => path.join(project, name)))
