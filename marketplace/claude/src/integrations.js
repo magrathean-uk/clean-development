@@ -320,7 +320,8 @@ function installGrokCommandPrefix(config, runtime, file, previousEntries = []) {
   let original = fs.existsSync(file) ? readTextMetadata(file) : "";
   const previousForFile = previousEntries.filter((entry) => entry.agent === "grok" && entry.mode === "native-shell-environment" && entry.file === file);
   for (const entry of previousForFile) {
-    if (removeOwnedTomlBlock(config, entry, { allowAbsent: true }) === "unsafe") {
+    const removed = removeOwnedTomlBlock(config, entry, { allowAbsent: true });
+    if (removed === "unsafe") {
       throw new Error(`Cannot update owned grok integration safely in ${file}; the recorded block was changed, removed, or is ambiguous`);
     }
     original = fs.existsSync(file) ? readTextMetadata(file) : "";
@@ -483,7 +484,7 @@ function persistentPath(pathValue, runtimeBin, { cwd, env, home }) {
   return prependUniquePath(entries.join(path.delimiter), runtimeBin);
 }
 
-function installShellEnvironment(config, runtime, agent, file, env = process.env, previousEntries = [], cwd = process.cwd()) {
+function installShellEnvironment(config, runtime, agent, file, env = process.env, previousEntries = [], cwd = process.cwd(), { repairMissing = false } = {}) {
   if (packageRunnerEnvironment(env)) {
     return launcherIntegration(
       agent,
@@ -495,12 +496,17 @@ function installShellEnvironment(config, runtime, agent, file, env = process.env
   fs.mkdirSync(path.dirname(file), { recursive: true });
   let original = fs.existsSync(file) ? readTextMetadata(file) : "";
   const previousForFile = previousEntries.filter((entry) => entry.agent === agent && entry.mode === "native-shell-environment" && entry.file === file);
+  if (previousForFile.length > 1) throw new Error(`Cannot update owned ${agent} integration safely in ${file}; multiple recorded blocks are ambiguous`);
   for (const entry of previousForFile) {
     const removed = removeTomlBlockText(original, entry, config.locations.binDir);
     if (!removed.removed) {
-      throw new Error(`Cannot update owned ${agent} integration safely in ${file}; the recorded block was changed, removed, or is ambiguous`);
-    }
-    original = removed.content;
+      if (!repairMissing || removeOwnedTomlBlock(config, entry, { allowAbsent: true }) !== "absent") {
+        throw new Error(`Cannot update owned ${agent} integration safely in ${file}; the recorded block was changed, removed, or is ambiguous`);
+      }
+      // Re-read after the apply-time absence check so preserved user settings
+      // come from the configuration we just validated, not the earlier read.
+      original = readTextMetadata(file);
+    } else original = removed.content;
   }
   const ownershipId = previousForFile.find((entry) => entry.ownershipId)?.ownershipId || randomUUID();
   const { begin, end } = tomlMarkers(agent, ownershipId);
@@ -610,7 +616,7 @@ function installShellEnvironment(config, runtime, agent, file, env = process.env
   };
 }
 
-export function installAgentIntegrations(config, runtime, agents, env = process.env, cwd = process.cwd()) {
+export function installAgentIntegrations(config, runtime, agents, env = process.env, cwd = process.cwd(), options = {}) {
   const receiptFile = path.join(config.locations.stateDir, "integrations.json");
   const previous = readIntegrationReceipt(config, env, { enforcePaths: true });
   const previousEntries = Array.isArray(previous.integrations) ? previous.integrations : [];
@@ -633,7 +639,7 @@ export function installAgentIntegrations(config, runtime, agents, env = process.
     if (!Object.hasOwn(SUPPORTED_AGENTS, agent)) throw new Error(`Unsupported agent: ${agent}`);
     let integration;
     if (agent === "claude") integration = installClaudeHook(config, runtime, env, previousEntries);
-    else if (agent === "codex") integration = installShellEnvironment(config, runtime, agent, agentConfigPath(config, env, agent), env, previousEntries, cwd);
+    else if (agent === "codex") integration = installShellEnvironment(config, runtime, agent, agentConfigPath(config, env, agent), env, previousEntries, cwd, options);
     else if (agent === "grok") {
       integration = installGrokCommandPrefix(
         config,
@@ -671,7 +677,7 @@ function removeOwnedTomlBlock(config, entry, { allowAbsent = false } = {}) {
   try {
     fs.lstatSync(file);
   } catch (error) {
-    return allowAbsent && error.code === "ENOENT" ? "absent" : "unsafe";
+    return allowAbsent && error.code === "ENOENT" ? "file-missing" : "unsafe";
   }
   if (entry.referent) {
     try {
@@ -683,19 +689,25 @@ function removeOwnedTomlBlock(config, entry, { allowAbsent = false } = {}) {
   const { begin, end } = receiptTomlMarkers(entry);
   const original = readTextMetadata(file);
   if (allowAbsent && !original.includes(begin) && !original.includes(end)) {
-    const syntax = tomlSyntaxLines(original.split(/\r?\n/));
-    if (!syntax || syntax.some((line) => /^\s*#\s*clean-development\s+(?:begin|end)\s*\(grok\)/.test(line))) return "unsafe";
-    const binForms = [config.locations.binDir, tomlString(config.locations.binDir).slice(1, -1)];
-    const text = process.platform === "win32" ? original.toLowerCase() : original;
-    const hasRuntimePath = binForms.some((value) => text.includes(process.platform === "win32" ? value.toLowerCase() : value));
-    if (hasRuntimePath && syntax.some((line) => tomlKeyUse(line, "CLEAN_DEVELOPMENT_ACTIVE") || tomlKeyUse(line, "CLEAN_DEVELOPMENT_SESSION_MODE") || tomlKeyUse(line, "cmd_prefix"))) return "unsafe";
-    if (syntax.some((line, index) => isOwnedTomlBlock(syntax.slice(index, index + 2), config.locations.binDir))) return "unsafe";
-    return "absent";
+    return validateAbsentTomlBlock(config, entry, original);
   }
   const result = removeTomlBlockText(original, entry, config.locations.binDir);
   if (!result.removed) return "unsafe";
   writeTextAtomicFollowingLeafSymlink(file, result.content);
   return "removed";
+}
+
+function validateAbsentTomlBlock(config, entry, original) {
+  const syntax = tomlSyntaxLines(original.split(/\r?\n/));
+  const escapedAgent = entry.agent.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const marker = new RegExp(`^\\s*#\\s*clean-development\\s+(?:begin|end)\\s*\\(${escapedAgent}\\)`);
+  if (!syntax || syntax.some((line) => marker.test(line))) return "unsafe";
+  const binForms = [config.locations.binDir, tomlString(config.locations.binDir).slice(1, -1)];
+  const text = process.platform === "win32" ? original.toLowerCase() : original;
+  const hasRuntimePath = binForms.some((value) => text.includes(process.platform === "win32" ? value.toLowerCase() : value));
+  if (hasRuntimePath && syntax.some((line) => tomlKeyUse(line, "CLEAN_DEVELOPMENT_ACTIVE") || tomlKeyUse(line, "CLEAN_DEVELOPMENT_SESSION_MODE") || tomlKeyUse(line, "cmd_prefix"))) return "unsafe";
+  if (syntax.some((line, index) => isOwnedTomlBlock(syntax.slice(index, index + 2), config.locations.binDir))) return "unsafe";
+  return "absent";
 }
 
 function receiptEntries(config, env = process.env) {
@@ -1241,4 +1253,27 @@ export function integrationHealth(config, env = process.env) {
   }
   return { schemaVersion: 1, receipt: { file, ...receipt }, recorded, integrations,
     scope: "Configuration snapshot only; command wrappers, shell startup and already-running host environments are independent and are not tested" };
+}
+
+/** Preview explicitly selected missing native TOML blocks without writing. */
+export function planMissingIntegrationRepairs(config, agents, env = process.env) {
+  const selected = new Set(agents);
+  const entries = readIntegrationReceipt(config, env, { enforcePaths: true }).integrations;
+  const observed = integrationHealth(config, env).integrations;
+  const repairs = [];
+  for (const agent of ["codex"]) {
+    if (!selected.has(agent)) continue;
+    const matches = entries.filter((entry) => entry.agent === agent && entry.mode === "native-shell-environment");
+    if (matches.length !== 1) continue;
+    const entry = matches[0];
+    const health = observed.find((item) => item.agent === agent && item.file === entry.file);
+    if (health?.status !== "missing" || health.reason !== "owned-block-missing") continue;
+    if (removeOwnedTomlBlock(config, entry, { allowAbsent: true }) !== "absent") continue;
+    repairs.push({
+      agent,
+      file: entry.file,
+      reason: "The recorded TOML block is absent; the existing file has no conflicting ownership markers or recognizable unmarked runtime block."
+    });
+  }
+  return repairs;
 }

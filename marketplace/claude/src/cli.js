@@ -4,7 +4,7 @@ import { createInterface } from "node:readline/promises";
 import { allToolEnvironments, environmentForTool } from "./adapters.js";
 import { resolveConfig, writeProjectConfig, writeUserConfig } from "./config.js";
 import { CONFIG_FILE, DEFAULT_CONFIG, SHIM_TOOLS, SUPPORTED_AGENTS, VERSION } from "./constants.js";
-import { installAgentIntegrations, integrationStatus, integrationHealth, applyClaudeSessionEnvironment, removeOwnedAgentIntegrations, validateClaudeHookOwner } from "./integrations.js";
+import { installAgentIntegrations, integrationStatus, integrationHealth, planMissingIntegrationRepairs, applyClaudeSessionEnvironment, removeOwnedAgentIntegrations, validateClaudeHookOwner } from "./integrations.js";
 import { acquireDirectoryLock, readJson, writeJsonAtomic } from "./io.js";
 import { environmentValue, platformPaths, prependUniquePath } from "./platform.js";
 import { ensureRuntime, removeRuntime, resolveExecutable, runTool, runWithShims, runtimeHealth, runtimeRemovalPlan } from "./runtime.js";
@@ -27,8 +27,8 @@ const HELP = `clean-development ${VERSION}
 Keep new development caches and supported build output in one managed place.
 
 Usage:
-  clean-development setup [--root PATH] [--agents LIST] [--xcode | --no-xcode] [--dry-run] [--json]
-  clean-development update [--root PATH] [--agents LIST] [--xcode | --no-xcode] [--dry-run] [--json]
+  clean-development setup [--root PATH] [--agents LIST] [--repair-missing] [--xcode | --no-xcode] [--dry-run] [--json]
+  clean-development update [--root PATH] [--agents LIST] [--repair-missing] [--xcode | --no-xcode] [--dry-run] [--json]
   clean-development prepare [--dry-run] [--json]
   clean-development scratch [--prefix NAME] [--dry-run] [--json]
   clean-development session [--session session-only|persist|skip] [--dry-run] [--json]
@@ -65,8 +65,8 @@ CLEAN_DEVELOPMENT_FORCE=1 is set.`;
 const COMMAND_OPTIONS = Object.freeze({
   help: {},
   version: {},
-  setup: { root: "value", agents: "value", xcode: "boolean", "no-xcode": "boolean", "dry-run": "boolean", json: "boolean" },
-  update: { root: "value", agents: "value", xcode: "boolean", "no-xcode": "boolean", "dry-run": "boolean", json: "boolean" },
+  setup: { root: "value", agents: "value", "repair-missing": "boolean", xcode: "boolean", "no-xcode": "boolean", "dry-run": "boolean", json: "boolean" },
+  update: { root: "value", agents: "value", "repair-missing": "boolean", xcode: "boolean", "no-xcode": "boolean", "dry-run": "boolean", json: "boolean" },
   prepare: { "dry-run": "boolean", json: "boolean" },
   scratch: { prefix: "value", "dry-run": "boolean", json: "boolean" },
   session: { session: "value", "dry-run": "boolean", json: "boolean" },
@@ -224,6 +224,7 @@ async function setup(options, env, operation = "setup") {
   };
   if (xcodeSupported()) summary.xcode = { ...xcodeSettings(config), derivedDataRoot: xcodePaths(config).derivedData };
   if (options["dry-run"]) {
+    if (options["repair-missing"]) summary.integrationRepairs = planMissingIntegrationRepairs(config, agents, env);
     if (xcodeSupported() && config.xcode) summary.xcode = applyXcodeSettings(config, env, { dryRun: true });
     return summary;
   }
@@ -239,7 +240,7 @@ async function setup(options, env, operation = "setup") {
     const runtime = ensureRuntime(persisted);
     checkpointLifecycleRecovery(persisted, recovery, "runtime-published");
     summary.runtime = { version: VERSION, binDir: runtime.binDir };
-    summary.integrations = installAgentIntegrations(persisted, runtime, agents, env);
+    summary.integrations = installAgentIntegrations(persisted, runtime, agents, env, process.cwd(), { repairMissing: Boolean(options["repair-missing"]) });
     if (xcodeSupported() && (persisted.xcode || fs.existsSync(xcodePaths(persisted).receipt))) summary.xcode = applyXcodeSettings(persisted, env);
     checkpointLifecycleRecovery(persisted, recovery, "complete");
     return summary;
