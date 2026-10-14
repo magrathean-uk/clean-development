@@ -4,6 +4,8 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
+import { resolveConfig } from "../src/config.js";
+import { installAgentIntegrations, planMissingIntegrationRepairs } from "../src/integrations.js";
 import { withoutCleanDevelopmentEnvironment } from "../scripts/harness-utils.mjs";
 
 const cli = path.resolve("bin/clean-development.js");
@@ -129,6 +131,65 @@ test("repair apply revalidates configuration changed after dry-run", (t) => {
   assert.match(apply.stderr, /Cannot update owned codex integration safely/);
   assert.equal(fs.readFileSync(entry.file, "utf8"), changed);
 
+});
+
+test("repair preview and apply never remove a block restored between validation reads", (t) => {
+  const item = fixture();
+  t.after(() => fs.rmSync(item.root, { recursive: true, force: true }));
+  const initial = setup(item, "codex");
+  const entry = initial.integrations.find((value) => value.agent === "codex");
+  const ownedBlock = fs.readFileSync(entry.file, "utf8");
+  const absentFile = '[user]\nkeep = "preserved"\n';
+  fs.writeFileSync(entry.file, absentFile);
+  const config = resolveConfig({ env: item.env, overrides: { root: item.managed }, includeProject: false });
+
+  const originalOpen = fs.openSync;
+  const originalWrite = fs.writeFileSync;
+  let previewFileOpens = 0;
+  fs.openSync = function (file, ...args) {
+    if (path.resolve(String(file)) === path.resolve(entry.file) && ++previewFileOpens === 2) {
+      originalWrite.call(fs, entry.file, ownedBlock, "utf8");
+    }
+    return originalOpen.call(fs, file, ...args);
+  };
+  try {
+    assert.deepEqual(planMissingIntegrationRepairs(config, ["codex"], item.env), []);
+  } finally {
+    fs.openSync = originalOpen;
+  }
+  assert.equal(previewFileOpens, 2);
+  assert.equal(fs.readFileSync(entry.file, "utf8"), ownedBlock);
+
+  fs.writeFileSync(entry.file, absentFile);
+  const beforeReceipt = receipt(item);
+  let applyFileOpens = 0;
+  fs.openSync = function (file, ...args) {
+    if (path.resolve(String(file)) === path.resolve(entry.file) && ++applyFileOpens === 2) {
+      originalWrite.call(fs, entry.file, ownedBlock, "utf8");
+    }
+    return originalOpen.call(fs, file, ...args);
+  };
+  try {
+    assert.throws(() => installAgentIntegrations(
+      config, { binDir: initial.runtime.binDir }, ["codex"], item.env, process.cwd(), { repairMissing: true }
+    ), /Cannot update owned codex integration safely/);
+  } finally {
+    fs.openSync = originalOpen;
+  }
+  assert.equal(applyFileOpens, 2);
+  assert.equal(fs.readFileSync(entry.file, "utf8"), ownedBlock);
+  assert.equal(fs.readFileSync(beforeReceipt.file, "utf8"), beforeReceipt.text);
+});
+
+test("repair preview of an existing owned block is empty and read-only", (t) => {
+  const item = fixture();
+  t.after(() => fs.rmSync(item.root, { recursive: true, force: true }));
+  const initial = setup(item, "codex");
+  const entry = initial.integrations.find((value) => value.agent === "codex");
+  const before = fs.readFileSync(entry.file, "utf8");
+  const config = resolveConfig({ env: item.env, overrides: { root: item.managed }, includeProject: false });
+  assert.deepEqual(planMissingIntegrationRepairs(config, ["codex"], item.env), []);
+  assert.equal(fs.readFileSync(entry.file, "utf8"), before);
 });
 
 test("update repair preserves the configured agent selection", (t) => {
