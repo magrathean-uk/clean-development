@@ -4,6 +4,10 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-10-14
+
+Prepared as a source version for local runtime activation. This entry records no npm package publication or release tag.
+
 ### Added
 
 - Read-only observed integration health and effective tool coverage in status/session diagnostics; doctor now identifies broken selected host configuration independently of installation receipts.
