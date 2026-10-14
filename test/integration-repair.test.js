@@ -24,8 +24,8 @@ function fixture() {
   return { root, env, managed: path.join(root, "managed") };
 }
 
-function run(item, args) {
-  return spawnSync(process.execPath, [cli, ...args], { cwd: process.cwd(), env: item.env, encoding: "utf8" });
+function run(item, args, env = item.env) {
+  return spawnSync(process.execPath, [cli, ...args], { cwd: process.cwd(), env, encoding: "utf8" });
 }
 
 function setup(item, agents) {
@@ -221,4 +221,68 @@ test("eligible Codex absence falls back to launcher when user policy cannot be p
   const integration = JSON.parse(updated.stdout).integrations.find((value) => value.agent === "codex");
   assert.equal(integration.mode, "zero-context-launcher");
   assert.equal(fs.readFileSync(entry.file, "utf8"), userPolicy);
+  const recorded = receipt(item).value.integrations.filter((value) => value.agent === "codex");
+  assert.equal(recorded.length, 1);
+  assert.equal(recorded[0].mode, "zero-context-launcher");
+  assert.equal(Object.hasOwn(recorded[0], "repairMissing"), false);
+  const status = run(item, ["status", "--json"]);
+  assert.equal(status.status, 0, status.stderr);
+  assert.deepEqual(JSON.parse(status.stdout).integrationHealth.integrations
+    .filter((value) => value.agent === "codex").map(({ status: value }) => value), ["present"]);
+  const doctor = run(item, ["doctor", "--json"]);
+  assert.equal(doctor.status, 0, doctor.stderr);
+});
+
+test("repair resolves the prior native-plus-launcher Codex receipt residue", (t) => {
+  const item = fixture();
+  t.after(() => fs.rmSync(item.root, { recursive: true, force: true }));
+  const initial = setup(item, "codex");
+  const native = initial.integrations.find((value) => value.agent === "codex");
+  const userPolicy = '[shell_environment_policy]\ninherit = "all"\n\n[shell_environment_policy.set]\nMODEL = "keep"\n';
+  fs.writeFileSync(native.file, userPolicy);
+  const stored = receipt(item);
+  const launcher = {
+    agent: "codex",
+    mode: "zero-context-launcher",
+    command: path.join(initial.runtime.binDir, `clean-development-codex${process.platform === "win32" ? ".cmd" : ""}`)
+  };
+  stored.value.integrations.push(launcher);
+
+  // The malformed mixed pair remains invalid under strict receipt validation.
+  const wrongLauncher = { ...launcher, command: path.join(item.root, "other", "clean-development-codex") };
+  stored.value.integrations[stored.value.integrations.length - 1] = wrongLauncher;
+  fs.writeFileSync(stored.file, `${JSON.stringify(stored.value, null, 2)}\n`);
+  const rejected = run(item, ["update", "--root", item.managed, "--repair-missing", "--dry-run", "--json"]);
+  assert.equal(rejected.status, 1);
+  assert.match(rejected.stderr, /Invalid integration receipt/);
+  assert.equal(fs.readFileSync(native.file, "utf8"), userPolicy);
+
+  stored.value.integrations[stored.value.integrations.length - 1] = launcher;
+  const validReceipt = `${JSON.stringify(stored.value, null, 2)}\n`;
+  fs.writeFileSync(stored.file, validReceipt);
+  const preview = run(item, ["update", "--root", item.managed, "--repair-missing", "--dry-run", "--json"]);
+  assert.equal(preview.status, 0, preview.stderr);
+  assert.equal(JSON.parse(preview.stdout).integrationRepairs.length, 1);
+  assert.equal(fs.readFileSync(native.file, "utf8"), userPolicy);
+  assert.equal(fs.readFileSync(stored.file, "utf8"), validReceipt);
+
+  const updated = run(item, ["update", "--root", item.managed, "--repair-missing", "--json"], {
+    ...item.env,
+    npm_lifecycle_event: "test"
+  });
+  assert.equal(updated.status, 0, updated.stderr);
+  const codexEntries = receipt(item).value.integrations.filter((value) => value.agent === "codex");
+  assert.equal(codexEntries.length, 1);
+  assert.equal(codexEntries[0].mode, "zero-context-launcher");
+  assert.equal(codexEntries[0].command, launcher.command);
+  assert.equal(codexEntries[0].configFile, native.file);
+  assert.match(codexEntries[0].reason, /transient PATH/);
+  assert.equal(Object.hasOwn(codexEntries[0], "repairMissing"), false);
+  assert.equal(fs.readFileSync(native.file, "utf8"), userPolicy);
+  const status = run(item, ["status", "--json"]);
+  assert.equal(status.status, 0, status.stderr);
+  assert.deepEqual(JSON.parse(status.stdout).integrationHealth.integrations
+    .filter((value) => value.agent === "codex").map(({ status: value }) => value), ["present"]);
+  const doctor = run(item, ["doctor", "--json"]);
+  assert.equal(doctor.status, 0, doctor.stderr);
 });

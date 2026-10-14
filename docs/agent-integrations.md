@@ -75,7 +75,11 @@ to refuse by default. Review the bounded candidate list with
 to selected Codex installations whose existing TOML has no conflicting
 ownership markers or recognizable unmarked runtime block. Preview and apply
 preserve unrelated settings, and apply rechecks the current file before writing.
-Grok's existing migration behavior is unchanged.
+If the existing Codex policy requires the launcher fallback, repair removes only
+the stale native receipt claim and records the launcher, without editing that
+policy. A single validated native-plus-launcher receipt pair from an interrupted
+earlier transition is also eligible for this explicit repair. Grok's existing
+migration behavior is unchanged.
 
 TOML ownership markers are comments, not table boundaries. If user settings after an owned block still belong to a table introduced inside it, setup/update and uninstall retain that table header and its separator. For example, a later Codex environment key must stay in `[shell_environment_policy.set]`, and a Grok bash timeout must stay in `[toolset.bash]`, rather than moving into the root or a preceding unrelated table. The retained header is unmarked and treated as user-owned on subsequent runs; unrelated settings and their line endings are preserved. A following table header or only trailing comments/whitespace does not require retaining an otherwise unused owned header.
 
