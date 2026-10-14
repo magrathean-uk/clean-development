@@ -7,6 +7,18 @@ appears in `integrationHealth.receipt`; it does not hide the rest of storage
 status. Setup, update and uninstall still use strict receipt validation before
 authorizing any edit.
 
+`setup` and `update` refuse to replace a recorded Codex TOML block when its
+ownership markers are missing. An explicit `--repair-missing` opts into repair
+only when Codex is selected, exactly one valid native entry is recorded, health
+observes the block itself as missing, and the existing TOML file has no
+conflicting markers or recognizable unmarked runtime block. Preview eligible
+repairs with `setup --repair-missing --dry-run --json` or
+`update --repair-missing --dry-run --json`; the report names only the agent,
+configuration path and reason. Apply repeats the absence checks against the
+current file. Partial, modified, ambiguous, changed-owner, unsupported or
+unmarked owned remnants remain refusals. Grok's existing migration behavior is
+unchanged.
+
 Observed entries use these states:
 
 | State | Observation |
