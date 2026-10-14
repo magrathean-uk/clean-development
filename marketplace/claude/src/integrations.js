@@ -131,7 +131,9 @@ function installClaudeHook(config, runtime, env = process.env, previousEntries =
     settings.hooks.SessionStart,
     previousForFile.map((entry) => entry.command)
   ).entries;
-  const ownershipId = previousForFile.find((entry) => entry.ownershipId)?.ownershipId || randomUUID();
+  const currentGeneration = previousForFile.find((entry) => entry.ownershipId
+    && entry.command === hookCommand(runtime, entry.ownershipId));
+  const ownershipId = currentGeneration?.ownershipId || randomUUID();
   const command = hookCommand(runtime, ownershipId);
   settings.hooks.SessionStart.push({
     matcher: "startup|resume|clear|compact|fork",
