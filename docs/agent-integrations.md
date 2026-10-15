@@ -12,10 +12,10 @@ Named host observations below are dated repository records. Their results apply 
 
 | Family / surface | Native pass-through integration | Zero-context launcher | Package metadata | Evidence boundary |
 |---|---|---|---|---|
-| Claude Code | Shipped: `SessionStart`; plugin also uses `CwdChanged` | `clean-development-claude` | Claude plugin | Management skill and explicitly wrapped child commands passed with 2.1.283 / Sonnet 5; full native-hook/lifecycle acceptance pending |
+| Claude Code | Shipped: `SessionStart`; plugin also uses `CwdChanged` | `clean-development-claude` | Claude plugin | One isolated print-mode session passed on v0.4.3 with Claude Code 2.1.300 / Haiku 5.5, real Cargo 1.98.1 `--offline --locked`, and eight routing/artifact/isolation checks; full native-hook/lifecycle acceptance, resume, fork, subagents and billed-token neutrality remain unverified |
 | Antigravity | None | `clean-development-antigravity` | Portable layout validates; launcher recommended | Routing and short model workflow passed with `agy` 1.2.7; long print-mode commands hit an upstream cancellation bug; explicit-only skill discovery unverified |
 | Codex App | Shipped: `allow_login_shell = false` and `shell_environment_policy` | Not applicable to the GUI | Codex plugin and repo marketplace | Restart, sandbox, and shell snapshot acceptance pending |
-| Codex CLI | Shipped: non-login-shell environment policy | `clean-development-codex` | Codex plugin and repo marketplace | Terra-high model workflow passed with 0.154.0, managed Cargo output, and no local `target` |
+| Codex CLI | Shipped: non-login-shell environment policy | `clean-development-codex` | Codex plugin and repo marketplace | Earlier Terra-high workflow passed with 0.154.0; v0.4.3 checked launcher version 0.162.0-alpha.17.2 only, without repeating authenticated model acceptance |
 | Cursor | None | `clean-development-cursor` | Cursor manifest | Launcher/package route only; acceptance pending |
 | Devin CLI | None | `clean-development-devin` | Devin manifest | Launcher/package route only; acceptance pending |
 | Factory Droid | None | `clean-development-droid` | Claude-compatible | Launcher/package route only; acceptance pending |
@@ -103,4 +103,4 @@ For a checkout, the local CLI remains available as `node ./bin/clean-development
 
 ## Acceptance status
 
-The table combines earlier host observations with the final v0.2.0 consent-flow checks. Fresh isolated Codex and Grok acceptance is tracked in [verification](verification.md); earlier green workflows alone are not evidence for the new flow. Real-host acceptance remains required before promoting any still-unverified native route, while model-request capture remains a separate token-neutrality certification task. See [ROADMAP.md](../roadmap.md). Until a named host/version passes its stated boundary, describe its routes as shipped but unverified.
+The table combines dated host observations with isolated consent-flow checks. The v0.4.3 Claude result and Codex launcher check are bounded by the exact versions and actions recorded in [verification](verification.md); earlier green workflows alone are not evidence for a later flow. Real-host acceptance remains required before promoting any still-unverified native route, while model-request capture remains a separate token-neutrality certification task. See [ROADMAP.md](../ROADMAP.md). Until a named host/version passes its stated boundary, describe its routes as shipped but unverified.

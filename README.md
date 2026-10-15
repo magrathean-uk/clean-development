@@ -10,7 +10,7 @@
 
 `clean-development` routes new development caches and supported build output to a managed root. It is a local Node.js CLI for developers and coding agents. Routing is explicit and preserves existing environment values unless force mode is selected.
 
-The current source version is `0.4.0` and requires Node.js `20.12` or newer. The repository is MIT licensed. It has not been published to npm or listed in the official Codex or Claude directories; use this source checkout until a public release is available.
+The current version is `0.5.0` and requires Node.js `20.12` or newer. Release artifacts and publication status are on the [`v0.5.0` GitHub release](https://github.com/magrathean-uk/clean-development/releases/tag/v0.5.0). The repository is MIT licensed. See [release verification](docs/verification.md) for executed checks and host coverage. The source installation below works independently of npm publication.
 
 Windows and Linux use their native environment, path, and storage semantics. See [platform support](docs/platform-support.md) for location overrides, quoted Windows PATH entries, WSL boundaries, and the distinction between configured CI checks and completed native acceptance.
 

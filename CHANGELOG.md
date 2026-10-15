@@ -4,6 +4,27 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-15
+
+Release of the storage, diagnostics and host-integration improvements developed in the 0.4.x source versions below. Publication status and artifacts are recorded on the [GitHub release](https://github.com/magrathean-uk/clean-development/releases/tag/v0.5.0); a source version alone does not establish npm availability.
+
+### Added
+
+- Observed integration health, effective tool coverage and bounded storage/lock diagnostics help explain blocked commands without changing configuration or storage.
+- An explicit, isolated Claude API smoke runner correlates native hook, session, tool-call and real offline build evidence while bounding cost, time and output. Its fixture forwards the owned hook's original input and environment, uses a locked Cargo build, and verifies credential absence and source preservation.
+
+### Fixed
+
+- Storage admission and ownership publication reject missing or replaced managed roots using physical identity and ownership receipts. Cleanup preserves initiating failures and completed child exit status.
+- Ordinary and recovery lock operations coordinate removal and admission, recheck generations, and retain interrupted guards and renamed-lock evidence instead of deleting a successor's state.
+- Claude hook ownership tracks the selected runtime and Node command; Codex repair reconciles missing owned configuration while preserving independent settings and launcher fallback.
+- Disposable installer, updater and host fixtures preserve selected toolchains, route generated state, and cover native Windows and macOS path behavior.
+
+### Changed
+
+- All package and integration manifests are versioned as 0.5.0. Management skills remain explicitly invoked, with matching Claude/Codex instructions and no automatic prompt bootstrap.
+- The [verification ledger](docs/verification.md) records the tested 0.4.3 source and successful bounded Claude observation separately from release-artifact checks and untested host lifecycles.
+
 ## [0.4.3] - 2026-10-15
 
 Prepared as a source version for local runtime activation. This entry records no npm package publication or release tag.

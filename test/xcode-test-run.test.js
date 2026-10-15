@@ -466,12 +466,12 @@ test("SIGINT is forwarded to the test child, then the owned simulator is cleaned
   const child = writeChild(item, `
 import fs from "node:fs";
 const timer = setInterval(() => {}, 1000);
-fs.writeFileSync(${JSON.stringify(ready)}, "ready");
 process.on("SIGINT", () => {
   clearInterval(timer);
   fs.writeFileSync(${JSON.stringify(signalCapture)}, "SIGINT");
   process.exitCode = 130;
 });
+fs.writeFileSync(${JSON.stringify(ready)}, "ready");
 `);
   const processChild = spawn(process.execPath, [cli, ...runArgs(item, process.execPath, [child])], {
     cwd: item.project, env: item.env, stdio: ["ignore", "pipe", "pipe"]
