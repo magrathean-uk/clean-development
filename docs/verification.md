@@ -1,6 +1,6 @@
 # Verification status
 
-This ledger separates recorded checks from current acceptance. The source version is `0.4.0`, but it is not an npm publication or release tag. The observations below are dated repository records. They do not establish acceptance for a later source revision, package, or host version.
+This ledger separates recorded checks from current acceptance. The current source version is `0.5.0`. Final artifact hashes, source-to-package audit reports and publication status belong to the [matching GitHub release](https://github.com/magrathean-uk/clean-development/releases/tag/v0.5.0). The observations below are dated repository records. They do not establish acceptance for a later source revision, package, or host version.
 
 ## Recorded evidence
 
@@ -12,6 +12,7 @@ This ledger separates recorded checks from current acceptance. The source versio
 | 26 September, 0.2.1 local rollout | `npm run check`; 159 test successes with one platform-specific skip; 58-file installed-package gate covering exports, session choices, setup/status/uninstall, and upgrade from `v0.2.0` | Local source and isolated-package evidence; not npm publication, release-tag, or public-directory acceptance |
 | 26 September source review | 159 tests: 158 passed, one native-Windows test skipped; syntax/version, package, smoke, and offline fixture checks recorded | Isolated source/process checks, not new live-host acceptance |
 | Later 26 September skill review | Repository record reports 159 passing tests plus one platform skip and a 58-file package; earlier review reports a 57-file package | Separate checkpoints; do not combine counts or attribute them to an unrecorded revision |
+| 15 October 2026, v0.4.3 merged source | Tested source `2c1b455e495da30c19f7a1dcd90afd9305e92d45` merged as `52d1bfad9a0a103edf6acc42a7d060ab02ad63fb`; full suite 1,284 passed, 48 skipped, zero failed/cancelled/TODOs; genuine `v0.2.0` package upgrade passed with 125 files; 15 GitHub checks passed, one Dependabot automerge skip | Verified v0.4.3 source only; no npm release/tag; workflow results apply to the named tested head and configured platform/Node jobs, not v0.5.0 |
 
 The self-contained Claude directory bundle at `d0bd0a488dd1ed6d705423b43b8725ee36552fe5` also passed live Claude Code 2.1.283 / Sonnet 5 checks for ordinary non-invocation, explicit read-only diagnosis, and approved session-only child routing. That source checkpoint passed the 62-file package gate. This is direct local bundle evidence, not directory-installed acceptance; see the [marketplace submission record](https://github.com/magrathean-uk/clean-development/blob/d0bd0a488dd1ed6d705423b43b8725ee36552fe5/docs/marketplace-submission.md).
 
@@ -104,14 +105,40 @@ archive, checked against its published SHA-256; the corrected lifecycle suite
 passed all 29 cases on that exact runtime. The initial hosted failures and any
 later workflow result are separate checks from the earlier ARM64 VM snapshot.
 
+## 0.4.3 merged source verification
+
+The source tested at `2c1b455e495da30c19f7a1dcd90afd9305e92d45` was merged as
+`52d1bfad9a0a103edf6acc42a7d060ab02ad63fb`. The final local full suite recorded
+1,284 passed, 48 expected skips, zero failed/cancelled/TODOs. The source check
+passed its version-file, generated Claude bundle and bug-report consistency
+checks. Package installation and the genuine `v0.2.0` upgrade passed with 125
+files. Fifteen GitHub checks passed, including the macOS/Linux Node 20.12, 20,
+22 and 24 matrix, native Windows Node 20.12, 22 and 24 checks, and real SwiftPM;
+one Dependabot automerge check was skipped.
+
+Claude Code 2.1.300 with Haiku 5.5 completed one isolated print-mode session on
+the tested source. It ran one exact Bash observer command and built a dependency-
+free Rust fixture using real Cargo 1.98.1 with `--offline --locked`. The eight
+routing, artifact, nonce, isolation, credential-absence and unrelated-hook
+checks passed; source was unchanged and the credential scan completed. The
+passing call cost $0.00059402; including two earlier fixture-diagnostic calls,
+reported spend was $0.001735435 across three calls. This is one isolated
+print-mode session: resume, fork, subagents and billed-token neutrality remain
+unverified. Codex was checked only for launcher version `0.162.0-alpha.17.2`;
+the prior authenticated Codex workflow was not repeated at this boundary.
+
+This evidence describes v0.4.3 and does not certify the current v0.5.0 source
+candidate, its package, or publication.
+
 ## Recorded host observations
 
 | Host | Observation in repository records | Still outside that evidence |
 | --- | --- | --- |
-| Codex CLI 0.154.0 | Managed Cargo and uv routing in isolated model workflows, with clean fixture checkouts | Codex App, restart/resume, subagents, newer host versions, and billed-token neutrality |
+| Codex CLI 0.154.0; v0.4.3 launcher check at 0.162.0-alpha.17.2 | Earlier managed Cargo and uv routing in isolated model workflows, with clean fixture checkouts; v0.4.3 checked launcher version only | The authenticated workflow was not repeated at 0.162.0-alpha.17.2; Codex App, restart/resume, subagents, and billed-token neutrality |
 | Grok Build 1.0.34 | Marketplace/parser checks and model-shell routing after the owned command prefix restores the managed path | Broader lifecycle coverage and newer versions |
 | Antigravity 1.2.7 | Short routed model workflow | Long print-mode commands encountered cancellation; later authentication-limited runs were not counted as model acceptance |
 | Claude Code 2.1.283 / Sonnet 5 | Ordinary development, read-only diagnosis, and explicit session-only child-command routing | Full native-hook, resume/fork/subagent, and cwd-change acceptance; billed-token neutrality |
+| Claude Code 2.1.300 / Haiku 5.5 | One isolated v0.4.3 print-mode session; exact Bash observer and real Cargo 1.98.1 `--offline --locked` build passed eight routing, artifact, nonce, isolation, credential-absence and unrelated-hook checks | Resume, fork, subagents, broader native-hook/lifecycle acceptance, and billed-token neutrality |
 | Gemini 0.54.4 and Copilot CLI 1.0.80 | Launcher version/argument smoke | Model workflows and native routing |
 | Codex 0.155.1, Grok 1.0.41, and AGY 1.2.10 | Loader, package, or discovery observations in the skill review | Live model routing for those exact versions |
 

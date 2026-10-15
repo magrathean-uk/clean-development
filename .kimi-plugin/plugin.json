@@ -1,6 +1,6 @@
 {
   "name": "clean-development",
-  "version": "0.4.3",
+  "version": "0.5.0",
   "description": "Package metadata for clean-development; use its Kimi launcher for runtime activation.",
   "author": {
     "name": "MAGRATHEAN UK LTD"
