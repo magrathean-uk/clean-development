@@ -52,8 +52,29 @@ export function product(item, args, env = item.env, cwd = item.projects.normal) 
 }
 export function sourceIdentity() {
   const git = (args) => execute("git", args).stdout.trim();
+  const files = execute("git", ["ls-files", "--cached", "--others", "--exclude-standard", "-z"]).stdout.split("\0").filter(Boolean).sort();
+  const worktree = createHash("sha256");
+  for (const relative of files) {
+    const file = path.join(repository, relative);
+    worktree.update(relative).update("\0");
+    let stat;
+    try { stat = fs.lstatSync(file); }
+    catch (error) {
+      if (error.code !== "ENOENT") throw error;
+      worktree.update("missing\0");
+      continue;
+    }
+    worktree.update(String(stat.mode)).update("\0");
+    if (stat.isSymbolicLink()) worktree.update("symlink\0").update(fs.readlinkSync(file));
+    else {
+      assert.ok(stat.isFile(), `Unsupported source identity entry: ${relative}`);
+      worktree.update("file\0").update(createHash("sha256").update(fs.readFileSync(file)).digest("hex"));
+    }
+    worktree.update("\0");
+  }
   return { commit: git(["rev-parse", "HEAD"]), tree: git(["rev-parse", "HEAD^{tree}"]),
     dirty: Boolean(git(["status", "--porcelain"])),
+    workingTreeSha256: worktree.digest("hex"), workingTreeFiles: files.length,
     productSha256: Object.fromEntries(["hooks/session-start", "integrations/claude/hooks.json", "src/integrations.js"]
       .map((file) => [file, createHash("sha256").update(fs.readFileSync(path.join(repository, file))).digest("hex")])) };
 }

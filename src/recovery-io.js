@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { hasDirectoryRemovalGuard, withDirectoryRemovalGuard } from "./io.js";
 
 export const MAX_RECOVERY_BYTES = 2 * 1024 * 1024;
 export const digest = (value) => crypto.createHash("sha256").update(value).digest("hex");
@@ -153,12 +154,27 @@ async function acquireRecoveryLock(directory, parent, timeoutMs, retained) {
   let detail = "busy";
   while (true) {
     requireDirectory(path.dirname(directory), parent);
+    if (hasDirectoryRemovalGuard(directory)) {
+      detail = "removal guard is present or uncertain";
+      if (Date.now() - started >= timeoutMs) {
+        const error = new Error(`Recovery lock unavailable: ${directory} (${detail}). Wait for the active operation, or independently establish ownership before manual intervention; no uncertain lock was removed.`);
+        error.code = "ERECOVERYLOCK";
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      continue;
+    }
     let created = false;
     try { fs.mkdirSync(directory, { mode: 0o700 }); created = true; }
     catch (error) { if (error.code !== "EEXIST") throw error; }
     if (created) {
       requireDirectory(path.dirname(directory), parent);
       const ownDir = requireDirectory(directory);
+      if (hasDirectoryRemovalGuard(directory)) {
+        if (!equal(requireDirectory(directory), ownDir)) throw new Error(`Recovery lock changed during guarded acquisition: ${directory}`);
+        fs.rmdirSync(directory);
+        continue;
+      }
       const ownerPath = path.join(directory, "owner.json");
       const value = { schemaVersion: 1, token: crypto.randomUUID(), pid: process.pid, acquiredAt: new Date().toISOString() };
       // An interrupted owner publication is intentionally retained as ambiguous.
@@ -173,33 +189,47 @@ async function acquireRecoveryLock(directory, parent, timeoutMs, retained) {
         assertHeld,
         release() {
           try {
-            assertHeld();
-            fs.unlinkSync(ownerPath);
-            fs.rmdirSync(directory);
+            const removed = withDirectoryRemovalGuard(directory, () => {
+              assertHeld();
+              fs.unlinkSync(ownerPath);
+              try { fs.rmdirSync(directory); }
+              catch (error) { if (error.code !== "ENOENT") throw error; }
+              return true;
+            });
+            if (!removed) retained.push({ path: directory, reason: "Lock retained: removal guard unavailable or ownership changed" });
           } catch (error) {
             retained.push({ path: directory, reason: `Lock retained: ${error.message}` });
           }
         }
       };
     }
+    let renamed = false;
     try {
       const snapshot = lockSnapshot(directory);
       if (!snapshot) continue;
       detail = `owned by PID ${snapshot.value.pid}`;
       if (dead(snapshot.value.pid)) {
         const saved = `${directory}.recovery-stale-${crypto.randomUUID()}`;
-        requireDirectory(path.dirname(directory), parent);
-        if (!equal(lockSnapshot(directory), snapshot) || !dead(snapshot.value.pid)) continue;
-        fs.renameSync(directory, saved);
-        retained.push({ path: saved, reason: "Confirmed-dead lock retained for inspection" });
-        if (!equal(lockSnapshot(saved), snapshot)) {
-          const error = new Error(`Lock identity changed while retaining ${saved}`);
-          error.code = "ERECOVERYIDENTITY";
-          throw error;
+        const removed = withDirectoryRemovalGuard(directory, () => {
+          requireDirectory(path.dirname(directory), parent);
+          if (!equal(lockSnapshot(directory), snapshot) || !dead(snapshot.value.pid)) return false;
+          fs.renameSync(directory, saved);
+          renamed = true;
+          retained.push({ path: saved, reason: "Confirmed-dead lock retained for inspection" });
+          if (!equal(lockSnapshot(saved), snapshot)) {
+            const error = new Error(`Lock identity changed while retaining ${saved}`);
+            error.code = "ERECOVERYIDENTITY";
+            throw error;
+          }
+          return true;
+        }, () => requireDirectory(path.dirname(directory), parent));
+        if (renamed) {
+          continue;
         }
-        continue;
+        if (removed) continue;
       }
     } catch (error) {
+      if (renamed) throw error;
       if (error.code === "ENOENT") continue;
       if (error.code === "ERECOVERYIDENTITY") throw error;
       detail = error.message;

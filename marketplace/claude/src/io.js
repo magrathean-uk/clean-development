@@ -108,6 +108,74 @@ function sameIdentity(stat, identity) {
   return String(stat.dev) === String(identity.dev) && String(stat.ino) === String(identity.ino);
 }
 
+// All lock removers, including recovery's rename-to-retain path, share this
+// short critical section. A process killed while holding it leaves evidence
+// that later removers must preserve.
+export function withDirectoryRemovalGuard(directory, operation, validateParent = null) {
+  const guard = `${directory}.removal-guard`;
+  let guardIdentity;
+  try {
+    validateRealDirectory(path.dirname(directory), "Lock parent");
+  } catch {
+    return false;
+  }
+  validateParent?.();
+  try {
+    fs.mkdirSync(guard, { mode: 0o700 });
+    validateRealDirectory(guard, "Lock removal guard");
+    guardIdentity = fs.lstatSync(guard, { bigint: true });
+    if (!guardIdentity.isDirectory() || guardIdentity.isSymbolicLink()) return false;
+  } catch {
+    return false;
+  }
+  let result = false;
+  let failed = false;
+  let failure;
+  try {
+    validateParent?.();
+    validateRealDirectory(guard, "Lock removal guard");
+    if (!sameIdentity(fs.lstatSync(guard, { bigint: true }), guardIdentity)) return false;
+    result = operation() === true;
+  } catch (error) {
+    failed = true;
+    failure = error;
+  } finally {
+    // Retain the guard when a removal partially ran and then failed. Otherwise
+    // remove only the same empty guard directory this call created.
+    if (!failed) {
+      try {
+        validateRealDirectory(guard, "Lock removal guard");
+        if (sameIdentity(fs.lstatSync(guard, { bigint: true }), guardIdentity)) fs.rmdirSync(guard);
+      } catch {
+        // Unknown or replaced guards remain fail-closed evidence.
+      }
+    }
+  }
+  if (failure) throw failure;
+  return result;
+}
+
+export function hasDirectoryRemovalGuard(directory) {
+  try {
+    fs.lstatSync(`${directory}.removal-guard`);
+    return true;
+  } catch (error) {
+    return error.code !== "ENOENT";
+  }
+}
+
+function removeUnpublishedLockDirectory(directory, expected) {
+  try {
+    validateRealDirectory(directory, "Lock directory");
+    const current = fs.lstatSync(directory, { bigint: true });
+    if (!sameIdentity(current, expected)) return false;
+    fs.rmdirSync(directory);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // Capture every existing ancestor so publication cannot silently move onto a
 // replacement directory at the same pathname. These snapshots grant no deletion
 // authority and are used only within one synchronous operation.
@@ -297,51 +365,26 @@ function readLockSnapshot(directory) {
 }
 
 function removeLockDirectory(directory, expected) {
-  const guard = `${directory}.removal-guard`;
-  let guardIdentity;
   try {
-    validateRealDirectory(path.dirname(directory), "Lock parent");
-    fs.mkdirSync(guard, { mode: 0o700 });
-    validateRealDirectory(guard, "Lock removal guard");
-    guardIdentity = fs.lstatSync(guard, { bigint: true });
-    if (!guardIdentity.isDirectory() || guardIdentity.isSymbolicLink()) return false;
-  } catch {
-    // An existing, malformed, or replaced guard is uncertain evidence. Never
-    // reclaim it: a crashed remover must leave future cleanup fail-closed.
-    return false;
-  }
-
-  let removed = false;
-  try {
-    validateRealDirectory(guard, "Lock removal guard");
-    if (!sameIdentity(fs.lstatSync(guard, { bigint: true }), guardIdentity)) return false;
-    const current = readLockSnapshot(directory);
-    if (
-      !current || !expected || current.contents !== expected.contents
-      || !sameIdentity(current.identity, expected.identity)
-      || !sameIdentity(current.ownerIdentity, expected.ownerIdentity)
-    ) return false;
-    fs.unlinkSync(path.join(directory, "owner.json"));
-    try {
-      fs.rmdirSync(directory);
-      removed = true;
-    } catch (error) {
-      if (error.code === "ENOENT") removed = true;
-    }
+    return withDirectoryRemovalGuard(directory, () => {
+      const current = readLockSnapshot(directory);
+      if (
+        !current || !expected || current.contents !== expected.contents
+        || !sameIdentity(current.identity, expected.identity)
+        || !sameIdentity(current.ownerIdentity, expected.ownerIdentity)
+      ) return false;
+      fs.unlinkSync(path.join(directory, "owner.json"));
+      try {
+        fs.rmdirSync(directory);
+        return true;
+      } catch (error) {
+        if (error.code === "ENOENT") return true;
+        throw error;
+      }
+    });
   } catch {
     return false;
-  } finally {
-    // Only remove the empty guard directory created above. If its identity is
-    // uncertain or it gained contents, retain it as an explicit fail-closed
-    // signal rather than touching an unknown replacement.
-    try {
-      validateRealDirectory(guard, "Lock removal guard");
-      if (sameIdentity(fs.lstatSync(guard, { bigint: true }), guardIdentity)) fs.rmdirSync(guard);
-    } catch {
-      // A retained guard blocks later release/recovery attempts safely.
-    }
   }
-  return removed;
 }
 
 export async function acquireDirectoryLock(directory, { timeoutMs = 30_000 } = {}) {
@@ -349,10 +392,19 @@ export async function acquireDirectoryLock(directory, { timeoutMs = 30_000 } = {
   const started = Date.now();
   ensureRealDirectory(path.dirname(directory), { create: true, label: "Lock parent" });
   while (true) {
+    if (hasDirectoryRemovalGuard(directory)) {
+      if (Date.now() - started >= timeoutMs) throw new Error(`Timed out waiting for setup lock: ${directory}`);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      continue;
+    }
     try {
       fs.mkdirSync(directory);
       validateRealDirectory(directory, "Lock directory");
       const identity = fs.lstatSync(directory, { bigint: true });
+      if (hasDirectoryRemovalGuard(directory)) {
+        removeUnpublishedLockDirectory(directory, identity);
+        continue;
+      }
       writeJsonAtomic(path.join(directory, "owner.json"), {
         schemaVersion: 1,
         token,
@@ -390,10 +442,19 @@ export function acquireDirectoryLockSync(directory, { timeoutMs = 30_000 } = {})
   const waiter = new Int32Array(new SharedArrayBuffer(4));
   ensureRealDirectory(path.dirname(directory), { create: true, label: "Lock parent" });
   while (true) {
+    if (hasDirectoryRemovalGuard(directory)) {
+      if (Date.now() - started >= timeoutMs) throw new Error(`Timed out waiting for runtime lock: ${directory}`);
+      Atomics.wait(waiter, 0, 0, 50);
+      continue;
+    }
     try {
       fs.mkdirSync(directory);
       validateRealDirectory(directory, "Lock directory");
       const identity = fs.lstatSync(directory, { bigint: true });
+      if (hasDirectoryRemovalGuard(directory)) {
+        removeUnpublishedLockDirectory(directory, identity);
+        continue;
+      }
       writeJsonAtomic(path.join(directory, "owner.json"), {
         schemaVersion: 1,
         token,

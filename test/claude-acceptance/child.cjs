@@ -11,9 +11,11 @@ const keys = [
   "CLEAN_DEVELOPMENT_WORKSPACE", "CLEAN_DEVELOPMENT_CARGO_TARGET_DIR", "CARGO_TARGET_DIR",
   "npm_config_cache", "UV_CACHE_DIR", "ACCEPTANCE_KEEP"
 ];
+const authKeys = ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR"];
 function selectedEnvironment() {
   return Object.fromEntries(keys.filter((key) => process.env[key] !== undefined).map((key) => [key, process.env[key]]));
 }
+function authenticationPresent() { return authKeys.some((key) => process.env[key] !== undefined); }
 function inside(root, file) {
   const rel = path.relative(root, path.resolve(file));
   assert.ok(rel && !rel.startsWith(`..${path.sep}`) && rel !== ".." && !path.isAbsolute(rel), `Outside lab: ${file}`);
@@ -47,7 +49,7 @@ function main() {
     inside(root, target);
     const artifact = path.join(target, "debug", "claude_acceptance_fixture");
     const record = { layer: "tool-child", backend: manifest.backend, cwd: process.cwd(), argv: args,
-      nonce: process.env.CLAUDE_ACCEPTANCE_NONCE, env: selectedEnvironment(), target, artifact };
+      nonce: process.env.CLAUDE_ACCEPTANCE_NONCE, env: selectedEnvironment(), authPresent: authenticationPresent(), target, artifact };
     save("cargo-start", record);
     if (manifest.backend === "fixture") {
       fs.mkdirSync(path.dirname(artifact), { recursive: true });
@@ -69,7 +71,7 @@ function main() {
   const resolved = spawnSync("/bin/sh", ["-c", "command -v cargo"], { encoding: "utf8" });
   assert.equal(resolved.status, 0, resolved.stderr);
   save("shell", { layer: "shell-child", backend: manifest.backend, cwd: process.cwd(),
-    nonce, env: selectedEnvironment(), cargoCommand: resolved.stdout.trim() });
+    nonce, env: selectedEnvironment(), authPresent: authenticationPresent(), cargoCommand: resolved.stdout.trim() });
   const result = spawnSync("cargo", ["build", "--offline"], {
     cwd: process.cwd(), stdio: "inherit",
     env: { ...process.env, CLAUDE_ACCEPTANCE_CASE: name, CLAUDE_ACCEPTANCE_NONCE: nonce }

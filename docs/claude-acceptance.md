@@ -90,6 +90,25 @@ Repeat resume and fork in explicit skip mode, and in a disabled project, with un
 
 Uninstall removes product-owned configuration, not the environment already inherited by running shells. Observe that boundary separately rather than expecting uninstall to rewrite another process. Preserve pre-setup user-hook and plugin settings snapshots; Claude may add its own settings during a session, so compare ownership scopes as well as bytes. The automated uninstall test uses an exact unchanged unrelated-settings control.
 
+## Bounded API smoke
+
+The source-contract fixture above remains the default automated acceptance path. `npm test`, test discovery, and importing the support module do not call Claude. The separate `smoke.mjs` protocol is a deliberate live API request and requires an explicit model ID and `--confirm-live-smoke`. It tests one print-mode session, one exact Bash observer command, session-only routing, and one offline real-Cargo build. It does not test resume, fork, subagents, or billed-token neutrality.
+
+Prepare creates a fresh isolated lab and performs only local executable, version, and CLI-help preflight. It adds one audit-only SessionStart hook to the disposable profile; the hook records only the host-supplied session ID, event/source, and `CLAUDE_ENV_FILE` path. This binds the session event to the exact owned routing block observed later. It does not modify the production integration hook. Supply absolute paths to Claude, Cargo, and rustc, and choose an explicit model ID that is inexpensive for your account. The help preflight fails closed if the installed CLI lacks any required option. Keep the same `TMPDIR` between prepare and execute so the lab stays under the selected scratch root.
+
+```sh
+clean-development run --session session-only -- node test/claude-acceptance/smoke.mjs prepare \
+  --claude "$CLAUDE" --cargo "$CARGO" --rustc "$RUSTC" --model "$MODEL_ID"
+LAB='/absolute/lab/root/printed/by/prepare'
+clean-development run --session session-only -- node test/claude-acceptance/smoke.mjs execute "$LAB" --confirm-live-smoke
+```
+
+For execute, inject `ANTHROPIC_API_KEY` into that command's environment through the approved secret runner. The key is required only in the executing parent environment and the Claude child; it is never accepted as an option, written to the plan, or included in event output. The observer entry unsets the Anthropic API key, auth token, OAuth token, and OAuth token descriptor before invoking the child observer. The observer records whether any supported credential variable remained in either observer or Cargo, and verification requires none.
+
+The runner fixes `--max-budget-usd 0.10`, a 120-second deadline, and a three-second TERM-to-KILL shutdown grace. An exclusive execution claim is written before Claude launches, so a lab cannot replay the request. Its stream-json collector keeps event names, IDs, the selected model, usage/cost fields, and exact tool/session/hook linkage; it discards raw text and stores only output byte counts and hashes. It writes one exclusive result file. Never retry in the same lab, replace a result, or retain a report that failed its credential scan; use a new prepared lab for another attempt. A timeout report with uncertain process-group lifetime requires leaving that lab intact until the process lifetime is independently resolved.
+
+The successful result is a bounded smoke observation, not a complete Claude host acceptance. Review the exact source identity, CLI version, session ID, SessionStart hook response, observer nonce, offline Cargo artifact, routing assertions, and reported cost together. `--max-budget-usd` constrains the request but does not prove token or billing neutrality.
+
 ## Evidence and classification
 
 The observer records allowlisted shell and tool environments, actual cwd/argv, resolved Cargo command, correlated random nonce, child completion status and artifact location. In live mode its wrapper delegates to the explicitly selected real Cargo binary with that environment; it does not manufacture an artifact. Builds are dependency-free and offline. An absent/nonzero tool completion, mismatched nonce/backend, missing artifact, source mutation, incorrect routing or unexpected local target fails verification. Capture files use exclusive creation; retries require a new case name or lab, not overwriting evidence.

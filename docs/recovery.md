@@ -113,11 +113,17 @@ successful repairs are reported rather than rolled back through unverified data.
 Recovery's compatible lock adapter requires real canonical directories, regular
 owner records, valid schema/token/PID/time, and the acquired directory and file
 identities. A valid owner whose PID is confirmed absent by `ESRCH` can have its
-lock **renamed to a retained `.recovery-stale-<UUID>` sibling**. An ownerless,
+lock **renamed to a retained `.recovery-stale-<UUID>` sibling**. That rename,
+ordinary stale reclaim, and lock release share one exclusive sibling removal
+guard and recheck the observed generation after taking it. An ownerless,
 malformed, replaced, inaccessible or otherwise uncertain lock is not removed or
-guessed stale by age. Waiting is bounded to 30 seconds per lock. Ordinary release
-removes only the lock owned by this recovery operation; that bookkeeping is not
-authority to delete installation files or build artifacts.
+guessed stale by age. Unknown or interrupted guards remain as fail-closed
+evidence and block later removal and new owner publication, even when the lock
+path is absent. If a guard appears during acquisition, only the same still-empty
+unpublished lock directory may be removed; other state is retained. Waiting is
+bounded to 30 seconds per lock.
+Ordinary release removes only the lock owned by this recovery operation; that
+bookkeeping is not authority to delete installation files or build artifacts.
 
 Repairs use an exclusively created, bounded stage in a verified existing
 directory, checked content and file `fsync`, followed by fresh ownership checks.

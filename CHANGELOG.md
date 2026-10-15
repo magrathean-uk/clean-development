@@ -4,6 +4,19 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ## [Unreleased]
 
+## [0.4.3] - 2026-10-15
+
+Prepared as a source version for local runtime activation. This entry records no npm package publication or release tag.
+
+### Fixed
+
+- Explicit recovery now shares the lock-removal protocol with ordinary runtime and setup operations. A stale-lock reclaimer cannot delete or rename a successor's lock while recovery acquires ownership; uncertain guards and stale recovery evidence remain retained.
+- Doctor now reports missing storage identity receipts for already-bound workspaces and uncertain lock-removal state, instead of reporting healthy configuration while the corresponding operation is blocked. Diagnostics remain read-only and preserve legacy unbound storage.
+
+### Added
+
+- An opt-in, bounded Claude Code smoke protocol with disposable configuration, a model budget, process cleanup, and correlated native hook, tool-call and build evidence. Automated harness tests do not invoke a model; authenticated host acceptance remains a separate explicit run.
+
 ## [0.4.2] - 2026-10-14
 
 Prepared as a source version for local runtime activation. This entry records no npm package publication or release tag.

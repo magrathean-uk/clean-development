@@ -70,3 +70,27 @@ receipts. Configuration presence does not prove an already-running host uses
 that configuration. Shell startup and explicit command wrappers provide
 independent routes. Live lifecycle acceptance and command output placement
 require their separate fixtures described in [verification](verification.md).
+
+## Storage and lifecycle-lock health
+
+Doctor also reports a read-only `storage-identity` check. A missing global
+identity receipt is healthy for unbound legacy storage only when no existing
+workspace record carries a storage identity. Bound records with a missing
+receipt fail the check. An unreadable or partial workspace record collection is
+reported as `uncertain`; doctor does not infer that no binding exists. Explicit
+`prepare` is the recovery path after inspecting the storage and records.
+The scan is bounded to 4,096 directory entries and 64 KiB per workspace record;
+exceeding either limit is reported as uncertain.
+
+The `lifecycle-locks` check reports `setup.lock` and `runtime.lock` separately.
+Absent locks and valid locks held by live processes are healthy; live locks have
+status `active`. A verified owner PID that has exited is `stale`; malformed,
+inaccessible, changed, or otherwise unverifiable lock state is `uncertain` and
+fails the check. Doctor does not reclaim stale locks.
+
+Sibling `.removal-guard` paths are inspected without following symlinks or
+changing their contents. Any present guard has status `uncertain`. When a valid
+live lock is also present, the check remains healthy because the guard may be
+part of normal release in progress. Without a verifiable live lock, or when the
+guard is malformed, the check fails and directs inspection. Doctor never
+removes a guard.
