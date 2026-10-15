@@ -65,7 +65,7 @@ test("credential redaction is recursive and does not modify unrelated fields", (
 });
 
 test("execution claim is exclusive so a lab cannot replay the paid request", () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "claude-smoke-claim-test-"));
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "claude-smoke-claim-test-")));
   fs.mkdirSync(path.join(root, "evidence"));
   try {
     const plan = { sessionId: "12345678-1234-4234-8234-123456789abc", model: "chosen" };
@@ -73,13 +73,21 @@ test("execution claim is exclusive so a lab cannot replay the paid request", () 
     assert.equal(claim.sessionId, plan.sessionId);
     assert.throws(() => claimSmokeExecution(root, plan), { code: "EEXIST" });
     assert.equal(fs.readFileSync(path.join(root, "evidence", "claude-smoke-execution.json"), "utf8").includes("chosen"), false);
+    if (process.platform !== "win32") {
+      const evidence = path.join(root, "evidence");
+      const evidenceTarget = path.join(root, "evidence-target");
+      fs.rmSync(evidence, { recursive: true });
+      fs.mkdirSync(evidenceTarget);
+      fs.symlinkSync(evidenceTarget, evidence, "dir");
+      assert.throws(() => claimSmokeExecution(root, plan), /Evidence directory must remain inside the disposable lab/);
+    }
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
 
 test("session witness binds the exact session and env file inside the lab", () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "claude-smoke-witness-test-"));
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "claude-smoke-witness-test-")));
   const envFile = path.join(root, "session.env");
   fs.writeFileSync(envFile, "# owned fixture\n");
   try {
@@ -87,16 +95,21 @@ test("session witness binds the exact session and env file inside the lab", () =
     assert.equal(validateSessionWitness(witness, witness.sessionId, root), "session.env");
     assert.throws(() => validateSessionWitness({ ...witness, sessionId: "other" }, witness.sessionId, root), /witness ID/);
     assert.throws(() => validateSessionWitness({ ...witness, envFile: path.join(os.tmpdir(), "outside-session.env") }, witness.sessionId, root), /escaped/);
+    if (process.platform !== "win32") {
+      const alias = path.join(root, "session-alias.env");
+      fs.symlinkSync(envFile, alias);
+      assert.throws(() => validateSessionWitness({ ...witness, envFile: alias }, witness.sessionId, root), /contains a symlink/);
+    }
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
 
-test("all two fixture hooks and the added witness hook must succeed for one session", () => {
-  const hooks = ["user", "owned", "witness"].map((name) => ({ subtype: "hook_response", sessionId: "session-id", event: "SessionStart", name: `SessionStart:${name}`, success: true }));
-  assert.equal(validateSessionStartResponses(hooks, "session-id", 3).length, 3);
-  assert.throws(() => validateSessionStartResponses(hooks.map((hook, i) => i === 1 ? { ...hook, success: false } : hook), "session-id", 3), /response failed/);
-  assert.throws(() => validateSessionStartResponses(hooks, "other-session", 3), /did not match/);
+test("both the unrelated and witnessed owned hooks must succeed for one session", () => {
+  const hooks = ["user", "owned"].map((name) => ({ subtype: "hook_response", sessionId: "session-id", event: "SessionStart", name: `SessionStart:${name}`, success: true }));
+  assert.equal(validateSessionStartResponses(hooks, "session-id", 2).length, 2);
+  assert.throws(() => validateSessionStartResponses(hooks.map((hook, i) => i === 1 ? { ...hook, success: false } : hook), "session-id", 2), /response failed/);
+  assert.throws(() => validateSessionStartResponses(hooks, "other-session", 2), /did not match/);
 });
 
 test("stream collector flags mixed sessions, duplicate results, and malformed content", () => {
@@ -169,10 +182,11 @@ if(process.argv.includes("--help")){process.stdout.write(${JSON.stringify("--pri
 if(process.argv.includes("--version")){console.log("claude synthetic 1.0");process.exit(0)}
 const args=process.argv.slice(2),value=(flag)=>args[args.indexOf(flag)+1],sid=value("--session-id"),model=value("--model");
 const settings=JSON.parse(fs.readFileSync(path.join(process.env.CLAUDE_CONFIG_DIR,"settings.json"),"utf8"));
-const envFile=path.join(process.env.CLAUDE_CONFIG_DIR,"session-"+sid+".env");fs.writeFileSync(envFile,"",{flag:"wx",mode:0o600});
+const envFiles=[];
 const event=JSON.stringify({session_id:sid,hook_event_name:"SessionStart",source:"startup",cwd:process.cwd()});
 let hookNo=0;
 for(const group of settings.hooks.SessionStart)for(const hook of group.hooks||[]){
+ const envFile=path.join(process.env.CLAUDE_CONFIG_DIR,"session-"+sid+"-"+hookNo+".env");fs.writeFileSync(envFile,"",{flag:"wx",mode:0o600});envFiles.push(envFile);
  const result=cp.spawnSync("/bin/sh",["-c",hook.command],{cwd:process.cwd(),input:event,encoding:"utf8",env:{...process.env,CLAUDE_ENV_FILE:envFile,CLAUDE_PLUGIN_ROOT:${JSON.stringify(repository)}}});
  const ok=!result.error&&result.status===0;
  console.log(JSON.stringify({type:"system",subtype:"hook_response",hook_event:"SessionStart",hook_name:"SessionStart:synthetic-"+(hookNo++),hook_id:"hook-"+hookNo,session_id:sid,exit_code:ok?0:(result.status||1)}));
@@ -183,7 +197,7 @@ const plan=JSON.parse(fs.readFileSync(path.join(lab.root,"claude-smoke-plan.json
 const observer=plan.command;
 const toolId="tool-"+sid;
 console.log(JSON.stringify({type:"assistant",session_id:sid,model,message:{content:[{type:"tool_use",id:toolId,name:"Bash",input:{command:observer}}]}}));
-const run=cp.spawnSync("/bin/sh",["-c",". \\\"$CLAUDE_ENV_FILE\\\"; exec /bin/sh -c \\\"$1\\\"","smoke",observer],{cwd:lab.projects.normal,encoding:"utf8",env:{...process.env,CLAUDE_ENV_FILE:envFile,CLAUDE_ACCEPTANCE_CASE:${JSON.stringify("claude-api-session-only")}}});
+const run=cp.spawnSync("/bin/sh",["-c",". \\\"$1\\\"; . \\\"$2\\\"; exec /bin/sh -c \\\"$3\\\"","smoke",...envFiles,observer],{cwd:lab.projects.normal,encoding:"utf8",env:{...process.env,CLAUDE_ACCEPTANCE_CASE:${JSON.stringify("claude-api-session-only")}}});
 console.log(JSON.stringify({type:"user",session_id:sid,message:{content:[{type:"tool_result",tool_use_id:toolId,is_error:run.status!==0,content:"discarded synthetic output"}]}}));
 console.log(JSON.stringify({type:"result",subtype:run.status===0?"success":"error",session_id:sid,model,total_cost_usd:0.001,usage:{input_tokens:1,output_tokens:1}}));
 process.exit(run.status||0);
@@ -197,6 +211,11 @@ process.exit(run.status||0);
     assert.equal(execution.report.checks.realCargo, true);
     assert.equal(execution.report.checks.cargoCredentialAbsent, true);
     assert.equal(execution.report.checks.observerCredentialAbsent, true);
+    assert.equal(execution.report.verificationStage, null);
+    assert.equal(execution.report.sessionWitness.envFile.endsWith("-1.env"), true);
+    assert.equal(execution.report.hooks.length, 2);
+    assert.deepEqual(execution.report.sessionStartResponses, execution.report.hooks);
+    assert.equal(Object.hasOwn(execution.report, "hookEvent"), false);
     assert.equal(execution.report.secretScan.found, false);
     assert.equal(fs.readFileSync(execution.reportFile, "utf8").includes(secret), false);
     assert.equal(execution.report.totalCostUsd, 0.001);

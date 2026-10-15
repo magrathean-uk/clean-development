@@ -54,20 +54,34 @@ export function observerCommand(entry) {
 }
 
 export function sessionWitnessText() {
-  return `import fs from "node:fs";\nimport path from "node:path";\nconst output = process.argv[2];\nlet input = "";\nfor await (const chunk of process.stdin) { input += chunk; if (Buffer.byteLength(input) > 65536) throw new Error("event input too large"); }\nconst event = JSON.parse(input);\nif (typeof event.session_id !== "string" || typeof event.hook_event_name !== "string" || typeof process.env.CLAUDE_ENV_FILE !== "string") throw new Error("required event fields absent");\nconst record = { sessionId: event.session_id, event: event.hook_event_name, source: typeof event.source === "string" ? event.source : null, envFile: path.resolve(process.env.CLAUDE_ENV_FILE) };\nfs.writeFileSync(output, JSON.stringify(record) + "\\n", { flag: "wx", mode: 0o600 });\n`;
+  return `import fs from "node:fs";\nimport path from "node:path";\nimport { spawnSync } from "node:child_process";\nconst output = process.argv[2], command = process.argv[3];\nif (!command) throw new Error("owned hook command absent");\nlet input = "";\nfor await (const chunk of process.stdin) { input += chunk; if (Buffer.byteLength(input) > 65536) throw new Error("event input too large"); }\nconst event = JSON.parse(input);\nif (typeof event.session_id !== "string" || typeof event.hook_event_name !== "string" || typeof process.env.CLAUDE_ENV_FILE !== "string") throw new Error("required event fields absent");\nconst record = { sessionId: event.session_id, event: event.hook_event_name, source: typeof event.source === "string" ? event.source : null, envFile: path.resolve(process.env.CLAUDE_ENV_FILE) };\nfs.writeFileSync(output, JSON.stringify(record) + "\\n", { flag: "wx", mode: 0o600 });\nconst result = spawnSync("/bin/sh", ["-c", command], { input, env: process.env, stdio: ["pipe", "inherit", "inherit"] });\nif (result.error) throw result.error;\nprocess.exitCode = result.status ?? 1;\n`;
+}
+
+function sessionWitness(item) {
+  const script = path.join(item.root, WITNESS_NAME);
+  const output = path.join(item.root, "evidence", WITNESS_EVIDENCE_NAME);
+  const receipt = boundedReadJson(path.join(item.root, "data", "state", "integrations.json"));
+  const integration = receipt.integrations.find((entry) => entry.agent === "claude" && entry.mode === "native-hook");
+  assert.ok(integration?.ownershipId && typeof integration.command === "string", "Owned hook receipt is absent");
+  const originalCommand = integration.command;
+  const command = `${quote(process.execPath)} ${quote(script)} ${quote(output)} ${quote(originalCommand)}`;
+  return { script, output, command, originalCommand };
 }
 
 function installSessionWitness(item) {
-  const script = path.join(item.root, WITNESS_NAME);
-  const output = path.join(item.root, "evidence", WITNESS_EVIDENCE_NAME);
+  const witness = sessionWitness(item);
+  const { script, command, originalCommand } = witness;
   fs.writeFileSync(script, sessionWitnessText(), { flag: "wx", mode: 0o600 });
   const configFile = path.join(item.env.CLAUDE_CONFIG_DIR, "settings.json");
   const settings = boundedReadJson(configFile);
   assert.ok(Array.isArray(settings.hooks?.SessionStart), "Disposable SessionStart hooks are absent");
-  const command = `${quote(process.execPath)} ${quote(script)} ${quote(output)}`;
-  settings.hooks.SessionStart.push({ matcher: "startup|resume|fork", hooks: [{ type: "command", command }] });
+  const hooks = settings.hooks.SessionStart.flatMap((group) => group.hooks || []).filter((hook) => hook.command === originalCommand);
+  assert.equal(hooks.length, 1, "Expected exactly one owned hook to witness");
+  // Claude assigns a separate CLAUDE_ENV_FILE to each hook. Observe the exact
+  // owned invocation, forwarding its original stdin and environment unchanged.
+  hooks[0].command = command;
   fs.writeFileSync(configFile, `${JSON.stringify(settings, null, 2)}\n`, { mode: 0o600 });
-  return { script, output, command };
+  return witness;
 }
 
 export function smokeHostArgs({ command, model, sessionId }) {
@@ -231,8 +245,7 @@ export function validatePreparedSmoke(item, plan) {
   assert.equal(fs.readFileSync(entry, "utf8"), observerEntryText(), "Observer entry changed");
   const command = observerCommand(entry);
   assert.equal(plan.entry, entry);
-  assert.deepEqual(plan.witness, { script: path.join(item.root, WITNESS_NAME), output: path.join(item.root, "evidence", WITNESS_EVIDENCE_NAME),
-    command: `${quote(process.execPath)} ${quote(path.join(item.root, WITNESS_NAME))} ${quote(path.join(item.root, "evidence", WITNESS_EVIDENCE_NAME))}` });
+  assert.deepEqual(plan.witness, sessionWitness(item));
   assert.equal(fs.readFileSync(plan.witness.script, "utf8"), sessionWitnessText(), "Session witness changed");
   const settings = boundedReadJson(path.join(item.env.CLAUDE_CONFIG_DIR, "settings.json"));
   assert.ok(settings.hooks.SessionStart.some((group) => group.hooks?.some((hook) => hook.command === plan.witness.command)), "Disposable session witness hook changed");
@@ -378,8 +391,10 @@ export function createStreamCollector(expectedCommand = null) {
   };
 }
 
-function checkLiveEvidence(item, plan, result) {
+function checkLiveEvidence(item, plan, result, stage = () => {}) {
+  stage("observer-evidence");
   const value = evidence(item, SMOKE_CASE);
+  stage("owned-hook");
   const receiptFile = path.join(item.root, "data", "state", "integrations.json");
   const receipt = JSON.parse(fs.readFileSync(receiptFile, "utf8"));
   const integration = receipt.integrations.find((entry) => entry.agent === "claude");
@@ -389,6 +404,7 @@ function checkLiveEvidence(item, plan, result) {
   const command = settings.hooks.SessionStart?.flatMap((group) => group.hooks || []).find((hook) => hook.command?.includes(integration.ownershipId))?.command;
   assert.ok(command, "Owned SessionStart hook is absent from the disposable profile");
   const expectedHookResponses = settings.hooks.SessionStart.flatMap((group) => group.hooks || []).length;
+  stage("session-witness");
   const witness = boundedReadJson(plan.witness.output);
   const relativeEnvFile = validateSessionWitness(witness, plan.sessionId, item.root);
   const files = [];
@@ -410,10 +426,12 @@ function checkLiveEvidence(item, plan, result) {
     }
   };
   walk(item.root);
+  stage("owned-environment-file");
   const hookEvents = validateSessionStartResponses(result.hooks, plan.sessionId, expectedHookResponses);
   assert.equal(result.sessionId, plan.sessionId, "Stream session ID did not match the prepared session");
   assert.equal(files.length, 1, "Expected exactly one session environment file with the owned routing block");
   assert.equal(files[0].path, relativeEnvFile, "Owned routing block was not in the host-witnessed session env file");
+  stage("tool-linkage");
   const matchedTools = result.tools.filter((tool) => tool.commandMatched);
   assert.equal(result.tools.length, 1, "Smoke must use exactly one tool call");
   assert.equal(matchedTools.length, 1, "Tool call did not match the fixed observer command");
@@ -421,6 +439,7 @@ function checkLiveEvidence(item, plan, result) {
   const toolResults = result.completions.filter((entry) => entry.id === matchedTools[0].id);
   assert.equal(toolResults.length, 1, "Expected one completion for the observer Bash call");
   assert.ok(toolResults[0].sessionId === plan.sessionId && !toolResults[0].isError, "Observer Bash tool did not complete successfully in the prepared session");
+  stage("routing-and-credentials");
   const checks = {
     realCargo: value.cargo.backend === "live" && value.cargo.exitCode === 0,
     sessionOnlyRouting: evaluate(item, SMOKE_CASE, { routed: true }).status === "passed",
@@ -432,9 +451,10 @@ function checkLiveEvidence(item, plan, result) {
     unrelatedHook: value.shell.env.ACCEPTANCE_KEEP === "unrelated-hook"
   };
   assert.ok(Object.values(checks).every(Boolean), "Observer evidence failed one or more routing or credential assertions");
+  stage("protected-source");
   intact(item);
   return { checks, nonce: value.shell.nonce, child: { artifact: value.cargo.artifact, sha256: sha256(fs.readFileSync(value.cargo.artifact)), target: value.cargo.target }, hookEnvironmentFiles: files,
-    sessionWitness: { sessionId: witness.sessionId, event: witness.event, source: witness.source, envFile: relativeEnvFile }, hookEvent: hookEvents[0] };
+    sessionWitness: { sessionId: witness.sessionId, event: witness.event, source: witness.source, envFile: relativeEnvFile }, sessionStartResponses: hookEvents };
 }
 
 export function validateSessionWitness(witness, sessionId, root) {
@@ -477,8 +497,9 @@ export async function executeSmoke(root, { confirmed = false, env = process.env 
   const childEnv = { ...item.env, ANTHROPIC_API_KEY: key };
   const argv = [cli, "run", "--session", "session-only", "--", item.claude, ...plan.args];
   const result = await runBounded(process.execPath, argv, { cwd: item.projects.normal, env: childEnv, expectedCommand: command, timeoutMs: plan.timeoutMs, shutdownGraceMs: plan.shutdownGraceMs });
-  let verified = { checks: {}, nonce: null, child: null, hookEnvironmentFiles: [], hookEvent: null }, verificationError = null;
-  try { verified = checkLiveEvidence(item, plan, result); }
+  let verified = { checks: {}, nonce: null, child: null, hookEnvironmentFiles: [], sessionStartResponses: [] }, verificationError = null;
+  let verificationStage = null;
+  try { verified = checkLiveEvidence(item, plan, result, (stage) => { verificationStage = stage; }); verificationStage = null; }
   catch { verificationError = "EVIDENCE_VALIDATION_FAILED"; }
   const secretScan = scanLabForCredential(item.root, key);
   const finalSource = sourceIdentity();
@@ -498,7 +519,7 @@ export async function executeSmoke(root, { confirmed = false, env = process.env 
     resultSubtype: result.resultSubtype, eventCount: result.eventCount, invalidLines: result.invalidLines,
     events: result.events, hooks: result.hooks, tools: result.tools, completions: result.completions, usage: result.usage,
     stdoutBytes: result.stdoutBytes, stderrBytes: result.stderrBytes, stdoutSha256: result.stdoutSha256, stderrSha256: result.stderrSha256,
-    ...verified, secretScan, verificationError, ok,
+    ...verified, secretScan, verificationError, verificationStage, ok,
     boundary: "One API-authenticated print-mode session, one fixed Bash observer call, session-only routing, and one offline real-Cargo build. This does not establish resume/fork/subagent behavior or billed-token neutrality."
   };
   const reportFile = path.join(item.root, "evidence", "claude-smoke-result.json");
