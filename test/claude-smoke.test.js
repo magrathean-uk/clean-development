@@ -170,7 +170,7 @@ test("synthetic host, hooks, observer, and Cargo complete end to end without a m
   fs.writeFileSync(fakeRustc, tools, { mode: 0o700 });
   fs.writeFileSync(`${fakeCargo}.cjs`, `const fs=require("node:fs"),path=require("node:path");
 if(process.argv[2]==="--version"){console.log("cargo synthetic 1.0");process.exit(0)}
-if(process.argv[2]!=="build"||process.argv[3]!=="--offline")process.exit(9);
+if(JSON.stringify(process.argv.slice(2))!==JSON.stringify(["build","--offline","--locked"]))process.exit(9);
 const target=process.env.CARGO_TARGET_DIR;
 if(!target)process.exit(8);
 fs.mkdirSync(path.join(target,"debug"),{recursive:true});

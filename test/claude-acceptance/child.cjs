@@ -44,7 +44,7 @@ function main() {
   }
   if (mode === "cargo") {
     const args = process.argv.slice(3);
-    assert.deepEqual(args, ["build", "--offline"], "Only the dependency-free fixture build is allowed");
+    assert.deepEqual(args, ["build", "--offline", "--locked"], "Only the dependency-free locked fixture build is allowed");
     const target = process.env.CARGO_TARGET_DIR || path.join(process.cwd(), "target");
     inside(root, target);
     const artifact = path.join(target, "debug", "claude_acceptance_fixture");
@@ -72,7 +72,7 @@ function main() {
   assert.equal(resolved.status, 0, resolved.stderr);
   save("shell", { layer: "shell-child", backend: manifest.backend, cwd: process.cwd(),
     nonce, env: selectedEnvironment(), authPresent: authenticationPresent(), cargoCommand: resolved.stdout.trim() });
-  const result = spawnSync("cargo", ["build", "--offline"], {
+  const result = spawnSync("cargo", ["build", "--offline", "--locked"], {
     cwd: process.cwd(), stdio: "inherit",
     env: { ...process.env, CLAUDE_ACCEPTANCE_CASE: name, CLAUDE_ACCEPTANCE_NONCE: nonce }
   });
