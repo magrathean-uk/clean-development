@@ -10,7 +10,8 @@ import { environmentValue, platformPaths, prependUniquePath } from "./platform.j
 import { ensureRuntime, removeRuntime, resolveExecutable, runTool, runWithShims, runtimeHealth, runtimeRemovalPlan } from "./runtime.js";
 import { applySessionPlan, deferSessionRouting, normalizeSessionMode, planSession, selectSessionMode } from "./session.js";
 import { acquireWorkspaceLock, applyPrune, listWorkspaceRecords, prunePlan } from "./state.js";
-import { approveManagedBuildRoot, validateManagedBuildRoot } from "./storage-identity.js";
+import { approveManagedBuildRoot, inspectManagedBuildRootIdentity, validateManagedBuildRoot } from "./storage-identity.js";
+import { inspectLifecycleLocks } from "./lock-health.js";
 import { explainCommand, formatExplanation } from "./explain.js";
 import { storageStatus, formatStorageStatus, parseByteSize } from "./status.js";
 import { probeTool, formatProbe } from "./probe.js";
@@ -415,6 +416,12 @@ function doctorCommand(config, env) {
     }
     checks.push({ name: `managed-${key}`, ok, detail });
   }
+  const storageIdentity = inspectManagedBuildRootIdentity(config);
+  checks.push({ name: "storage-identity", ...storageIdentity });
+  const lifecycleLocks = inspectLifecycleLocks(config.locations.stateDir);
+  checks.push({ name: "lifecycle-locks", ok: lifecycleLocks.every((lock) => lock.ok),
+    status: lifecycleLocks.some((lock) => !lock.ok) ? "attention" : "clear", locks: lifecycleLocks,
+    detail: lifecycleLocks.map((lock) => `${lock.name}: ${lock.status} (${lock.detail})`).join("; ") });
   checks.push({ name: "runtime", ...runtimeHealth(config) });
   const integrations = integrationHealth(config, env);
   checks.push({ name: "integration-receipt", ok: ["present", "missing"].includes(integrations.receipt.status),

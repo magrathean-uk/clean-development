@@ -104,6 +104,73 @@ test("an async lock retries when the current owner releases before validation", 
   assert.equal(fs.existsSync(lock), false);
 });
 
+for (const mode of ["async", "sync"]) {
+  for (const guardKind of ["empty directory", "malformed file"]) {
+    test(`${mode} acquisition waits on an absent lock with a removal guard (${guardKind})`, async (t) => {
+      const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "clean-development-guarded-absent-")));
+      t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+      const lock = path.join(root, "absent.lock");
+      const guard = `${lock}.removal-guard`;
+      if (guardKind === "empty directory") fs.mkdirSync(guard);
+      else fs.writeFileSync(guard, "malformed guard\n");
+      const acquire = mode === "sync" ? acquireDirectoryLockSync : acquireDirectoryLock;
+      const attempt = mode === "sync"
+        ? () => assert.throws(() => acquire(lock, { timeoutMs: 0 }), /Timed out waiting for/)
+        : () => assert.rejects(acquire(lock, { timeoutMs: 0 }), /Timed out waiting for/);
+      await attempt();
+      assert.equal(fs.existsSync(lock), false);
+      assert.equal(fs.existsSync(guard), true);
+      if (guardKind === "malformed file") assert.equal(fs.readFileSync(guard, "utf8"), "malformed guard\n");
+
+      fs.rmSync(guard, { recursive: true });
+      const release = await acquire(lock, { timeoutMs: 200 });
+      release();
+      assert.equal(fs.existsSync(lock), false);
+    });
+  }
+
+  test(`${mode} acquisition removes only its empty directory when a guard appears just after mkdir`, async (t) => {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "clean-development-guard-race-")));
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+    const lock = path.join(root, "absent.lock");
+    const guard = `${lock}.removal-guard`;
+    const mkdirSync = fs.mkdirSync;
+    let inserted = false;
+    fs.mkdirSync = (target, ...args) => {
+      const result = mkdirSync(target, ...args);
+      if (!inserted && path.resolve(String(target)) === lock) {
+        inserted = true;
+        mkdirSync(guard);
+      }
+      return result;
+    };
+    const acquire = mode === "sync" ? acquireDirectoryLockSync : acquireDirectoryLock;
+    try {
+      if (mode === "sync") assert.throws(() => acquire(lock, { timeoutMs: 0 }), /Timed out waiting for runtime lock/);
+      else await assert.rejects(acquire(lock, { timeoutMs: 0 }), /Timed out waiting for setup lock/);
+    } finally {
+      fs.mkdirSync = mkdirSync;
+    }
+    assert.equal(inserted, true);
+    assert.equal(fs.existsSync(lock), false);
+    assert.equal(fs.lstatSync(guard).isDirectory(), true);
+  });
+}
+
+test("async acquisition progresses after a transient guard on an absent lock disappears", async (t) => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "clean-development-transient-guard-")));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const lock = path.join(root, "absent.lock");
+  const guard = `${lock}.removal-guard`;
+  fs.mkdirSync(guard);
+  const pending = acquireDirectoryLock(lock, { timeoutMs: 500 });
+  await new Promise((resolve) => setImmediate(resolve));
+  fs.rmdirSync(guard);
+  const release = await pending;
+  release();
+  assert.equal(fs.existsSync(lock), false);
+});
+
 test("a sync lock retries when the current owner releases before validation", (t) => {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "clean-development-lock-race-")));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));

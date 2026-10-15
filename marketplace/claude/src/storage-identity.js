@@ -16,6 +16,52 @@ function receiptPath(config) {
   return path.join(state, "storage-identities", `${key}.json`);
 }
 
+const MAX_DIAGNOSTIC_WORKSPACE_ENTRIES = 4096;
+const MAX_DIAGNOSTIC_WORKSPACE_RECORD_BYTES = 64 * 1024;
+
+function readDiagnosticRecord(file) {
+  let before;
+  try { before = fs.lstatSync(file, { bigint: true }); }
+  catch (error) { throw new Error(`Workspace record could not be inspected: ${error.code || "I/O error"}`); }
+  if (!before.isFile() || before.isSymbolicLink()) throw new Error("Workspace record is not a regular file");
+  if (before.size > BigInt(MAX_DIAGNOSTIC_WORKSPACE_RECORD_BYTES)) throw new Error("Workspace record exceeds the 64 KiB diagnostic limit");
+  let fd;
+  let failure;
+  try {
+    fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0) | (fs.constants.O_NONBLOCK || 0));
+    const opened = fs.fstatSync(fd, { bigint: true });
+    if (!opened.isFile() || String(opened.dev) !== String(before.dev) || String(opened.ino) !== String(before.ino)) {
+      throw new Error("Workspace record changed while opening");
+    }
+    const buffer = Buffer.alloc(MAX_DIAGNOSTIC_WORKSPACE_RECORD_BYTES + 1);
+    let count = 0;
+    while (count < buffer.length) {
+      const read = fs.readSync(fd, buffer, count, buffer.length - count, null);
+      if (read === 0) break;
+      count += read;
+    }
+    const afterFd = fs.fstatSync(fd, { bigint: true });
+    const afterPath = fs.lstatSync(file, { bigint: true });
+    if (count > MAX_DIAGNOSTIC_WORKSPACE_RECORD_BYTES) throw new Error("Workspace record exceeds the 64 KiB diagnostic limit");
+    if (String(opened.dev) !== String(afterFd.dev) || String(opened.ino) !== String(afterFd.ino)
+      || String(opened.dev) !== String(afterPath.dev) || String(opened.ino) !== String(afterPath.ino)
+      || opened.size !== afterFd.size || opened.mtimeNs !== afterFd.mtimeNs || opened.ctimeNs !== afterFd.ctimeNs
+      || afterFd.ctimeNs !== afterPath.ctimeNs || !afterPath.isFile() || afterPath.isSymbolicLink()) {
+      throw new Error("Workspace record changed during inspection");
+    }
+    try { return JSON.parse(buffer.subarray(0, count).toString("utf8")); }
+    catch { throw new Error("Workspace record JSON is malformed"); }
+  } catch (error) {
+    failure = error;
+    throw error;
+  } finally {
+    if (fd !== undefined) {
+      try { fs.closeSync(fd); }
+      catch { if (!failure) throw new Error("Workspace record could not be closed after inspection"); }
+    }
+  }
+}
+
 function sameDirectoryIdentity(stat, identity) {
   return String(stat.dev) === String(identity.dev) && String(stat.ino) === String(identity.ino);
 }
@@ -138,6 +184,65 @@ export function validateManagedBuildRoot(config) {
   const current = currentIdentity(config);
   if (!sameStorageIdentity(value.identity, current.identity)) throw changedRoot(config);
   return current;
+}
+
+/** Read-only doctor view that also detects receipts missing from bound records. */
+export function inspectManagedBuildRootIdentity(config) {
+  try {
+    const current = validateManagedBuildRoot(config);
+    if (current) return { ok: true, status: "approved", detail: `Approved storage identity is present for ${config.buildRoot}` };
+    const collection = path.join(config.locations.stateDir, "workspaces");
+    let directory;
+    try { directory = fs.lstatSync(collection, { bigint: true }); }
+    catch (error) {
+      if (error.code === "ENOENT") return { ok: true, status: "unbound", detail: "No global storage identity receipt or workspace records; legacy storage remains unbound" };
+      return { ok: false, status: "uncertain", detail: `Workspace record collection is inaccessible: ${error.message}` };
+    }
+    if (!directory.isDirectory() || directory.isSymbolicLink() || fs.realpathSync.native(collection) !== path.resolve(collection)) {
+      return { ok: false, status: "uncertain", detail: "Workspace record collection is not a canonical real directory" };
+    }
+    const bindings = [];
+    let handle;
+    try {
+      handle = fs.opendirSync(collection);
+      let entries = 0;
+      let entry;
+      while ((entry = handle.readSync()) !== null) {
+        entries += 1;
+        if (entries > MAX_DIAGNOSTIC_WORKSPACE_ENTRIES) {
+          return { ok: false, status: "uncertain", detail: `Workspace record collection exceeds the ${MAX_DIAGNOSTIC_WORKSPACE_ENTRIES}-entry diagnostic limit` };
+        }
+        if (!entry.name.endsWith(".json")) continue;
+        const file = path.join(collection, entry.name);
+        try {
+          const record = readDiagnosticRecord(file);
+          if (record?.schemaVersion !== 1 || typeof record.workspaceId !== "string" || typeof record.workspace !== "string"
+            || typeof record.ownershipId !== "string" || typeof record.buildRoot !== "string" || typeof record.path !== "string"
+            || typeof record.lastUsedAt !== "string" || typeof record.pinned !== "boolean") {
+            throw new Error("Workspace record is partial or invalid");
+          }
+          if (path.resolve(record.buildRoot) === path.resolve(config.buildRoot) && record.storageIdentity) bindings.push(file);
+        } catch (error) {
+          return { ok: false, status: "uncertain", detail: `Workspace record collection cannot be verified (${error.message}); inspect it before assuming storage is unbound` };
+        }
+      }
+    } catch (error) {
+      return { ok: false, status: "uncertain", detail: `Workspace record collection is inaccessible or uncertain: ${error.message}` };
+    } finally {
+      if (handle) { try { handle.closeSync(); } catch {} }
+    }
+    const afterDirectory = fs.lstatSync(collection, { bigint: true });
+    if (String(directory.dev) !== String(afterDirectory.dev) || String(directory.ino) !== String(afterDirectory.ino)
+      || directory.mtimeNs !== afterDirectory.mtimeNs || directory.ctimeNs !== afterDirectory.ctimeNs) {
+      return { ok: false, status: "uncertain", detail: "Workspace record collection changed during inspection" };
+    }
+    if (bindings.length === 0) {
+      return { ok: true, status: "unbound", detail: "No global storage identity receipt or identity-bound workspace records; legacy storage remains unbound" };
+    }
+    return { ok: false, status: "missing", detail: `Storage identity receipt is missing while ${bindings.length} workspace record(s) remain bound; inspect storage and run 'clean-development prepare' explicitly` };
+  } catch (error) {
+    return { ok: false, status: "invalid", detail: error.message };
+  }
 }
 
 export function ensureManagedBuildRootIdentity(config, { legacyValidated = false } = {}) {
