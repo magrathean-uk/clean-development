@@ -42,7 +42,7 @@ WSL Linux tools and Windows executables can consume different path forms and sto
 
 ## Large local storage
 
-During storage setup, let each user choose a preferred external cache root and a local fallback. For this workspace, use `/Volumes/4TB/cache` when the 4TB volume is mounted and writable; when that volume is not mounted, use `~/dev/cache`, expanded to an absolute path. These are machine-specific choices, not universal defaults. Other users can configure their own volume and fallback.
+During storage setup, let each user choose a preferred external cache root and a local fallback. For this workspace, use `/Volumes/4TB/machine/cache` when the 4TB volume is mounted and writable; when that volume is not mounted, use `~/dev/machine/cache`, expanded to an absolute path. These are machine-specific choices, not universal defaults. Other users can configure their own volume and fallback.
 
 For new sessions, detect the actual volume mount and usable destination before selecting a root; the existence of a mount-point directory alone is insufficient. A mounted but unwritable destination is an error, not permission to fall back silently. Keep the selected destination fixed for an active routed session. If its volume disappears, stop that work and select a destination for a new session.
 
