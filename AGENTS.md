@@ -1,38 +1,30 @@
-# Working on Clean Development
+# clean-development (plugin + runtime, part of bolyki-dev)
 
-Clean Development is an ESM Node.js CLI with no npm dependencies. Use Node 20.12 or newer. Runtime code lives in `src/`, entry points in `bin/`, and isolated fixtures in `test/`.
+Machine storage policy for G's Mac: routing (4TB external or internal fallback), session-end cleanup, the 5 GB rule and the no-dot-folder report, for Claude Code, Codex and claude-1..5. Version 0.6.0. ESM Node (>= 20.12), no dependencies.
 
-Carry authorized changes through their relevant checks without asking again for routine implied steps. Use bounded delegation for independent work when it saves time, with clear file ownership.
+## Layout
 
-## Boundaries
+- `machine/env.zsh`, `machine/storage.conf`: installed to `~/dev/machine/` by `install.sh --config`. env.zsh must stay POSIX (zsh and bash 3.2 source it), print nothing on stdout, never exit, and stay fork-free on the hot path (pinned session shells).
+- `runtime/`: hooks (`bin/cd-hook` -> `bin/cd-hook.mjs`) and CLI (`bin/clean-development`), installed to `~/dev/machine/runtime/clean-development/<version>/`. Hook commands in user settings point at that versioned path.
+- `skills/clean-development/SKILL.md`: the agent-facing rules (model-invocable). `plugin.json` (OpenAI portable) and `.claude-plugin/plugin.json` ship only the skill; the plugin declares no hooks on purpose (no `hooks/` directory: both harnesses would auto-load `hooks/hooks.json`).
+- `fragments/`: the hook blocks merged into `~/.claude/settings.json`, `~/.codex/hooks.json` and claude-work `shared/settings.json`, plus `merge-hooks.py`.
+- `schemas/project-config.schema.json`: `.clean-development.json` schema v2 (v1 still read).
 
-- Preserve user environment overrides, unrelated host settings, argv, cwd, stdio, signals, and exit status.
-- Treat source, credentials, toolchains, final deliverables, and unregistered paths as externally owned. Prune only registered, marker-verified Cargo build roots after rechecking leases, pins, and age.
-- Keep session planning read-only. `session-only` writes no project config; `persist` creates only the reviewed absent `.clean-development.json`; `skip` removes inherited routing without discarding independent overrides. Native integrations default to skip.
-- Test setup, update, uninstall, persistence, and deletion with disposable homes, settings, and storage roots. Never use a contributor's real agent configuration or build storage as a fixture.
-- Do not add prompt bootstrap text, telemetry, command recording, postinstall configuration changes, or automatic deletion.
-- Legal files (`LICENSE`, `NOTICE`, `docs/legal/`, contributor terms, copyright and attribution strings) are owner-controlled: change them only on the owner's explicit instruction.
+## Rules for changes
 
-<!-- clean-development-policy:v2 (canonical text: ~/dev/source/dev-bootstrap/snippets/clean-development-policy.md) -->
-## Clean development (mandatory)
-
-This project follows [Clean Development](https://github.com/magrathean-uk/clean-development) and the machine rule that nothing creates tool state under `~` (only the allow-listed agent homes).
-
-- Load `~/dev/machine/env.zsh`; `~/.zshenv` does this for every zsh. Machine storage preferences live in `~/dev/machine/storage.conf`; workspace navigation is in `~/dev/START-HERE.md`.
-- New sessions select `/Volumes/4TB/machine/cache` when the configured volume is actually mounted and writable, otherwise `~/dev/machine/cache` for ordinary smaller work. Use routed `DEVCACHE`, `CLEAN_DEVELOPMENT_{ROOT,CACHE_ROOT,BUILD_ROOT,SCRATCH_ROOT}`, `BOLYKI_DEV_LIBS` and `TMPDIR`; builds and scratch are beneath the selected cache. Keep active-session destinations fixed; stop if required storage disappears. Other users configure their own volume and fallback.
-- SpecieX, large video/model jobs and VMs require external storage; never use internal fallback. Persistent labs, credentials, installed toolchains, source and final deliverables are not disposable caches.
-- All active Git entry points belong under `~/dev/source/`, third-party repositories in `source/third-party/`, websites in `source/magrathean/`, and Teslatlas products/docs in `source/teslatlas-service/`. Do not read, scan, move or edit `~/dev/porn`.
-- Preserve routed tool homes/caches, caller overrides and SDK/toolchain choices. Never unset or bypass routing. Scrubbed environments must restore the reviewed routing before cache-writing tools run; preserve intentional hermetic Git/Cargo isolation.
-- Run builds, tests, installs and anything else that writes caches or build output through Clean Development: `clean-development run --session session-only -- <command>`. Follow its docs and keep its receipts.
-- Do not add installers or scripts that default into `~` (`~/.cargo`, `~/.rustup`, `~/.cache`, `~/.npm`, `~/.swiftpm`, `~/.gradle`, ...) and do not hardcode `$HOME` paths for caches; use the routed variables.
-- Before finishing, run `dev-env-check`, `dev-projects-check` and `dev-audit`; require passing environment/project checks and no new home-audit entries compared with the task baseline. Fix violations your work caused.
+- Deletion only through `removeManaged` (strictly inside managed roots, rename to trash, detached delete). Repo directories only when declared in `buildDirs`/`depDirs` and git-ignored. Never delete source, toolchains, VMs, models or anything under `~/dev/porn`.
+- Hooks never fail a session: catch, log to `~/dev/machine/state/clean-development/hook.log`, exit 0. SessionStart must stay well under 1 s; Codex SessionEnd is capped at 3 s.
+- Session key derivation must match in `machine/env.zsh` and `runtime/lib/sessions.mjs` (harness letter + last 12 characters of `CLAUDE_CODE_SESSION_ID` / `CODEX_THREAD_ID`).
+- Changing any hook command changes its Codex trust hash: re-run `clean-development codex-trust --apply` after installing.
+- Version bumps: `runtime/VERSION`, `runtime/lib/conf.mjs` `VERSION`, `machine/env.zsh` `CLEAN_DEV_VERSION`, `plugin.json`, `.claude-plugin/plugin.json`, `package.json`, `fragments/*.json` paths, the bolyki-dev marketplace entries and the claude-work provisioning pin.
 
 ## Checks
 
-Run the relevant isolated test first, such as `node --test test/session.test.js` for consent or `node --test test/prune.test.js` for retention. Run `npm run check` and `npm test` for code changes. Documentation-only changes need link, command, and consistency checks, not real-tool builds.
+Run all with a disposable directory (nothing outside it is written):
 
-Use `npm run test:package` for distribution changes. It installs temporary tarballs and requires the preceding-release tag named in `scripts/verify-package.mjs` for upgrade verification. See [CONTRIBUTING.md](CONTRIBUTING.md) for broader smoke, fixture, and performance checks.
+```sh
+npm run check
+CLEAN_DEV_TEST_DIR=/tmp/cd-test-$$ npm test     # node --test test/ and test/env-modes.sh
+```
 
-Keep versioned files in `.version-bump.json`, both root package-lock versions, and the bug-report placeholder synchronized. Keep the Codex (`skills/`) and Claude (`claude-skills/`) skill files identical, and keep `disable-model-invocation: true` in every copy: Claude Code also scans the root `skills/` directory, so a copy without the key puts its description in every turn's context. Codex takes its policy from `agents/openai.yaml`; preserve that explicit-invocation metadata too.
-
-For routing and ownership changes, read [architecture](docs/architecture.md) and [the safety model](docs/safety-model.md). Update the affected configuration, integration, or verification document. A package loader or fixture pass does not establish live host acceptance or billed-token neutrality. Record the exact revision, host version, and check boundary when adding evidence.
+Tests use simulated homes and a simulated `Volumes/4TB`; never point them at the real home or the real volume.

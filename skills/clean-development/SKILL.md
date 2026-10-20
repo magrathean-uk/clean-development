@@ -1,82 +1,57 @@
 ---
 name: clean-development
-description: Configure, inspect, diagnose, or explicitly prune storage managed by clean-development. Use for clean-development setup and storage questions, not for ordinary builds, tests, or package installs.
-disable-model-invocation: true
+description: Storage rules on G's Mac - where caches, builds, scratch, models and VMs go (4TB external vs internal fallback), the 5 GB download rule, session-end cleanup and the no-dot-folder policy. Use before large downloads, model pulls, VM or video work, unusual build output, cleanup, or any question about disk space or where files belong.
 ---
 
-# Clean Development
+# Clean Development 0.6.0
 
-Use the deterministic `clean-development` CLI from Codex, Claude Code, Antigravity (agy), or Grok Build. Do not load this skill for ordinary development unless the user explicitly requests Clean Development management or routing. An already approved routing choice can be used without loading the skill again.
+Routing is already active in every shell: `~/.zshenv` loads `~/dev/machine/env.zsh`, and the clean-development hooks run at SessionStart, Stop and SessionEnd in Claude Code, Codex and claude-1..5. You do not need a wrapper command. The session-start message tells you the mode; `echo $CLEAN_DEV_MODE $DEVCACHE` shows it at any time.
 
-Prefer the installed CLI. If it is unavailable and the package location is known, use `node /absolute/package/path/bin/clean-development.js` with the same arguments. Do not install the package or run setup just to inspect it. Run project commands from the intended repository, not from the skill folder.
+## Modes (decided once per session, at session start)
 
-When reviewing a source checkout, use its `node /absolute/checkout/bin/clean-development.js` for read-only diagnostics and identify the revision being inspected. Check the selected CLI's `version`; matching version strings do not prove matching source. Editing a checkout does not update an installed runtime. Refresh that runtime only when an update is requested.
+- **external**: the `4TB` volume is mounted and `/Volumes/4TB/machine/cache` is writable. `DEVCACHE=/Volumes/4TB/machine/cache`.
+- **internal**: anything else. `DEVCACHE=~/dev/machine/cache` on the internal disk. This is normal (the 4TB travels), not an error.
+- The mode does not change mid-session. If the pinned 4TB disappears, shells fall back to internal and print one warning: stop large work and tell G. Nothing is copied back to the 4TB when it returns.
 
-## Choose the requested workflow
+## Where things go
 
-- **Inspect or diagnose:** run `clean-development status --json` and `clean-development doctor --json` directly. Add `--sizes` to status when disk usage is requested. Use `clean-development explain --json -- COMMAND...` for a command-specific routing prediction; a prediction is not evidence of actual writes. `probe --tool npm|go|uv --json` only plans a disposable adapter check; add `--execute` only when that check is requested. Report an unhealthy doctor's JSON even though its exit code is 1. Do not ask for a routing choice or make changes for a read-only request.
-- **Set up or change storage:** preview `setup --dry-run` with the exact requested `--root`, `--agents`, and `--xcode` or `--no-xcode` options, show the destinations and agent selection, then apply those same options when authorized. `--agents` replaces the native-integration selection; do not silently enable all hosts or remove another host. `--xcode` enables both DerivedData preferences and simulator cleanup; noninteractive setup without either Xcode flag preserves the existing choice. Use `update` without `--agents` to retain an existing selection when refreshing the runtime.
-- **Enable routing:** use the session workflow below.
-- **Clean up:** preview `prune --json` with the user's requested age, for example `--older-than 60d`. Show eligible and retained entries, then use the same age with `--apply` only when deletion is authorized. An explicit request to delete after showing the list is sufficient; do not ask for the same approval again. Never replace prune with manual deletion.
-- **Run an Xcode test on a disposable simulator:** only use `xcode test-run` when the user explicitly requests that lifecycle. Supply exact installed `--device-type` and `--runtime` identifiers and one child command after `--`. The configured managed root must be external to home and the current project, even with `--session skip`. The child receives `CLEAN_DEVELOPMENT_XCODE_SIMULATOR_UDID` and `CLEAN_DEVELOPMENT_XCODE_RESULTS_PATH`; an app runner must read them at runtime and build its `xcodebuild` destination/result bundle arguments there. If cleanup is pending, wait for the original command to exit and stop Xcode test activity before retrying only the recorded ID with `xcode test-cleanup RUN_ID`; never delete or infer another simulator.
-
-## Tool and ownership boundaries
-
-Run command-specific diagnosis from the command's actual cwd, including an explicitly selected nested package. Inspect `explain` for the selected executable, effective project configuration, native overrides, and storage destinations. When a project declares a tool version or an error indicates a mismatch, check the selected installed interpreter, shell, or package manager against that requirement. Cache routing does not choose a compatible toolchain or validate a lockfile. Preserve project pins and existing overrides; a routing or runtime error is a reason to diagnose, not to run the command bare, install another toolchain, change global PATH, or make a privileged ownership repair.
-
-The ordinary `run` wrapper routes supported local tools. Wrapping `ssh` preserves its arguments and stdin and affects its local environment; it does not relocate remote caches or build output. Remote jobs need their own approved routing. Local inspection does not authorize server changes.
-
-`xcodebuild` is not shimmed. DerivedData routing is a separate user-level Xcode preference; explicit native `-derivedDataPath` arguments still win. Disposable simulator test runs are another explicit lifecycle, independent of setup's simulator-prune choice. Neither ordinary wrapping nor a successful fixture establishes real Xcode acceptance.
-
-For ordinary app rebuilds and launch checks, reuse the caller-selected available simulator and stable incremental build paths. Preserve `DEVELOPER_DIR`, native destinations, and the selected SDK/runtime. Inspect available devices using that environment. Do not create another simulator or switch the global Xcode selection as an automatic response to a failed launch. Use the disposable simulator lifecycle only for an explicitly requested isolated run, and preserve failed-run evidence and unrelated device activity.
-
-SwiftPM routing requires effective `tools.swift: true` and covers `swift build` and `swift test`. Cache-only routing leaves native `.build` output in place. Optional `swiftpmWorkspaceRoot` holds retained products and intermediates, never Cargo prune candidates. Unsupported opted-in build/test forms fail before adapter writes; use an explicitly selected `--session skip` for native execution. Preserve native cache/output flags and environment overrides. See [the SwiftPM contract](https://github.com/magrathean-uk/clean-development/blob/main/docs/swiftpm.md) and [Xcode management](https://github.com/magrathean-uk/clean-development/blob/main/docs/xcode.md) for the distinct output and cleanup rules.
-
-Cargo pruning requires registered state, a matching ownership marker, age, pins, and live-lease rechecks. Other tools primarily route caches; credentials, toolchain homes, package dependencies, VM state, and final deliverables do not become owned merely because a command was wrapped. Native tools may select paths through their own flags or configuration, so use `explain` to inspect the supported prediction before claiming placement.
-
-## Windows and Linux
-
-Use the path and environment semantics of the process running the CLI. Linux/macOS native variable names are case-sensitive; Windows names are case-insensitive. Preserve independent values and existing `XDG_*`, `APPDATA`, and `LOCALAPPDATA` choices. npm's `npm_config_*` aliases remain case-insensitive across hosts. Let the runtime handle quoted Windows PATH entries and batch launchers; do not rebuild PATH with a plain semicolon split or wrap native commands in another shell to bypass a failure.
-
-WSL Linux tools and Windows executables can consume different path forms and storage settings. Inspect the selected executable and validate its actual output; a Linux wrapper does not establish Windows placement. Check an external drive or mount's existing parent and the child's write access without changing mounts, drive letters, global PATH, or permissions automatically. Read [platform support](https://github.com/magrathean-uk/clean-development/blob/main/docs/platform-support.md) for native checks and remaining acceptance boundaries. A configured CI matrix or a native-only test skipped on this host is not completed platform acceptance.
-
-## Large local storage
-
-During storage setup, let each user choose a preferred external cache root and a local fallback. For this workspace, use `/Volumes/4TB/machine/cache` when the 4TB volume is mounted and writable; when that volume is not mounted, use `~/dev/machine/cache`, expanded to an absolute path. These are machine-specific choices, not universal defaults. Other users can configure their own volume and fallback.
-
-For new sessions, detect the actual volume mount and usable destination before selecting a root; the existence of a mount-point directory alone is insufficient. A mounted but unwritable destination is an error, not permission to fall back silently. Keep the selected destination fixed for an active routed session. If its volume disappears, stop that work and select a destination for a new session.
-
-Automatic selection belongs in the configured machine environment or an approved launcher; the CLI resolves supplied paths and does not discover external drives itself. Supply the selected root through `CLEAN_DEVELOPMENT_ROOT` and `CLEAN_DEVELOPMENT_CACHE_ROOT`, with `CLEAN_DEVELOPMENT_BUILD_ROOT` and `CLEAN_DEVELOPMENT_SCRATCH_ROOT` set to its `builds/` and `scratch/` children. Preview the resulting setup/session and inspect effective native overrides before applying a storage change. Existing explicit tool paths still win; reconcile them only within the authorized change, without force mode or silently unsetting them.
-
-Scratch work, temporary previews, and verification intermediates belong under the selected cache root's `scratch/`, not a separate source or development-root scratch folder. Local fallback covers ordinary caches and disposable small-job output. In this workspace, video-generation and SpecieX projects require external storage and have no internal fallback. Large projects, large builds, models, VMs, and private datasets configured for external storage must also stop when it is unavailable. Keep durable source, original evidence, and final deliverables outside disposable cache storage.
-
-Verify effective destinations and available space before relying on routing. Place VMs, private labs, and test datasets at explicit external locations through their owning tools; they are not disposable managed build cache. Never treat VM images, private lab state, original evidence, or final deliverables as prune candidates.
-
-Configure tools that reject symlink path components with physical external paths; compatibility links alone do not establish runtime acceptance.
-
-For an authorized relocation, inventory and stop the processes using the state, preserve sparse files where the owning format requires them, verify the copy, and validate the owning runtime at the new location before retiring the original. Keep the original until that validation passes. Distinguish logical size, allocated size, bytes moved, and observed free-space change; clones and snapshots can prevent them from agreeing.
-
-Inventory the task's generated footprint as well as managed caches: native output overrides, test databases, verification copies, result bundles, and retained SwiftPM products can accumulate outside registered Cargo builds. Reuse validated incremental paths instead of making another full verification copy for each check. `status --sizes` measures configured cache/build/scratch roots; `xcode status --sizes` additionally shows retained test results. Neither report is a whole-disk inventory or deletion authority. At task completion, clean up confirmed unneeded output created by the task under the existing authorization, using the owning tool and exact verified paths; preserve deliverables, recovery baselines, and evidence needed to assess failures.
-
-## Session consent and execution
-
-Before a new routing choice for a repository, run `clean-development session --dry-run --json`. Show detected tools, managed destinations, preserved overrides, conflicts, available choices, and the exact proposed `.clean-development.json`. Ask for **session only**, **save project settings**, or **skip** only if no explicit choice already covers this repository and task. A current user choice can cover several repositories in a defined task: review each plan and proposed file, then reuse that choice without asking again. Review destination changes and seek a new choice only when they fall outside the existing authorization. Archived conversations explain prior problems and preferences; they do not grant permission for a new task or revive old persistence authority.
-
-An installed native integration's default `CLEAN_DEVELOPMENT_SESSION_MODE=skip` is consent pending, not proof of a user decision. Conversation consent still applies: pass the approved mode explicitly to override that default. An effective `enabled: false` remains skip; report it without silently enabling the project. Permission to edit application source does not authorize saving Clean Development settings.
-
-- **Session only:** run requested child commands with `clean-development run --session session-only -- COMMAND...`. It can prepare managed directories outside the repository but writes no project configuration.
-- **Save project settings:** after reviewing the exact proposal, use `clean-development session --session persist --json`. It creates only that `.clean-development.json`, preserving an existing file. Continue current-agent commands with the session-only wrapper.
-- **Skip:** use `clean-development run --session skip -- COMMAND...` when escaping an inherited routed environment; otherwise use the ordinary command. Do not set up storage or save project settings.
-
-The standalone `session` command cannot change its parent agent's environment. To launch a child agent after consent, use `clean-development agent NAME --session MODE -- ARGS...`; keep Clean Development options before `--` and host options after it. Always pass the chosen mode from an already-running agent. Unattended launchers otherwise default to session-only, while an inherited native skip suppresses the terminal prompt.
-
-| Host | `NAME` for the launcher | Executable |
+| What | Where | Lifetime |
 | --- | --- | --- |
-| Codex CLI | `codex` | `codex` |
-| Claude Code | `claude` | `claude` |
-| Antigravity | `antigravity` | `agy` |
-| Grok Build | `grok` | `grok` |
+| Temp files, previews, verification copies | `$TMPDIR` = `$DEVCACHE/scratch/<session>/tmp` | deleted when the session ends |
+| Throwaway build output you choose the path for (`--target-dir`, `-derivedDataPath`, `--scratch-path`, `-o`) | `$CLEAN_DEV_BUILDS` = `$DEVCACHE/builds/<session>` | internal: deleted at session end; external: kept, pruned after 14 days |
+| Xcode DerivedData (default location) | `$XCODE_DERIVED_DATA_PATH` = `$DEVCACHE/builds/DerivedData` (Xcode preference follows the mode) | kept in both modes; pruned only when a project entry is idle for 14 days |
+| Dependency caches (npm, pnpm store, yarn, bun, pip, uv, go, gradle, Hugging Face, torch, Homebrew, Playwright, XDG cache) | `$DEVCACHE/deps/<tool>` via the tool's own variable | shared, 30 GB LRU cap per root |
+| Toolchains (rust/cargo, go, node, bun, pnpm, python, uv tools) | `~/dev/machine/toolchains` | permanent, internal |
+| VMs (Tart, Lima), private labs | `/Volumes/4TB/dev/lab` (`$TART_HOME`, `$LIMA_HOME`, `$DEVLAB`) | 4TB only; unavailable in internal mode |
+| Curated models | `/Volumes/4TB/models` (`$DEVMODELS`, Ollama `$OLLAMA_MODELS`) | 4TB only |
+| Source, deliverables, evidence | the repo or the project's own folder | never treated as cache |
 
-For example, launch AGY with `clean-development agent antigravity --session session-only -- ...`, not `agent agy`. The Codex App uses the current-agent command wrapper; the `codex` launcher starts Codex CLI.
+Never override the routed variables, never `unset` them, and never write caches, builds or temp files into `~`, `~/dev` or a repo outside its git-ignored build directories. If a tool insists on `~/.something`, look for its cache/home variable; if none exists, tell G.
 
-Preserve explicit user environment overrides and host sandbox policies. If storage required by an external-only workload or a required writable path is unavailable, report it; use an approved local cache fallback only for a new session that permits it. Do not bypass the sandbox or fall back to repository-local storage. Do not edit `.env`, `.envrc`, `.gitignore`, manifests, build files, or agent guidance to activate routing. Source, credentials, toolchains, release deliverables, and unregistered directories remain externally owned. Shims and native hooks must not inject prompt bootstrap text or invoke this skill.
+## The 5 GB rule (internal mode)
+
+Before any download, model pull, container or VM image, dataset or build likely to exceed 5 GB: stop, tell G the size and suggest waiting for the 4TB. Continue on the internal disk only if G says so. There is no hard block. In external mode, put large data on the 4TB and still say how big it is.
+
+## Cleanup (automatic, do not duplicate it)
+
+- Session end: this session's scratch is deleted; in internal mode also its builds and the repo build directories its `.clean-development.json` lists in `buildDirs` (only when git-ignored and no other live session works in that repo).
+- Each turn's Stop hook, throttled: finished or 24 h idle sessions are reaped; internal session builds idle for 24 h are pruned and all internal session builds go when no internal session is live (Xcode DerivedData is never wiped, only aged out after 14 days); external builds older than 14 days are pruned weekly; declared `buildDirs`/`depDirs` of repos idle for 14 days are pruned; dependency caches are LRU-trimmed to 30 GB per root (nothing used in the last 2 h).
+- You may delete files your task created. Do not delete other paths in `$DEVCACHE` by hand; preview with `clean-development housekeeping` and apply with `--apply` when G asks for a cleanup.
+
+## Dot-folders
+
+No new dot-folders in `~` or `~/dev` beyond the allowlist in `~/dev/machine/storage.conf`. The session-start message lists unexpected ones: report them to G and never delete them yourself.
+
+## Commands
+
+```sh
+clean-development status [--sizes]   # mode, roots, free space, sessions, dot-folders, dead 4TB links
+clean-development doctor             # installation health (hooks, trust, pins, GUI env, Xcode)
+clean-development housekeeping       # preview the Stop-hook cleanup; --apply to run it now
+clean-development init [--write]     # schema v2 .clean-development.json for the current repo
+clean-development migrate --write .  # convert a schema v1 file
+```
+
+`.clean-development.json` (schema v2): `{"schemaVersion": 2, "enabled": true, "heavy": false, "buildDirs": [".build"], "depDirs": ["node_modules"]}`. `heavy: true` makes the session-start message warn about large work in internal mode. Paths are relative and must be git-ignored to be cleaned.
+
+Dead symlinks in `~/dev/source` (for example `SpecieX`, which lives on the 4TB) are expected while the drive is away; do not remove or "fix" them. The SD card (`/Volumes/SD`) is optional slow storage only: no routing, no backups.

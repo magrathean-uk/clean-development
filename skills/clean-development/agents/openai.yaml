@@ -1,6 +1,6 @@
 interface:
   display_name: "Clean Development"
-  short_description: "Configure and inspect managed developer storage"
-  default_prompt: "Use $clean-development to configure or diagnose managed build storage."
+  short_description: "Storage routing, 5 GB rule and cleanup on this Mac"
+  default_prompt: "Use $clean-development to decide where caches, builds, scratch, models or VMs go."
 policy:
-  allow_implicit_invocation: false
+  allow_implicit_invocation: true

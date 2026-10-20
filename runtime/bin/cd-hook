@@ -1,0 +1,8 @@
+#!/bin/sh
+# clean-development 0.6.0 hook launcher: cd-hook <session-start|stop|session-end> <claude|codex>
+# Finds node without relying on PATH and never fails the calling session (exit 0 when node is missing).
+rt="${0%/bin/cd-hook}"
+for n in "${CLEAN_DEV_NODE:-}" "$HOME/dev/machine/toolchains/node/current/bin/node" "$HOME/dev/toolchains/node/current/bin/node" /opt/homebrew/bin/node; do
+  if [ -n "$n" ] && [ -x "$n" ]; then exec "$n" "$rt/bin/cd-hook.mjs" "$@"; fi
+done
+exit 0

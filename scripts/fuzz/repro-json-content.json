@@ -1,9 +1,0 @@
-{
-  "id": "json-content-disclosure",
-  "boundary": "project",
-  "slot": "project",
-  "payload": "FUZZ_CANARY",
-  "argv": [
-    "status"
-  ]
-}

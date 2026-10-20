@@ -1,92 +1,13 @@
 {
   "name": "clean-development",
-  "version": "0.5.0",
-  "description": "Keep development caches and supported build output in one managed place, without adding prompt context.",
+  "version": "0.6.0",
+  "private": true,
+  "description": "Machine storage routing, session-end cleanup and dot-folder policy for G's Mac (Claude Code, Codex, claude-1..5).",
   "type": "module",
-  "main": "./.opencode/plugins/clean-development.js",
-  "exports": {
-    ".": "./.opencode/plugins/clean-development.js",
-    "./api": "./src/index.js",
-    "./package.json": "./package.json"
-  },
-  "bin": {
-    "clean-development": "bin/clean-development.js"
-  },
-  "files": [
-    "bin/",
-    "src/",
-    "schemas/",
-    "skills/",
-    "claude-skills/",
-    "integrations/",
-    "hooks/",
-    "docs/",
-    ".agents/",
-    ".claude-plugin/",
-    ".codex-plugin/",
-    ".cursor-plugin/",
-    ".devin-plugin/",
-    ".grok-plugin/",
-    ".kimi-plugin/",
-    ".hermes-plugin/",
-    ".opencode/",
-    ".pi/",
-    "gemini-extension.json",
-    "plugin.json",
-    "CHANGELOG.md",
-    "README.md",
-    "LICENSE",
-    "CODE_OF_CONDUCT.md",
-    "CONTRIBUTING.md",
-    "SECURITY.md",
-    "SUPPORT.md",
-    "PRIVACY.md",
-    "TERMS.md",
-    "GOVERNANCE.md",
-    "RELEASING.md",
-    "ROADMAP.md"
-  ],
+  "engines": { "node": ">=20.12" },
   "scripts": {
-    "check": "node ./scripts/check.mjs",
-    "test": "node --test",
-    "test:coverage": "node --test --experimental-test-coverage",
-    "test:package": "node ./scripts/verify-package.mjs",
-    "smoke:tools": "node ./scripts/smoke-real-tools.mjs",
-    "benchmark:overhead": "node ./scripts/benchmark-overhead.mjs",
-    "prepack": "npm run check && npm test"
+    "check": "for f in runtime/lib/*.mjs runtime/bin/*.mjs test/*.mjs; do node --check \"$f\" || exit 1; done && zsh -n machine/env.zsh && bash -n machine/env.zsh && sh -n runtime/bin/cd-hook && sh -n install.sh && sh -n remove-legacy.sh",
+    "test": "node --test test/ && zsh test/env-modes.sh \"$CLEAN_DEV_TEST_DIR/env\""
   },
-  "engines": {
-    "node": ">=20.12"
-  },
-  "keywords": [
-    "ai-agent",
-    "build-cache",
-    "cargo",
-    "clean-development",
-    "developer-tools",
-    "pi-package"
-  ],
-  "pi": {
-    "extensions": [
-      "./.pi/extensions/clean-development.ts"
-    ]
-  },
-  "author": {
-    "name": "MAGRATHEAN UK LTD",
-    "url": "https://github.com/magrathean-uk"
-  },
-  "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/magrathean-uk/clean-development.git"
-  },
-  "bugs": {
-    "url": "https://github.com/magrathean-uk/clean-development/issues"
-  },
-  "homepage": "https://github.com/magrathean-uk/clean-development#readme",
-  "publishConfig": {
-    "access": "public",
-    "registry": "https://registry.npmjs.org/",
-    "provenance": true
-  }
+  "license": "MIT"
 }

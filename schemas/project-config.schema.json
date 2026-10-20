@@ -1,46 +1,39 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/magrathean-uk/clean-development/main/schemas/project-config.schema.json",
-  "title": "Clean Development project configuration",
-  "type": "object",
-  "additionalProperties": false,
-  "properties": {
-    "$schema": { "type": "string", "minLength": 1 },
-    "schemaVersion": { "const": 1 },
-    "enabled": { "type": "boolean" },
-    "root": { "type": "string", "minLength": 1 },
-    "cacheRoot": { "type": "string", "minLength": 1 },
-    "buildRoot": { "type": "string", "minLength": 1 },
-    "scratchRoot": { "type": "string", "minLength": 1 },
-    "swiftpmWorkspaceRoot": { "type": "string", "minLength": 1, "description": "Explicit retained SwiftPM workspace base; outside disposable storage and source. Not pruned." },
-    "retention": {
+  "$id": "https://raw.githubusercontent.com/magrathean-uk/bolyki-dev/main/clean-development/schemas/project-config.schema.json",
+  "title": "Clean Development project configuration (.clean-development.json)",
+  "description": "Schema v2 (clean-development 0.6.0). Schema v1 files (0.2-0.5) are still read: enabled is honoured, other keys are ignored, and `clean-development migrate --write DIR` converts them.",
+  "oneOf": [
+    {
       "type": "object",
       "additionalProperties": false,
+      "required": ["schemaVersion"],
       "properties": {
-        "buildDays": { "type": "integer", "minimum": 0 }
+        "$schema": { "type": "string", "minLength": 1 },
+        "schemaVersion": { "const": 2 },
+        "enabled": { "type": "boolean", "default": true, "description": "false: the hooks never clean this repo's declared directories." },
+        "heavy": { "type": "boolean", "default": false, "description": "Large builds or downloads are normal here; the session-start message warns in internal mode." },
+        "buildDirs": {
+          "type": "array", "maxItems": 16, "uniqueItems": true,
+          "description": "Repo-relative build output. Deleted at session end in internal mode and when the repo has been idle for 14 days; only when git-ignored.",
+          "items": { "type": "string", "minLength": 1, "maxLength": 199, "pattern": "^(?!/)(?!\\.git)(?!.*(^|/)\\.\\.(/|$)).+$" }
+        },
+        "depDirs": {
+          "type": "array", "maxItems": 16, "uniqueItems": true,
+          "description": "Repo-relative dependency folders (node_modules, .venv, Pods). Deleted only when the repo has been idle for 14 days and they are git-ignored.",
+          "items": { "type": "string", "minLength": 1, "maxLength": 199, "pattern": "^(?!/)(?!\\.git)(?!.*(^|/)\\.\\.(/|$)).+$" }
+        },
+        "notes": { "type": "string", "maxLength": 500 }
       }
     },
-    "tools": {
+    {
       "type": "object",
-      "additionalProperties": false,
+      "required": ["schemaVersion"],
       "properties": {
-        "cargo": { "type": "boolean" },
-        "go": { "type": "boolean" },
-        "npm": { "type": "boolean" },
-        "npx": { "type": "boolean" },
-        "pnpm": { "type": "boolean" },
-        "yarn": { "type": "boolean" },
-        "bun": { "type": "boolean" },
-        "uv": { "type": "boolean" },
-        "pip": { "type": "boolean" },
-        "pip3": { "type": "boolean" },
-        "dotnet": { "type": "boolean" },
-        "composer": { "type": "boolean" },
-        "ccache": { "type": "boolean" },
-        "sccache": { "type": "boolean" },
-        "swift": { "type": "boolean", "default": false, "description": "Opt-in command-local SwiftPM build/test adapter." }
-      }
+        "schemaVersion": { "const": 1 },
+        "enabled": { "type": "boolean" }
+      },
+      "description": "Legacy v1 (read-only compatibility)."
     }
-  },
-  "required": ["schemaVersion"]
+  ]
 }
