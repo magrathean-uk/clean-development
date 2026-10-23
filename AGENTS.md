@@ -1,30 +1,26 @@
-# clean-development (plugin + runtime, part of bolyki-dev)
+# Clean Development implementation context
 
-Machine storage policy for G's Mac: routing (4TB external or internal fallback), session-end cleanup, the 5 GB rule and the no-dot-folder report, for Claude Code, Codex and claude-1..5. Version 0.6.0. ESM Node (>= 20.12), no dependencies.
+Storage routing and session cleanup for G's Mac, covering Claude Code, Codex and numbered Claude profiles. Version 0.6.0 is ESM Node.js, supports Node 20.12 or newer and has no npm dependencies.
 
-## Layout
+## Layout and runtime contracts
 
-- `machine/env.zsh`, `machine/storage.conf`: installed to `~/dev/machine/` by `install.sh --config`. env.zsh must stay POSIX (zsh and bash 3.2 source it), print nothing on stdout, never exit, and stay fork-free on the hot path (pinned session shells).
-- `runtime/`: hooks (`bin/cd-hook` -> `bin/cd-hook.mjs`) and CLI (`bin/clean-development`), installed to `~/dev/machine/runtime/clean-development/<version>/`. Hook commands in user settings point at that versioned path.
-- `skills/clean-development/SKILL.md`: the agent-facing rules (model-invocable). `plugin.json` (OpenAI portable) and `.claude-plugin/plugin.json` ship only the skill; the plugin declares no hooks on purpose (no `hooks/` directory: both harnesses would auto-load `hooks/hooks.json`).
-- `fragments/`: the hook blocks merged into `~/.claude/settings.json`, `~/.codex/hooks.json` and claude-work `shared/settings.json`, plus `merge-hooks.py`.
-- `schemas/project-config.schema.json`: `.clean-development.json` schema v2 (v1 still read).
+- `machine/env.zsh` and `machine/storage.conf` are installed to `~/dev/machine/` by `install.sh --config`. `env.zsh` is sourced by zsh and Bash 3.2; its hot path is POSIX-compatible, silent and fork-free.
+- `runtime/` contains hooks (`bin/cd-hook` delegates to `bin/cd-hook.mjs`) and CLI (`bin/clean-development`). Installation uses `~/dev/machine/runtime/clean-development/<version>/` and versioned hook paths.
+- `skills/clean-development/SKILL.md` is the agent-facing skill. `plugin.json` and `.claude-plugin/plugin.json` package the skill. Hook installation is separate from plugin auto-loading.
+- `fragments/` contains blocks for Claude, Codex and claude-work settings plus `merge-hooks.py`.
+- `schemas/project-config.schema.json` defines schema v2; the reader also supports v1.
 
-## Rules for changes
+`removeManaged` implements managed-root cleanup using a trash rename and detached deletion. Project build/dependency directories are registered by `buildDirs` and `depDirs`. Hooks log to `~/dev/machine/state/clean-development/hook.log`; their runtime design returns exit 0 on errors. SessionStart has a subsecond target and Codex SessionEnd has a 3-second host deadline.
 
-- Deletion only through `removeManaged` (strictly inside managed roots, rename to trash, detached delete). Repo directories only when declared in `buildDirs`/`depDirs` and git-ignored. Never delete source, toolchains, VMs, models or anything under `~/dev/porn`.
-- Hooks never fail a session: catch, log to `~/dev/machine/state/clean-development/hook.log`, exit 0. SessionStart must stay well under 1 s; Codex SessionEnd is capped at 3 s.
-- Session key derivation must match in `machine/env.zsh` and `runtime/lib/sessions.mjs` (harness letter + last 12 characters of `CLAUDE_CODE_SESSION_ID` / `CODEX_THREAD_ID`).
-- Changing any hook command changes its Codex trust hash: re-run `clean-development codex-trust --apply` after installing.
-- Version bumps: `runtime/VERSION`, `runtime/lib/conf.mjs` `VERSION`, `machine/env.zsh` `CLEAN_DEV_VERSION`, `plugin.json`, `.claude-plugin/plugin.json`, `package.json`, `fragments/*.json` paths, the bolyki-dev marketplace entries and the claude-work provisioning pin.
+The session-key algorithm in `machine/env.zsh` and `runtime/lib/sessions.mjs` uses a harness letter and the final 12 characters of `CLAUDE_CODE_SESSION_ID` or `CODEX_THREAD_ID`. Codex trust hashes depend on hook command text. The command `clean-development codex-trust --apply` updates that trust configuration.
 
-## Checks
+Version references appear in `runtime/VERSION`, `runtime/lib/conf.mjs`, `machine/env.zsh`, both plugin manifests, `package.json`, fragment paths, marketplace entries and the claude-work provisioning pin.
 
-Run all with a disposable directory (nothing outside it is written):
+## Command references
 
 ```sh
 npm run check
-CLEAN_DEV_TEST_DIR=/tmp/cd-test-$$ npm test     # node --test test/ and test/env-modes.sh
+CLEAN_DEV_TEST_DIR="$TMPDIR/cd-test-$$" npm test
 ```
 
-Tests use simulated homes and a simulated `Volumes/4TB`; never point them at the real home or the real volume.
+The tests provide simulated homes and a simulated `Volumes/4TB`.
