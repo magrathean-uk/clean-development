@@ -191,6 +191,10 @@ __cd_route XDG_CONFIG_HOME "$HOME/.config"
 __cd_route XDG_CACHE_HOME "$__cd_root/deps/xdg"
 __cd_route XDG_DATA_HOME "$DEVMACHINE/state/share"
 __cd_route XDG_STATE_HOME "$DEVMACHINE/state/state"
+# Tools write here without creating the parent (zsh cdr: $XDG_DATA_HOME/zsh/chpwd-recent-dirs), so make sure it exists.
+if [ "${DEV_ENV_INSPECT_ONLY:-}" != 1 ] && [ ! -d "$XDG_DATA_HOME/zsh" ]; then
+  mkdir -p "$XDG_DATA_HOME/zsh" "$XDG_STATE_HOME" 2>/dev/null
+fi
 # Not routable: Blender hardcodes ~/.thumbnails (allow-listed in storage.conf).
 
 # ---- toolchains (internal, never on removable media) and dependency caches (follow the mode) -----------------------
