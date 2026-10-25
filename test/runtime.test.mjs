@@ -76,7 +76,10 @@ test("session-start internal: 5 GB rule, dead 4TB links tolerated, dot-folders r
   const s = sim({ mounted: false });
   fs.mkdirSync(path.join(s.home, "dev", "source"), { recursive: true });
   fs.symlinkSync(path.join(s.vol, "dev", "SpecieX"), path.join(s.home, "dev", "source", "SpecieX"));
-  for (const d of [".claude", ".aws", ".insightface", ".opencode", ".gemini", ".cursor"]) fs.mkdirSync(path.join(s.home, d));
+  for (const d of [".claude", ".aws", ".insightface", ".opencode", ".cursor"]) fs.mkdirSync(path.join(s.home, d));
+  const agyState = path.join(s.home, "dev", "machine", "state", "antigravity");
+  fs.mkdirSync(agyState, { recursive: true });
+  fs.symlinkSync(agyState, path.join(s.home, ".gemini"));
   fs.writeFileSync(path.join(s.home, ".zshrc"), "");
   fs.mkdirSync(path.join(s.home, "dev", ".hidden"));
   const r = hook(s, "session-start", "codex", { session_id: "019a2b3c-4d5e-7f60-8a9b-c0d1e2f3a4b5", cwd: s.home });
@@ -85,8 +88,8 @@ test("session-start internal: 5 GB rule, dead 4TB links tolerated, dot-folders r
   assert.match(text, /mode=internal/);
   assert.match(text, /over 5 GB: stop, tell G/);
   assert.match(text, /~\/dev\/source\/SpecieX/);
-  assert.match(text, /~\/\.gemini/); assert.match(text, /~\/\.cursor/); assert.match(text, /~\/dev\/\.hidden/);
-  for (const ok of [".claude", ".aws", ".insightface", ".opencode"]) assert.doesNotMatch(text, new RegExp(`~/\\${ok}[ ,.]`), `${ok} is allowlisted`);
+  assert.match(text, /~\/\.opencode/); assert.match(text, /~\/\.cursor/); assert.match(text, /~\/dev\/\.hidden/);
+  for (const ok of [".claude", ".aws", ".insightface", ".gemini"]) assert.doesNotMatch(text, new RegExp(`~/\\${ok}[ ,.]`), `${ok} is allowlisted`);
   assert.equal(fs.readFileSync(path.join(s.sessions, "x-c0d1e2f3a4b5.mode"), "utf8"), "internal\n");
 });
 
