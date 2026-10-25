@@ -2,30 +2,53 @@
 import fs from "node:fs";
 import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { fileURLToPath } from "node:url";
 
 export function lstatOrNull(p) { try { return fs.lstatSync(p); } catch { return null; } }
 export function exists(p) { return lstatOrNull(p) !== null; }
 export function readJsonOrNull(p) { try { return JSON.parse(fs.readFileSync(p, "utf8")); } catch { return null; } }
 
-export function writeFileAtomic(p, data, mode = 0o600) {
+export function writeFileAtomic(p, data, mode = 0o600, { durable = false } = {}) {
   fs.mkdirSync(path.dirname(p), { recursive: true });
-  const tmp = `${p}.${process.pid}.tmp`;
-  fs.writeFileSync(tmp, data, { mode });
-  fs.renameSync(tmp, p);
+  const tmp = `${p}.${randomUUID()}.tmp`;
+  try {
+    fs.writeFileSync(tmp, data, { mode, flag: "wx" });
+    fs.chmodSync(tmp, mode);
+    if (durable) {
+      const fd = fs.openSync(tmp, "r"); try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+    }
+    fs.renameSync(tmp, p);
+    if (durable) syncDirectory(path.dirname(p));
+  } finally { try { fs.unlinkSync(tmp); } catch { /* promoted or never created */ } }
 }
 
-export function children(dir, limit = 5000) {
-  try { return fs.readdirSync(dir, { withFileTypes: true }).slice(0, limit); } catch { return []; }
+export function syncDirectory(dir) {
+  const fd = fs.openSync(dir, "r");
+  try { fs.fsyncSync(fd); } catch (e) { if (!["EINVAL", "ENOTSUP"].includes(e.code)) throw e; } finally { fs.closeSync(fd); }
+}
+
+export function children(dir, limit = 5000, { requireComplete = false } = {}) {
+  try {
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    if (requireComplete && entries.length > limit) throw new Error(`inspection limit exceeded: ${dir}`);
+    return entries.slice(0, limit);
+  } catch (e) { if (e.code === "ENOENT" || e.code === "ENOTDIR") return []; throw e; }
 }
 
 // Last use = newest mtime of the entry and its direct children (bounded). Symlinks are not followed.
-export function lastUsedMs(p, limit = 2000) {
-  const st = lstatOrNull(p);
-  if (!st) return 0;
+export function lastUsedMs(p, limit = 2000, { deadline = Infinity } = {}) {
+  let st;
+  try { st = fs.lstatSync(p); } catch (e) { return e.code === "ENOENT" ? 0 : Infinity; }
   let newest = st.mtimeMs;
   if (st.isDirectory()) {
-    for (const d of children(p, limit)) {
-      const c = lstatOrNull(path.join(p, d.name));
+    let entries;
+    try { entries = fs.readdirSync(p, { withFileTypes: true }); } catch { return Infinity; }
+    if (entries.length > limit) return Infinity; // incomplete observation cannot prove idle
+    for (const d of entries) {
+      if (!timeLeft(deadline)) return Infinity;
+      let c;
+      try { c = fs.lstatSync(path.join(p, d.name)); } catch (e) { if (e.code !== "ENOENT") return Infinity; }
       if (c && c.mtimeMs > newest) newest = c.mtimeMs;
     }
   }
@@ -35,30 +58,54 @@ export function lastUsedMs(p, limit = 2000) {
 // Allocated size via du -sk (BSD), bounded by a timeout. Returns null when unknown.
 export function sizeBytes(p, timeoutMs = 120000) {
   const r = spawnSync("/usr/bin/du", ["-sk", p], { encoding: "utf8", timeout: timeoutMs });
-  if (r.status !== 0 && !r.stdout) return null;
+  if (r.status !== 0 || r.error) return null;
   const kb = Number(String(r.stdout).trim().split(/\s+/)[0]);
-  return Number.isFinite(kb) ? kb * 1024 : null;
+  return /^\d+\s/.test(String(r.stdout).trim()) && Number.isFinite(kb) ? kb * 1024 : null;
 }
 
-// True when child is strictly inside parent (lexically, after resolving the parent's real path).
+export function canonicalPath(p) { try { return fs.realpathSync(p); } catch { return null; } }
+export function strictlyBelow(parent, child) {
+  const rel = path.relative(parent, child);
+  return rel !== "" && rel !== ".." && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel);
+}
+
+// An independently trusted directory anchor must not itself be a link. Neither may any managed
+// component below it. Parent aliases (e.g. macOS /var -> /private/var) are resolved consistently.
+// Missing descendants are allowed for creation; a missing anchor is allowed only during layout setup.
+export function safeDirectory(anchor, dir, { missingAnchor = false } = {}) {
+  if (!path.isAbsolute(anchor) || !path.isAbsolute(dir) || path.parse(anchor).root === path.resolve(anchor)) return false;
+  anchor = path.resolve(anchor); dir = path.resolve(dir);
+  if (dir !== anchor && !strictlyBelow(anchor, dir)) return false;
+  const st = lstatOrNull(anchor);
+  if (st ? !st.isDirectory() || st.isSymbolicLink() : !missingAnchor) return false;
+  let p = anchor;
+  for (const part of path.relative(anchor, dir).split(path.sep).filter(Boolean)) {
+    p = path.join(p, part);
+    const c = lstatOrNull(p);
+    if (c && (!c.isDirectory() || c.isSymbolicLink())) return false;
+  }
+  return true;
+}
+
+// A candidate leaf may be a link; its parents must resolve strictly under the allowed directory.
 export function isInside(parent, child) {
-  let realParent = parent;
-  try { realParent = fs.realpathSync(parent); } catch { /* keep lexical */ }
-  let realChildDir = path.dirname(child);
-  try { realChildDir = fs.realpathSync(realChildDir); } catch { /* keep lexical */ }
-  const c = path.join(realChildDir, path.basename(child));
-  const rel = path.relative(realParent, c);
-  return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
+  const realParent = canonicalPath(parent);
+  const realChildDir = canonicalPath(path.dirname(child));
+  return !!realParent && !!realChildDir && strictlyBelow(realParent, path.join(realChildDir, path.basename(child)));
 }
 
 // Removes one entry that must sit strictly inside one of allowedRoots. Fast path: rename into trashDir on the same
 // volume, then a detached background delete (survives the hook's own timeout). Read-only trees (Go module cache)
 // are made writable first. Never follows symlinks: a symlink entry is removed as a link.
-export function removeManaged(p, { allowedRoots, trashDir, dryRun = false, log = () => {} }) {
-  const st = lstatOrNull(p);
-  if (!st) return { path: p, removed: false, reason: "absent" };
-  if (!allowedRoots.some((r) => isInside(r, p))) return { path: p, removed: false, reason: "outside managed roots" };
-  if (dryRun) return { path: p, removed: false, reason: "dry-run" };
+export function removeManaged(p, { anchor, allowedRoots, trashDir, trashAnchor = anchor, dryRun = false, log = () => {}, eventsFile = null, protect = () => false }) {
+  try { fs.lstatSync(p); } catch (e) { return { path: p, removed: false, reason: e.code === "ENOENT" ? "absent" : `cannot inspect: ${e.code || e.message}` }; }
+  if (protect(p)) return { path: p, removed: false, reason: "active lease or uncertain lease registry" };
+  // Callers must supply the whole disposable anchor, not a possibly redirected deps/builds/scratch root.
+  if (!anchor || !allowedRoots.some((r) => safeDirectory(anchor, r) && safeDirectory(anchor, path.dirname(p)) && isInside(r, p)))
+    return { path: p, removed: false, reason: "outside managed roots" };
+  if (!trashDir && !strictlyBelow(path.join(anchor, "trash"), path.resolve(p))) return { path: p, removed: false, reason: "direct deletion restricted to validated trash" };
+  if (trashDir && !safeDirectory(trashAnchor, trashDir, { missingAnchor: true })) return { path: p, removed: false, reason: "unsafe trash directory" };
+  if (dryRun) return { path: p, removed: false, wouldRemove: true, reason: "dry-run" };
   let target = p;
   if (trashDir) {
     try {
@@ -67,42 +114,74 @@ export function removeManaged(p, { allowedRoots, trashDir, dryRun = false, log =
       fs.renameSync(p, dest);
       target = dest;
     } catch (e) {
-      if (e.code !== "EXDEV" && e.code !== "ENOENT") log(`rename failed for ${p}: ${e.code}`);
       if (e.code === "ENOENT") return { path: p, removed: false, reason: "absent" };
+      log(`rename failed for ${p}: ${e.code}; retaining source`);
+      return { path: p, removed: false, reason: `rename failed: ${e.code || e.message}` };
     }
   }
-  spawnDelete([target]);
-  return { path: p, removed: true, via: target === p ? "delete" : "trash" };
+  const id = randomUUID();
+  if (eventsFile) appendJsonl(eventsFile, { ts: new Date().toISOString(), event: "delete", id, status: "queued", source: p, path: target });
+  spawnDelete([target], { anchor: trashDir ? trashAnchor : anchor, eventsFile, id, source: p });
+  return { id, path: p, target, removed: target !== p, queued: true, status: "queued", via: target === p ? "delete" : "trash" };
 }
 
-export function spawnDelete(paths) {
+const pendingDeletes = new Map();
+let deleteFlushScheduled = false;
+export function spawnDelete(paths, { anchor, eventsFile = null, id = randomUUID(), source = null } = {}) {
   if (!paths.length) return;
-  const child = spawn("/bin/sh", ["-c", 'for p do /bin/chmod -R -P u+w "$p" 2>/dev/null; /bin/rm -rf "$p"; done', "cd-delete", ...paths],
-    { detached: true, stdio: "ignore" });
-  child.unref();
+  if (!anchor) throw new Error("deletion requires a validated anchor");
+  const key = JSON.stringify([anchor, eventsFile]);
+  if (!pendingDeletes.has(key)) pendingDeletes.set(key, { anchor, eventsFile, jobs: [] });
+  pendingDeletes.get(key).jobs.push(...paths.map((p) => ({ id, path: p, source })));
+  // One worker per anchor for this invocation, not one Node process per cache entry. The manifest
+  // avoids ARG_MAX and survives parent death; hooks explicitly flush before their forced exit.
+  if (!deleteFlushScheduled) { deleteFlushScheduled = true; setImmediate(flushDeletes); }
+}
+export function flushDeletes() {
+  deleteFlushScheduled = false;
+  const batches = [...pendingDeletes.values()]; pendingDeletes.clear();
+  for (const batch of batches) {
+    try {
+      const trash = path.join(batch.anchor, "trash");
+      if (!safeDirectory(batch.anchor, trash)) throw new Error("unsafe deletion queue boundary");
+      const queue = path.join(trash, `.cd-delete-${randomUUID()}.json`);
+      writeFileAtomic(queue, JSON.stringify(batch));
+      const child = spawn(process.execPath, [fileURLToPath(new URL("../bin/cd-delete.mjs", import.meta.url)), queue], { detached: true, stdio: "ignore" });
+      child.on("error", (e) => { if (batch.eventsFile) appendJsonl(batch.eventsFile, { ts: new Date().toISOString(), event: "delete-worker", status: "failed", error: e.code, queue }); });
+      child.unref();
+    } catch (e) { if (batch.eventsFile) appendJsonl(batch.eventsFile, { ts: new Date().toISOString(), event: "delete-worker", status: "failed", error: e.code || e.message }); }
+  }
 }
 
 // Synchronous delete for tests and the CLI (--wait).
 export function deleteNow(p) {
-  spawnSync("/bin/chmod", ["-R", "-P", "u+w", p], { stdio: "ignore" });
+  const st = lstatOrNull(p);
+  if (st?.isSymbolicLink()) { fs.unlinkSync(p); return; }
+  spawnSync("/bin/chmod", ["-R", "-P", "u+w", p], { stdio: "ignore", timeout: 30000, killSignal: "SIGKILL" });
   fs.rmSync(p, { recursive: true, force: true });
 }
 
-// Single housekeeping lock across sessions. Stale after 15 minutes.
+// Non-blocking owner-fenced lock. Never steal a lock by age: a paused owner can still resume.
+// A crashed owner's lock is reported for explicit recovery rather than granting deletion authority.
 export function withLock(lockPath, fn) {
   fs.mkdirSync(path.dirname(lockPath), { recursive: true });
   let fd;
-  try { fd = fs.openSync(lockPath, "wx"); } catch (e) {
+  try { fd = fs.openSync(lockPath, "wx", 0o600); } catch (e) {
     if (e.code !== "EEXIST") throw e;
-    const st = lstatOrNull(lockPath);
-    if (st && Date.now() - st.mtimeMs < 15 * 60 * 1000) return { locked: true };
-    try { fs.unlinkSync(lockPath); fd = fs.openSync(lockPath, "wx"); } catch { return { locked: true }; }
+    return { locked: true, owner: readJsonOrNull(lockPath), recoveryRequired: true };
   }
-  try { fs.writeSync(fd, String(process.pid)); return { locked: false, result: fn() }; } finally {
+  const token = randomUUID();
+  const acquired = fs.fstatSync(fd);
+  try { fs.writeSync(fd, JSON.stringify({ pid: process.pid, token, acquiredAt: new Date().toISOString() })); return { locked: false, result: fn() }; } finally {
     try { fs.closeSync(fd); } catch { /* ignore */ }
-    try { fs.unlinkSync(lockPath); } catch { /* ignore */ }
+    const current = lstatOrNull(lockPath);
+    if (current?.ino === acquired.ino && current?.dev === acquired.dev && readJsonOrNull(lockPath)?.token === token) {
+      try { fs.unlinkSync(lockPath); } catch { /* ignore */ }
+    }
   }
 }
+
+export function timeLeft(deadline = Infinity, maxMs = 10000) { return Math.max(0, Math.min(maxMs, deadline - Date.now())); }
 
 // Throttle stamps: due() is true when the named stamp is older than everyMs; touch() records now.
 export function stampDue(dir, name, everyMs) {

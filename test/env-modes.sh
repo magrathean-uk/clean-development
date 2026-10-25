@@ -93,6 +93,8 @@ ok J.noshim "$( [[ ":$p:" == *"clean-development/bin"* || ":$p:" == *":$H/dev/bi
 # K plain shell repairs an inherited 4TB TMPDIR
 t="$(get TMPDIR TMPDIR=/Volumes/4TB/cache/scratch/tmp)"
 ok K.tmpfix "${t:0:8}" "/var/fol"
+t="$(get TMPDIR TMPDIR=$INT/scratch/$XKEY/tmp)"
+ok K.foreigninternal "${t:0:8}" "/var/fol"
 
 # L invalid storage.conf disables external storage without breaking the shell
 cp "$H/dev/machine/storage.conf" "$sim/storage.conf.bak"

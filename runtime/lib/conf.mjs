@@ -2,8 +2,9 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { strictlyBelow } from "./fsutil.mjs";
 
-export const VERSION = "0.6.0";
+export const VERSION = "0.6.1";
 
 export function homeDir(env = process.env) {
   const h = env.HOME && path.isAbsolute(env.HOME) ? env.HOME : os.homedir();
@@ -16,6 +17,7 @@ export const sessionsDir = (env = process.env) => path.join(stateDir(env), "sess
 export const stampsDir = (env = process.env) => path.join(stateDir(env), "stamps");
 export const logPath = (env = process.env) => path.join(stateDir(env), "hook.log");
 export const eventsPath = (env = process.env) => path.join(stateDir(env), "events.jsonl");
+export const deletionsPath = (env = process.env) => path.join(stateDir(env), "deletions.jsonl");
 export const runtimeRoot = (env = process.env) => path.join(machineDir(env), "runtime", "clean-development");
 export const confPath = (env = process.env) => path.join(machineDir(env), "storage.conf");
 
@@ -65,47 +67,66 @@ export function parseConf(text, env = process.env) {
   return { values, errors };
 }
 
-export function loadConf(env = process.env) {
+export function loadConf(env = process.env, { text: suppliedText } = {}) {
   const home = homeDir(env);
   const file = confPath(env);
   let text = "";
   const errors = [];
   const warnings = [];
-  try { text = fs.readFileSync(file, "utf8"); } catch (e) {
+  try { text = suppliedText ?? fs.readFileSync(file, "utf8"); } catch (e) {
     if (e.code === "ENOENT") warnings.push(`${file} missing; defaults apply`); else errors.push(`${file}: ${e.code || e.message}`);
   }
   const parsed = parseConf(text, env);
   errors.push(...parsed.errors);
   const v = parsed.values;
-  const externalVolume = v.EXTERNAL_VOLUME || "4TB";
-  const externalRoot = v.EXTERNAL_ROOT || `/Volumes/${externalVolume}/machine`;
+  const keys = new Set(["STORAGE_CONF_VERSION", "EXTERNAL_VOLUME", "EXTERNAL_ROOT", "EXTERNAL_CACHE", "INTERNAL_ROOT", "LAB_ROOT", "MODELS_ROOT", "SD_VOLUME", ...Object.keys(NUMERIC), ...Object.keys(LISTS)]);
+  for (const key of Object.keys(v)) if (!keys.has(key)) errors.push(`unknown policy key ${key}`);
+  const externalVolume = v.EXTERNAL_VOLUME ?? "4TB";
+  const externalRoot = v.EXTERNAL_ROOT ?? `/Volumes/${externalVolume}/machine`;
   const conf = {
     file,
     version: VERSION,
     externalVolume,
     externalRoot,
-    externalCache: v.EXTERNAL_CACHE || path.join(externalRoot, "cache"),
-    internalRoot: v.INTERNAL_ROOT || path.join(home, "dev", "machine", "cache"),
-    labRoot: v.LAB_ROOT || `/Volumes/${externalVolume}/dev/lab`,
-    modelsRoot: v.MODELS_ROOT || `/Volumes/${externalVolume}/models`,
+    externalCache: v.EXTERNAL_CACHE ?? path.join(externalRoot, "cache"),
+    internalRoot: v.INTERNAL_ROOT ?? path.join(home, "dev", "machine", "cache"),
+    labRoot: v.LAB_ROOT ?? `/Volumes/${externalVolume}/dev/lab`,
+    modelsRoot: v.MODELS_ROOT ?? `/Volumes/${externalVolume}/models`,
     sdVolume: v.SD_VOLUME || "",
     errors,
     warnings
   };
   for (const [k, def] of Object.entries(NUMERIC)) {
     const n = v[k] === undefined ? def : Number(v[k]);
-    if (!Number.isFinite(n) || n < 0) { errors.push(`${k} must be a non-negative number`); conf[k] = def; } else conf[k] = n;
+    if (!Number.isFinite(n) || n < 0 || (v[k] !== undefined && !/^(?:\d+(?:\.\d*)?|\.\d+)$/.test(v[k]))) { errors.push(`${k} must be a non-negative plain decimal`); conf[k] = def; } else conf[k] = n;
   }
   for (const [k, def] of Object.entries(LISTS)) conf[k] = new Set((v[k] ?? def).split(/\s+/).filter(Boolean));
+  for (const k of ["externalRoot", "externalCache", "internalRoot", "labRoot", "modelsRoot"]) {
+    if (!path.isAbsolute(conf[k]) || conf[k].includes("\0") || conf[k].split(path.sep).some((s) => s === ".." || s === ".")) errors.push(`${k} must be absolute without . or .. components`);
+    else conf[k] = path.resolve(conf[k]);
+  }
   const marker = `/Volumes/${externalVolume}`;
   const idx = conf.externalRoot.indexOf(marker);
   const okRoot = idx >= 0 && (conf.externalRoot.length === idx + marker.length || conf.externalRoot[idx + marker.length] === "/");
   conf.mountPoint = okRoot ? conf.externalRoot.slice(0, idx + marker.length) : null;
-  for (const k of ["externalRoot", "externalCache", "internalRoot", "labRoot", "modelsRoot"]) {
-    if (!path.isAbsolute(conf[k])) errors.push(`${k} must be absolute`);
-  }
   if (!okRoot) errors.push(`EXTERNAL_ROOT must be below /Volumes/${externalVolume}`);
-  if (!conf.externalCache.startsWith(conf.externalRoot + "/")) errors.push("EXTERNAL_CACHE must be below EXTERNAL_ROOT");
+  if (!externalVolume || externalVolume.includes("/") || externalVolume === "." || externalVolume === "..") errors.push("EXTERNAL_VOLUME must be one volume name");
+  if (!strictlyBelow(path.resolve(conf.externalRoot), path.resolve(conf.externalCache))) errors.push("EXTERNAL_CACHE must be below EXTERNAL_ROOT");
+  const anchors = [conf.internalRoot, conf.externalCache].map((p) => path.resolve(p));
+  if (anchors[0] === anchors[1] || strictlyBelow(anchors[0], anchors[1]) || strictlyBelow(anchors[1], anchors[0])) errors.push("cache anchors must not overlap");
+  for (const anchor of anchors) {
+    // Caches may not contain machine state/toolchains, source, HOME or protected model/lab data.
+    for (const protectedPath of [home, path.join(home, "dev", "machine"), path.join(home, "dev", "source"), conf.labRoot, conf.modelsRoot]) {
+      const p = path.resolve(protectedPath);
+      if (anchor === p || strictlyBelow(anchor, p)) errors.push(`cache root contains protected path ${p}`);
+    }
+    for (const p of [path.join(home, "dev", "source"), path.join(home, "dev", "machine", "state"), path.join(home, "dev", "machine", "toolchains"), conf.labRoot, conf.modelsRoot].map((p) => path.resolve(p))) {
+      if (strictlyBelow(p, anchor)) errors.push(`cache root is inside protected path ${p}`);
+    }
+    if (anchor === path.parse(anchor).root) errors.push("cache root must not be a filesystem root");
+  }
   conf.valid = errors.length === 0;
+  // Startup is fail-open using a known routing default; invalid policy never authorises cleanup.
+  if (!conf.valid) conf.internalRoot = path.join(home, "dev", "machine", "cache");
   return conf;
 }

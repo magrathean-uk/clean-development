@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.6.1 (unreleased)
+
+- Protect active fallback builds in every selector; reopen deferred-ended owners with versioned phase/generation metadata, fence stale snapshots/tagged events and canonicalise checkout identity. Refuse collisions/invalid ownership rather than replace another owner.
+- Unify supported lifecycle cleanup/lease locking; remove age-based lock takeover, add explicit dead-owner recovery and fail-closed configuration/path admission. Reject redirected layout/trash directories; retain sources on rename failure.
+- Parse storage policy as data in fork-free POSIX shell and Node; align path/numeric validation and preserve approved lab/model overrides.
+- Add renewable explicit path leases and verified no-clobber single-file publication with durable receipts and retained source/recovery copies. These are not process supervision or an OS quota.
+- Bound cooperative hook/Git/measurement work, retain deferred cleanup, and distinguish hook completion from queued/completed deletion. Batch deletion jobs per anchor to avoid per-entry Node process storms.
+- Add immutable runtime publication, digest/permission receipts, policy-preserving configuration installation, strict flags, truthful preview and conflict-aware rollback/recovery. Retain previous releases and recovery data.
+- Revalidate activation target topology, bytes and permissions at backup/activation; journal write intent only after conflict checks so rollback cannot claim pre-existing user edits. Make offline profile fixtures independent of TMPDIR aliases.
+- Report bounded Git/rename deferrals with their repo paths and leave incomplete repository sweeps due instead of postponing them for a week. Keep the 200 ms Git bound; test both successful cleanup and explicit, fail-closed timeout deferral.
+- Preserve Codex disablement/unknown state in offline and host trust refresh plus config rebuild; refuse positional preference changes without explicit review. Hook merges retain recovery bytes and unrelated handlers.
+- Fix wider-tooling reprovision rollback so never-moved originals survive; retain failed replacement snapshots, journal outcomes and do not trim failed reprovision recovery data. Claude-tooling preview now performs no deployment.
+- Expand diagnostics/support claims and regression coverage. OpenCode remains environment-only; its source client alias filters inherited session identity without claiming a reused server is repaired.
+
 ## 0.6.0 (20 Oct 2026)
 
 Rewrite for one machine (G's Mac), replacing the 0.2-0.5 multi-host package (last public state: tag v0.5.0).

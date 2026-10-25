@@ -1,7 +1,7 @@
 // clean-development 0.6.0: external volume detection (by name + mount + writable probe) and cache-root layout.
 import fs from "node:fs";
 import path from "node:path";
-import { children, sizeBytes } from "./fsutil.mjs";
+import { children, safeDirectory, sizeBytes } from "./fsutil.mjs";
 
 // Strict check used by hooks: the mount point named /Volumes/<EXTERNAL_VOLUME> is a different device from its parent
 // (a real mount, not a stale empty folder), and EXTERNAL_CACHE accepts a real file write (catches read-only mounts
@@ -22,6 +22,7 @@ export function detect(conf, env = process.env, { probe = true, create = true } 
     } catch { out.reason = `${path.dirname(mp)} unreadable`; return out; }
   }
   out.mounted = true;
+  if (!safeDirectory(mp, conf.externalCache)) { out.reason = "external cache has an unsafe redirected layout"; return out; }
   try {
     if (create) fs.mkdirSync(conf.externalCache, { recursive: true });
     if (!fs.statSync(conf.externalCache).isDirectory()) throw new Error("not a directory");
@@ -45,8 +46,7 @@ export function detect(conf, env = process.env, { probe = true, create = true } 
 
 // Cheap check used for reaping: is the external cache present right now (no write)?
 export function externalAvailable(conf, env = process.env) {
-  if (env.DEV_STORAGE_VOLUME_TEST === "absent" || !conf.valid) return false;
-  try { return fs.statSync(conf.externalCache).isDirectory(); } catch { return false; }
+  return detect(conf, env, { probe: false, create: false }).mode === "external";
 }
 
 export function rootFor(conf, mode) { return mode === "external" ? conf.externalCache : conf.internalRoot; }
@@ -64,7 +64,10 @@ export function layout(root) {
 
 export function ensureLayout(root) {
   const l = layout(root);
-  for (const d of [l.deps, l.builds, l.scratch, l.trash]) fs.mkdirSync(d, { recursive: true });
+  for (const d of [l.deps, l.builds, l.scratch, l.trash]) {
+    if (!safeDirectory(root, d, { missingAnchor: true })) throw new Error(`unsafe cache layout: ${d}`);
+  }
+  for (const d of [l.deps, l.builds, l.scratch, l.trash]) fs.mkdirSync(d, { recursive: true, mode: 0o700 });
   return l;
 }
 

@@ -1,6 +1,6 @@
 {
   "name": "clean-development",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Storage routing (4TB external or internal fallback), the 5 GB rule, session-end cleanup and the no-dot-folder policy for G's Mac. Hooks are installed in user settings, not by this plugin.",
   "author": {
     "name": "MAGRATHEAN UK LTD",

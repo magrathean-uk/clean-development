@@ -1,5 +1,5 @@
 // clean-development 0.6.0 runtime tests. Hermetic: every test builds its own HOME and simulated 4TB under
-// CLEAN_DEV_TEST_DIR (required) and passes them through the environment. Run: CLEAN_DEV_TEST_DIR=/abs/dir node --test test/
+// CLEAN_DEV_TEST_DIR (required) and passes them through the environment. Run: CLEAN_DEV_TEST_DIR=/abs/dir node --test test/*.test.mjs
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -45,6 +45,7 @@ const mk = (p, bytes = 0) => { fs.mkdirSync(path.dirname(p), { recursive: true }
 const { sessionKey } = await import(path.join(rt, "lib", "sessions.mjs"));
 const { trustEntries, hookHash, normaliseHandler } = await import(path.join(rt, "lib", "codex-trust.mjs"));
 const { parseConf } = await import(path.join(rt, "lib", "conf.mjs"));
+const { VERSION } = await import(path.join(rt, "lib", "conf.mjs"));
 const { removeManaged } = await import(path.join(rt, "lib", "fsutil.mjs"));
 
 test("session key matches env.zsh derivation", () => {
@@ -164,7 +165,7 @@ test("external builds older than 14 days are pruned, younger kept", async () => 
   assert.ok(fs.existsSync(path.join(b, "x-new000000000", "a")));
 });
 
-test("repo-local declared build dirs: removed only when git-ignored and the repo is idle", async () => {
+test("repo-local declared build dirs: ignored idle output is removed or explicitly deferred by a bounded check", async (t) => {
   const s = sim();
   const repo = path.join(s.home, "dev", "source", "app");
   fs.mkdirSync(repo, { recursive: true });
@@ -175,8 +176,15 @@ test("repo-local declared build dirs: removed only when git-ignored and the repo
   for (const p of [".build/o", ".build", "keep/o", "keep", ".gitignore", ".clean-development.json", ".git", ".git/HEAD"]) old(path.join(repo, p), 30);
   if (fs.existsSync(path.join(repo, ".git", "index"))) old(path.join(repo, ".git", "index"), 30);
   old(repo, 30);
-  cli(s, ["housekeeping", "--apply"]);
-  assert.ok(await gone(path.join(repo, ".build")));
+  const r = cli(s, ["housekeeping", "--apply", "--json"]);
+  assert.equal(r.status, 0, r.stderr);
+  const result = JSON.parse(r.stdout).result;
+  if (result.repoBlocked?.some((row) => row.project === repo && row.path === path.join(repo, ".build") && row.reason === "ETIMEDOUT")) {
+    assert.equal(result.deferred, true, r.stdout);
+    assert.ok(fs.existsSync(path.join(repo, ".build")), "a timed-out verification must retain output");
+    assert.equal(fs.existsSync(path.join(s.home, "dev", "machine", "state", "clean-development", "stamps", "repos")), false);
+    t.diagnostic("bounded Git verification deferred cleanup; no retry or relaxed timeout");
+  } else assert.ok(await gone(path.join(repo, ".build")), r.stdout);
   assert.ok(fs.existsSync(path.join(repo, "keep", "o")), "not git-ignored, must stay");
 });
 
@@ -230,7 +238,7 @@ test("invalid storage.conf falls back to internal and says so", () => {
 test("hook never fails the session on bad input", () => {
   const s = sim();
   const r = spawnSync(process.execPath, [path.join(rt, "bin", "cd-hook.mjs"), "session-start", "claude"], { input: "not json", env: s.env, encoding: "utf8" });
-  assert.equal(r.status, 0); assert.match(ctx(r), /clean-development 0\.6\.0/);
+  assert.equal(r.status, 0); assert.ok(ctx(r).includes(`clean-development ${VERSION}`));
   const bad = spawnSync(process.execPath, [path.join(rt, "bin", "cd-hook.mjs"), "bogus", "claude"], { input: "{}", env: s.env, encoding: "utf8" });
   assert.equal(bad.status, 0);
 });
@@ -250,8 +258,8 @@ test("plugin ships no hooks/ directory (both harnesses would auto-load hooks/hoo
   const claude = JSON.parse(fs.readFileSync(path.join(plugin, ".claude-plugin", "plugin.json"), "utf8"));
   const portable = JSON.parse(fs.readFileSync(path.join(plugin, "plugin.json"), "utf8"));
   assert.equal(claude.hooks, undefined); assert.equal(portable.extensions["com.openai"].hooks, undefined);
-  assert.equal(claude.version, "0.6.0"); assert.equal(portable.version, "0.6.0");
-  assert.equal(fs.readFileSync(path.join(rt, "VERSION"), "utf8").trim(), "0.6.0");
+  assert.equal(claude.version, VERSION); assert.equal(portable.version, VERSION);
+  assert.equal(fs.readFileSync(path.join(rt, "VERSION"), "utf8").trim(), VERSION);
 });
 
 test("hooks append one JSON line per event to events.jsonl (ts, harness, event, session_id, mode)", () => {

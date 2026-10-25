@@ -1,4 +1,4 @@
-# ~/dev/machine/env.zsh - THE environment file for this Mac (clean-development 0.6.0, rewritten 20 Oct 2026).
+# ~/dev/machine/env.zsh - THE environment file for this Mac (clean-development 0.6.1).
 # Loaded by EVERY zsh through ~/.zshenv (interactive or not, login or not; agent tool shells included), again at the end
 # of ~/.zprofile (path_helper reorders PATH in login shells), and sourced by bash 3.2 (dev-env-launchctl, scripts).
 # Keep it POSIX: no zsh-only or bash-only syntax. Idempotent. Never prints to stdout, never exits, last command succeeds.
@@ -34,7 +34,7 @@
 export LANG=en_US.UTF-8
 export DEV="$HOME/dev"
 export DEVMACHINE="$DEV/machine"
-export CLEAN_DEV_VERSION=0.6.0
+export CLEAN_DEV_VERSION=0.6.1
 
 # ---- storage.conf (defaults first; the file may override every key) -------------------------------------------
 unset STORAGE_CONF_VERSION EXTERNAL_VOLUME EXTERNAL_ROOT EXTERNAL_CACHE INTERNAL_ROOT LAB_ROOT MODELS_ROOT SD_VOLUME \
@@ -47,13 +47,87 @@ INTERNAL_ROOT="$DEVMACHINE/cache"
 LAB_ROOT=/Volumes/4TB/dev/lab
 MODELS_ROOT=/Volumes/4TB/models
 SD_VOLUME=SD
-if [ -r "$DEVMACHINE/storage.conf" ]; then . "$DEVMACHINE/storage.conf"; fi
 __cd_conf_ok=1
-for __cd_p in "$EXTERNAL_ROOT" "$EXTERNAL_CACHE" "$INTERNAL_ROOT" "$LAB_ROOT" "$MODELS_ROOT"; do
+# storage.conf is data, not a shell programme. Parse without forks or evaluating file contents.
+# Only validated variable NAMES enter eval; substituted values are never parsed as shell syntax.
+__cd_defined='|HOME|'
+if [ -r "$DEVMACHINE/storage.conf" ]; then
+  while IFS= read -r __cd_line || [ -n "$__cd_line" ]; do
+    __cd_line="${__cd_line#"${__cd_line%%[![:space:]]*}"}"
+    __cd_line="${__cd_line%"${__cd_line##*[![:space:]]}"}"
+    case "$__cd_line" in ''|\#*) continue ;; *=*) ;; *) __cd_conf_ok=0; continue ;; esac
+    __cd_k="${__cd_line%%=*}"; __cd_v="${__cd_line#*=}"
+    case "$__cd_k" in
+      STORAGE_CONF_VERSION|EXTERNAL_VOLUME|EXTERNAL_ROOT|EXTERNAL_CACHE|INTERNAL_ROOT|LAB_ROOT|MODELS_ROOT|SD_VOLUME|\
+      DEPS_CAP_GB|DEPS_MIN_IDLE_HOURS|EXTERNAL_BUILD_DAYS|EXTERNAL_PRUNE_EVERY_DAYS|INTERNAL_BUILD_IDLE_HOURS|\
+      SESSION_STALE_HOURS|BIG_DOWNLOAD_GB|INTERNAL_MIN_FREE_GB|HOME_DOT_ALLOW|HOME_DOTFILE_ALLOW|DEV_DOT_ALLOW) ;;
+      *) __cd_conf_ok=0; continue ;;
+    esac
+    case "$__cd_v" in *'`'*|*'$('* ) __cd_conf_ok=0; continue ;; esac
+    __cd_expand=1
+    case "$__cd_v" in
+      \') __cd_conf_ok=0; continue ;;
+      \'*) case "$__cd_v" in *\') __cd_v="${__cd_v#\'}"; __cd_v="${__cd_v%\'}"; __cd_expand=0 ;; *) __cd_conf_ok=0; continue ;; esac ;;
+      \") __cd_conf_ok=0; continue ;;
+      \"*) case "$__cd_v" in *\") __cd_v="${__cd_v#\"}"; __cd_v="${__cd_v%\"}" ;; *) __cd_conf_ok=0; continue ;; esac ;;
+      *[[:space:]]*) __cd_conf_ok=0; continue ;;
+    esac
+    if [ "$__cd_expand" = 1 ]; then
+      __cd_rest="$__cd_v"; __cd_result=''
+      while :; do
+        case "$__cd_rest" in *'$'*) ;; *) break ;; esac
+        __cd_result="$__cd_result${__cd_rest%%\$*}"; __cd_rest="${__cd_rest#*\$}"
+        case "$__cd_rest" in
+          \{*\}*) __cd_name="${__cd_rest%%\}*}"; __cd_name="${__cd_name#\{}"; __cd_rest="${__cd_rest#*\}}" ;;
+          \{*) __cd_conf_ok=0; __cd_rest=''; break ;;
+          *) __cd_name="${__cd_rest%%[!A-Za-z0-9_]*}"; __cd_rest="${__cd_rest#"$__cd_name"}" ;;
+        esac
+        case "$__cd_name" in ''|[0-9]*|*[!A-Za-z0-9_]*) __cd_conf_ok=0; __cd_rest=''; break ;; esac
+        case "$__cd_defined" in *"|$__cd_name|"*) eval "__cd_repl=\${$__cd_name-}" ;; *) __cd_conf_ok=0; __cd_repl='' ;; esac
+        __cd_result="$__cd_result$__cd_repl"
+      done
+      __cd_v="$__cd_result$__cd_rest"
+    fi
+    eval "$__cd_k=\$__cd_v"
+    __cd_defined="$__cd_defined$__cd_k|"
+  done < "$DEVMACHINE/storage.conf"
+fi
+# The runtime computes dependent defaults in the same order when keys are omitted.
+case "$__cd_defined" in *'|EXTERNAL_ROOT|'*) ;; *) EXTERNAL_ROOT="/Volumes/$EXTERNAL_VOLUME/machine" ;; esac
+case "$__cd_defined" in *'|EXTERNAL_CACHE|'*) ;; *) EXTERNAL_CACHE="$EXTERNAL_ROOT/cache" ;; esac
+case "$__cd_defined" in *'|LAB_ROOT|'*) ;; *) LAB_ROOT="/Volumes/$EXTERNAL_VOLUME/dev/lab" ;; esac
+case "$__cd_defined" in *'|MODELS_ROOT|'*) ;; *) MODELS_ROOT="/Volumes/$EXTERNAL_VOLUME/models" ;; esac
+case "$EXTERNAL_VOLUME" in ''|*/*|.|..) __cd_conf_ok=0 ;; esac
+for __cd_k in EXTERNAL_ROOT EXTERNAL_CACHE INTERNAL_ROOT LAB_ROOT MODELS_ROOT; do
+  eval "__cd_p=\${$__cd_k-}"
   case "$__cd_p" in /*) ;; *) __cd_conf_ok=0 ;; esac
+  case "/$__cd_p/" in */../*|*/./*) __cd_conf_ok=0 ;; esac
+  while :; do
+    case "$__cd_p" in *//*) __cd_p="${__cd_p%%//*}/${__cd_p#*//}" ;; *) break ;; esac
+  done
+  while [ "$__cd_p" != / ]; do
+    case "$__cd_p" in */) __cd_p="${__cd_p%/}" ;; *) break ;; esac
+  done
+  eval "$__cd_k=\$__cd_p"
 done
 case "$EXTERNAL_ROOT" in */Volumes/"$EXTERNAL_VOLUME"|*/Volumes/"$EXTERNAL_VOLUME"/*) ;; *) __cd_conf_ok=0 ;; esac
 case "$EXTERNAL_CACHE" in "$EXTERNAL_ROOT"/*) ;; *) __cd_conf_ok=0 ;; esac
+for __cd_k in DEPS_CAP_GB DEPS_MIN_IDLE_HOURS EXTERNAL_BUILD_DAYS EXTERNAL_PRUNE_EVERY_DAYS INTERNAL_BUILD_IDLE_HOURS SESSION_STALE_HOURS BIG_DOWNLOAD_GB INTERNAL_MIN_FREE_GB; do
+  # Absent numeric keys use the runtime defaults; supplied values are non-negative plain decimals.
+  case "$__cd_defined" in *"|$__cd_k|"*)
+    eval "__cd_v=\${$__cd_k-}"
+    case "$__cd_v" in ''|.|*[!0-9.]*|*.*.*) __cd_conf_ok=0 ;; esac ;;
+  esac
+done
+for __cd_cache in "$INTERNAL_ROOT" "$EXTERNAL_CACHE"; do
+  case "$__cd_cache" in /) __cd_conf_ok=0 ;; esac
+  for __cd_p in "$HOME" "$DEV" "$DEVMACHINE" "$DEV/source" "$LAB_ROOT" "$MODELS_ROOT"; do
+    case "$__cd_p/" in "$__cd_cache/"*) __cd_conf_ok=0 ;; esac
+  done
+  case "$__cd_cache/" in /|"$DEV/source/"*|"$DEVMACHINE/state/"*|"$DEVMACHINE/toolchains/"*|"$LAB_ROOT/"*|"$MODELS_ROOT/"*) __cd_conf_ok=0 ;; esac
+done
+case "$INTERNAL_ROOT/" in "$EXTERNAL_CACHE/"*) __cd_conf_ok=0 ;; esac
+case "$EXTERNAL_CACHE/" in "$INTERNAL_ROOT/"*) __cd_conf_ok=0 ;; esac
 if [ "$__cd_conf_ok" != 1 ]; then
   case $- in *i*) printf 'env.zsh: storage.conf is invalid (paths must be absolute, EXTERNAL_ROOT under /Volumes/%s); external storage disabled\n' "$EXTERNAL_VOLUME" >&2 ;; esac
   INTERNAL_ROOT="$DEVMACHINE/cache"
@@ -138,7 +212,7 @@ else
   # retired ~/dev/cache scratch (the GUI domain used to carry /Volumes/4TB/cache/scratch/tmp).
   case "${TMPDIR:-}" in
     '') ;;
-    /Volumes/*|"$DEV/cache"|"$DEV/cache/"*) __cd_fix_tmp=1 ;;
+    /Volumes/*|"$DEV/cache"|"$DEV/cache/"*|"$INTERNAL_ROOT/scratch"|"$INTERNAL_ROOT/scratch/"*|"$EXTERNAL_CACHE/scratch"|"$EXTERNAL_CACHE/scratch/"*) __cd_fix_tmp=1 ;;
     *) if [ -d "$TMPDIR" ]; then __cd_fix_tmp=0; else __cd_fix_tmp=1; fi ;;
   esac
   if [ "${__cd_fix_tmp:-0}" = 1 ]; then
@@ -311,7 +385,7 @@ export KIT_SSH="$DEVMACHINE/bin/jupiter-kit-ssh"
 
 unset -f __cd_route __cd_ext_ok __cd_path_front
 unset __cd_conf_ok __cd_p __cd_state __cd_id __cd_h __cd_key __cd_pre __cd_tail __cd_pin __cd_mode __cd_lost __cd_root \
-  __cd_stamp __cd_keep __cd_cur __cd_fix_tmp
+  __cd_stamp __cd_keep __cd_cur __cd_fix_tmp __cd_defined __cd_line __cd_k __cd_v __cd_expand __cd_rest __cd_result __cd_name __cd_repl __cd_cache
 unset STORAGE_CONF_VERSION EXTERNAL_VOLUME EXTERNAL_ROOT EXTERNAL_CACHE INTERNAL_ROOT LAB_ROOT MODELS_ROOT SD_VOLUME \
   DEPS_CAP_GB DEPS_MIN_IDLE_HOURS EXTERNAL_BUILD_DAYS EXTERNAL_PRUNE_EVERY_DAYS INTERNAL_BUILD_IDLE_HOURS \
   SESSION_STALE_HOURS BIG_DOWNLOAD_GB INTERNAL_MIN_FREE_GB HOME_DOT_ALLOW HOME_DOTFILE_ALLOW DEV_DOT_ALLOW

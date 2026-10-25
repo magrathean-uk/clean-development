@@ -1,6 +1,6 @@
 # Clean Development implementation context
 
-Storage routing and session cleanup for G's Mac, covering Claude Code, Codex and numbered Claude profiles. Version 0.6.0 is ESM Node.js, supports Node 20.12 or newer and has no npm dependencies.
+Storage routing and session cleanup for G's Mac, covering Claude Code, Codex and numbered Claude profiles. Version 0.6.1 is ESM Node.js, supports Node 20.12 or newer and has no npm dependencies. OpenCode is environment-only; no native lifecycle adapter is shipped.
 
 ## Layout and runtime contracts
 
@@ -10,11 +10,13 @@ Storage routing and session cleanup for G's Mac, covering Claude Code, Codex and
 - `fragments/` contains blocks for Claude, Codex and claude-work settings plus `merge-hooks.py`.
 - `schemas/project-config.schema.json` defines schema v2; the reader also supports v1.
 
-`removeManaged` implements managed-root cleanup using a trash rename and detached deletion. Project build/dependency directories are registered by `buildDirs` and `depDirs`. Hooks log to `~/dev/machine/state/clean-development/hook.log`; their runtime design returns exit 0 on errors. SessionStart has a subsecond target and Codex SessionEnd has a 3-second host deadline.
+`removeManaged` requires an independently trusted anchor, refuses redirected layout/trash directories and retains sources on rename failure. Deletion workers write separate completion receipts. The shared lifecycle lock fences selection/rename, start/resume/end and explicit leases; stale locks require explicit dead-owner recovery, never age takeover. New JSON pins carry state version, phase and generation; legacy pins remain readable. Project build/dependency directories are registered by `buildDirs` and `depDirs`. Hooks return exit 0 on errors. SessionStart has a subsecond target and Codex SessionEnd a 3-second host deadline; cooperative budgets do not interrupt blocked kernel filesystem calls.
 
 The session-key algorithm in `machine/env.zsh` and `runtime/lib/sessions.mjs` uses a harness letter and the final 12 characters of `CLAUDE_CODE_SESSION_ID` or `CODEX_THREAD_ID`. Codex trust hashes depend on hook command text. The command `clean-development codex-trust --apply` updates that trust configuration.
 
-Version references appear in `runtime/VERSION`, `runtime/lib/conf.mjs`, `machine/env.zsh`, both plugin manifests, `package.json`, fragment paths, marketplace entries and the claude-work provisioning pin.
+Version references appear in `runtime/VERSION`, `runtime/lib/conf.mjs`, `machine/env.zsh`, all three plugin manifests, `package.json`, fragment paths, marketplace entries and the claude-work provisioning pin; `scripts/check-release.mjs` checks agreement.
+
+`installer.mjs` stages immutable releases and journals activation/rollback under machine state. `--config` preserves existing storage policy; `--replace-config` is explicit. Do not install, merge live hooks or exercise real mounts as part of source validation. `docs/safety-release.md` records remaining acceptance gates.
 
 ## Command references
 

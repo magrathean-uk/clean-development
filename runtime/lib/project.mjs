@@ -2,7 +2,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { lastUsedMs, lstatOrNull, children } from "./fsutil.mjs";
+import { canonicalPath, lastUsedMs, lstatOrNull, children, timeLeft } from "./fsutil.mjs";
 
 export const CONFIG = ".clean-development.json";
 export const SCHEMA_URL = "https://raw.githubusercontent.com/magrathean-uk/bolyki-dev/main/clean-development/schemas/project-config.schema.json";
@@ -10,7 +10,7 @@ const V1_KEYS = new Set(["$schema", "schemaVersion", "enabled", "root", "cacheRo
 const V2_KEYS = new Set(["$schema", "schemaVersion", "enabled", "heavy", "buildDirs", "depDirs", "notes"]);
 
 const validRel = (p) => typeof p === "string" && p.length > 0 && p.length < 200 && !path.isAbsolute(p)
-  && !p.split("/").includes("..") && !p.startsWith(".git") && !p.includes("\0");
+  && p.split("/").every((s) => s && s !== "." && s !== ".." && s !== ".git") && !/[\x00-\x1f\x7f]/.test(p);
 
 export function validateV2(o) {
   const errors = [];
@@ -20,8 +20,9 @@ export function validateV2(o) {
   for (const k of ["enabled", "heavy"]) if (o[k] !== undefined && typeof o[k] !== "boolean") errors.push(`${k} must be a boolean`);
   for (const k of ["buildDirs", "depDirs"]) {
     if (o[k] === undefined) continue;
-    if (!Array.isArray(o[k]) || o[k].length > 16 || !o[k].every(validRel)) errors.push(`${k} must be up to 16 relative paths without ..`);
+    if (!Array.isArray(o[k]) || o[k].length > 16 || !o[k].every(validRel) || new Set(o[k]).size !== o[k].length) errors.push(`${k} must be up to 16 unique relative paths without empty, . , .. or .git components`);
   }
+  if (o.$schema !== undefined && (typeof o.$schema !== "string" || !o.$schema.length)) errors.push("$schema must be a non-empty string");
   if (o.notes !== undefined && (typeof o.notes !== "string" || o.notes.length > 500)) errors.push("notes must be a string up to 500 characters");
   return errors;
 }
@@ -57,9 +58,11 @@ export function loadProjectConfig(root) {
   let raw;
   try { raw = JSON.parse(fs.readFileSync(file, "utf8")); } catch (e) { return { file, ok: false, errors: [`invalid JSON (${e.message})`] }; }
   if (raw?.schemaVersion === 1) {
-    const unknown = Object.keys(raw).filter((k) => !V1_KEYS.has(k));
+    const errors = Object.keys(raw).filter((k) => !V1_KEYS.has(k)).map((k) => `unknown v1 key ${k}`);
+    if (raw.enabled !== undefined && typeof raw.enabled !== "boolean") errors.push("enabled must be a boolean");
+    if (raw.$schema !== undefined && (typeof raw.$schema !== "string" || !raw.$schema.length)) errors.push("$schema must be a non-empty string");
     const m = migrateV1(raw, root);
-    return { file, ok: unknown.length === 0, version: 1, config: m.config, errors: unknown.map((k) => `unknown v1 key ${k}`), migrate: true };
+    return { file, ok: errors.length === 0, version: 1, config: errors.length ? null : m.config, errors, migrate: true };
   }
   const errors = validateV2(raw);
   return { file, ok: errors.length === 0, version: raw?.schemaVersion, config: errors.length ? null : raw, errors };
@@ -70,37 +73,39 @@ export function findProjectRoot(cwd, home) {
   if (!cwd || !path.isAbsolute(cwd)) return null;
   let dir = path.resolve(cwd);
   while (true) {
-    if (lstatOrNull(path.join(dir, CONFIG))) return dir;
-    if (lstatOrNull(path.join(dir, ".git"))) return dir;
+    if (lstatOrNull(path.join(dir, CONFIG)) || lstatOrNull(path.join(dir, ".git"))) return canonicalPath(dir);
     const parent = path.dirname(dir);
     if (parent === dir || dir === home) return null;
     dir = parent;
   }
 }
 
-export function isGitIgnored(root, rel) {
-  const r = spawnSync("/usr/bin/git", ["-C", root, "check-ignore", "-q", "--", rel], { stdio: "ignore", timeout: 10000 });
-  return r.status === 0;
+export function isGitIgnored(root, rel, { deadline = Infinity, onBlocked = () => {} } = {}) {
+  const timeout = timeLeft(deadline, 200);
+  if (!timeout) { onBlocked("deadline", rel); return false; }
+  const r = spawnSync("/usr/bin/git", ["-C", root, "check-ignore", "-q", "--", rel], { stdio: "ignore", timeout, killSignal: "SIGKILL" });
+  if (r.error || (r.status !== 0 && r.status !== 1)) onBlocked(r.error?.code || `git exit ${r.status}`, rel);
+  return !r.error && r.status === 0;
 }
 
-function existingIgnored(root, rels) {
+function existingIgnored(root, rels, options) {
   const out = [];
   for (const rel of rels || []) {
     if (!validRel(rel)) continue;
     const p = path.join(root, rel);
     const st = lstatOrNull(p);
     if (!st || !st.isDirectory() || st.isSymbolicLink()) continue;
-    if (isGitIgnored(root, rel)) out.push(p);
+    if (isGitIgnored(root, rel, options)) out.push(p);
   }
   return out;
 }
 
 // Build directories a project declares (v2 buildDirs), existing and git-ignored.
-export function projectBuildDirs(root) {
+export function projectBuildDirs(root, options = {}) {
   if (!root) return [];
   const pc = loadProjectConfig(root);
-  if (!pc?.config || pc.config.enabled === false) return [];
-  return existingIgnored(root, pc.config.buildDirs);
+  if (!pc?.ok || !pc.config || pc.config.enabled === false) return [];
+  return existingIgnored(root, pc.config.buildDirs, options);
 }
 
 // Activity of a repository: newest of git index/HEAD/FETCH_HEAD and its top-level entries.
@@ -111,11 +116,11 @@ export function repoLastUsedMs(root) {
 }
 
 // Declared build and dependency directories of a repository idle for longer than maxAgeMs.
-export function projectAgedDirs(root, maxAgeMs, now = Date.now()) {
+export function projectAgedDirs(root, maxAgeMs, now = Date.now(), options = {}) {
   const pc = loadProjectConfig(root);
-  if (!pc?.config || pc.config.enabled === false) return [];
+  if (!pc?.ok || !pc.config || pc.config.enabled === false) return [];
   if (now - repoLastUsedMs(root) <= maxAgeMs) return [];
-  return existingIgnored(root, [...(pc.config.buildDirs || []), ...(pc.config.depDirs || [])]);
+  return existingIgnored(root, [...(pc.config.buildDirs || []), ...(pc.config.depDirs || [])], options);
 }
 
 // Top-level repositories in ~/dev/source (tolerates dead symlinks such as SpecieX while the 4TB is away).

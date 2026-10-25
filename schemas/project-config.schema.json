@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/magrathean-uk/bolyki-dev/main/clean-development/schemas/project-config.schema.json",
   "title": "Clean Development project configuration (.clean-development.json)",
-  "description": "Schema v2 (clean-development 0.6.0). Schema v1 files (0.2-0.5) are still read: enabled is honoured, other keys are ignored, and `clean-development migrate --write DIR` converts them.",
+  "description": "Schema v2 (clean-development 0.6.1). Valid schema v1 files remain readable/migratable; invalid configuration grants no cleanup authority.",
   "oneOf": [
     {
       "type": "object",
@@ -16,22 +16,26 @@
         "buildDirs": {
           "type": "array", "maxItems": 16, "uniqueItems": true,
           "description": "Repo-relative build output. Deleted at session end in internal mode and when the repo has been idle for 14 days; only when git-ignored.",
-          "items": { "type": "string", "minLength": 1, "maxLength": 199, "pattern": "^(?!/)(?!\\.git)(?!.*(^|/)\\.\\.(/|$)).+$" }
+          "items": { "type": "string", "minLength": 1, "maxLength": 199, "pattern": "^(?!/)(?!.*(?:^|/)(?:\\.{1,2}|\\.git)(?:/|$))(?!.*//)(?!.*\/$)[^\u0000-\u001f\u007f]+$" }
         },
         "depDirs": {
           "type": "array", "maxItems": 16, "uniqueItems": true,
           "description": "Repo-relative dependency folders (node_modules, .venv, Pods). Deleted only when the repo has been idle for 14 days and they are git-ignored.",
-          "items": { "type": "string", "minLength": 1, "maxLength": 199, "pattern": "^(?!/)(?!\\.git)(?!.*(^|/)\\.\\.(/|$)).+$" }
+          "items": { "type": "string", "minLength": 1, "maxLength": 199, "pattern": "^(?!/)(?!.*(?:^|/)(?:\\.{1,2}|\\.git)(?:/|$))(?!.*//)(?!.*\/$)[^\u0000-\u001f\u007f]+$" }
         },
         "notes": { "type": "string", "maxLength": 500 }
       }
     },
     {
       "type": "object",
+      "additionalProperties": false,
       "required": ["schemaVersion"],
       "properties": {
+        "$schema": { "type": "string", "minLength": 1 },
         "schemaVersion": { "const": 1 },
-        "enabled": { "type": "boolean" }
+        "enabled": { "type": "boolean" },
+        "root": {}, "cacheRoot": {}, "buildRoot": {}, "scratchRoot": {}, "swiftpmWorkspaceRoot": {},
+        "retention": {}, "tools": {}
       },
       "description": "Legacy v1 (read-only compatibility)."
     }

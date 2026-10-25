@@ -1,13 +1,13 @@
 {
   "name": "clean-development",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "private": true,
   "description": "Machine storage routing, session-end cleanup and dot-folder policy for G's Mac (Claude Code, Codex, claude-1..5).",
   "type": "module",
   "engines": { "node": ">=20.12" },
   "scripts": {
-    "check": "for f in runtime/lib/*.mjs runtime/bin/*.mjs test/*.mjs; do node --check \"$f\" || exit 1; done && zsh -n machine/env.zsh && bash -n machine/env.zsh && sh -n runtime/bin/cd-hook && sh -n install.sh && sh -n remove-legacy.sh",
-    "test": "node --test test/ && zsh test/env-modes.sh \"$CLEAN_DEV_TEST_DIR/env\""
+    "check": "for f in installer.mjs runtime/lib/*.mjs runtime/bin/*.mjs scripts/*.mjs test/*.mjs; do node --check \"$f\" || exit 1; done && node scripts/check-release.mjs && zsh -n machine/env.zsh && bash -n machine/env.zsh && sh -n runtime/bin/cd-hook && sh -n install.sh && sh -n remove-legacy.sh",
+    "test": "node --test test/*.test.mjs && zsh test/env-modes.sh \"$CLEAN_DEV_TEST_DIR/env\""
   },
   "license": "MIT"
 }
