@@ -1,5 +1,7 @@
 # Current branch validation - 25 October 2026
 
+> Source-validation snapshot before the subsequent, separately authorised merge/push to `main`. That authorisation does not approve live installation or change the outstanding host/storage acceptance gates below. A project-only version audit confirmed no third-party npm or AI model dependency; `.node-version` now pins the already validated development runtime, Node 26.12.1. Minimum Node 20.12.0 and schema v1 remain compatibility support, not preferred versions.
+
 Scope: unreleased **0.6.1**, isolated branch `feat/clean-development-safety`, based on `d5edf8097068eb0b837f0bfd6f5e2d5755516d01`. This record accompanies the feature-branch work; it is **not approval or evidence of a live installation**. The user requested that development remain separate and not interfere with current work. No merge, push, shared runtime/environment/hook replacement, account change, service restart or real mount operation was performed.
 
 ## Source matrix

@@ -58,7 +58,9 @@ Policy values live in `~/dev/machine/storage.conf`; paths must be absolute witho
 
 ## Harness scope and validation
 
-Development validation uses current Node **26.12.1**; current LTS **24.22.1** and the minimum supported **20.12.0** are compatibility targets. The [current validation record](docs/validation-2026-10-25-current.md) separates isolated source/native checks from the still-pending live rollout. Test runtimes do not replace the machine's shared Node installation.
+`.node-version` pins development to current Node **26.12.1**; select it with your version manager or an explicit Node `PATH`. Current LTS **24.22.1** and the minimum supported **20.12.0** remain compatibility targets, not development defaults. The [current validation record](docs/validation-2026-10-25-current.md) separates isolated source/native checks from the still-pending live rollout. The project pin does not replace the machine's shared Node installation.
+
+Clean Development uses Node built-ins only: no third-party npm packages, AI model, model SDK or API version needs upgrading. Project configuration schema v2 is current; v1 support is intentionally read/migrate compatibility.
 
 | Consumer | Support |
 |---|---|

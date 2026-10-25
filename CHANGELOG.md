@@ -10,6 +10,7 @@
 - Add immutable runtime publication, digest/permission receipts, policy-preserving configuration installation, strict flags, truthful preview and conflict-aware rollback/recovery. Retain previous releases and recovery data.
 - Revalidate activation target topology, bytes and permissions at backup/activation; journal write intent only after conflict checks so rollback cannot claim pre-existing user edits. Make offline profile fixtures independent of TMPDIR aliases.
 - Report bounded Git/rename deferrals with their repo paths and leave incomplete repository sweeps due instead of postponing them for a week. Keep the 200 ms Git bound; test both successful cleanup and explicit, fail-closed timeout deferral.
+- Pin project development to Node 26.12.1 via `.node-version`; retain the tested minimum-runtime and project-schema compatibility contracts. No third-party npm/model dependency is introduced.
 - Preserve Codex disablement/unknown state in offline and host trust refresh plus config rebuild; refuse positional preference changes without explicit review. Hook merges retain recovery bytes and unrelated handlers.
 - Fix wider-tooling reprovision rollback so never-moved originals survive; retain failed replacement snapshots, journal outcomes and do not trim failed reprovision recovery data. Claude-tooling preview now performs no deployment.
 - Expand diagnostics/support claims and regression coverage. OpenCode remains environment-only; its source client alias filters inherited session identity without claiming a reused server is repaired.
