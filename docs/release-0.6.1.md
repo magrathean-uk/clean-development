@@ -30,12 +30,16 @@ The pinned development runtime remains Node 26.12.1. The earlier
 [validation matrix](validation-2026-10-25-current.md) records separate runs on
 26.12.1, 24.22.1 and the minimum supported 20.12.0; the table above reports the
 versions actually installed for this fresh local check. The standalone GitHub
-Actions workflow runs macOS checks on exact Node 20.12.0 and Node 24/26.
+Actions workflow runs macOS checks on exact Node 20.12.0 and Node 24/26. Required
+Linux checks exercise source syntax and isolated Node fixtures on Node 20/22/24;
+the macOS-specific shell assertions run only on macOS. CodeQL remains enabled.
+These compatibility checks do not add Linux or Windows deployment support.
 
 `git diff --check`, release identity checks and a redacted Gitleaks directory scan
 passed. CI actions retain the reviewed SHA pins from already-merged Dependabot
 PR [#63](https://github.com/magrathean-uk/clean-development/pull/63). The original
-multi-host workflows and npm publication are superseded by source-only macOS CI.
+multi-host packaging workflows and npm publication are superseded by source
+validation, with existing required checks preserved.
 The MIT licence is included in the distribution.
 
 ## Deployment boundary
