@@ -1,27 +1,28 @@
-# Clean Development project context
+# Clean Development implementation context
 
-Clean Development is an ESM Node.js CLI with no npm dependencies. Its supported runtime is Node 20.12 or newer. Runtime code lives in `src/`, entry points in `bin/`, and isolated fixtures in `test/`.
+Storage routing and session cleanup for G's Mac, covering Claude Code, Codex and numbered Claude profiles. Version 0.6.1 is ESM Node.js, supports Node 20.12 or newer and has no npm dependencies. OpenCode is environment-only; no native lifecycle adapter is shipped.
 
-## Product model
+## Layout and runtime contracts
 
-The runtime handles environment routing, caller overrides, argv, cwd, stdio, signals and exit status. Cargo retention uses registered build roots, markers, leases, pins and age. Source, toolchains, persistent state and deliverables have different ownership from disposable build output.
+- `machine/env.zsh` and `machine/storage.conf` are installed to `~/dev/machine/` by `install.sh --config`. `env.zsh` is sourced by zsh and Bash 3.2; its hot path is POSIX-compatible, silent and fork-free.
+- `runtime/` contains hooks (`bin/cd-hook` delegates to `bin/cd-hook.mjs`) and CLI (`bin/clean-development`). Installation uses `~/dev/machine/runtime/clean-development/<version>/` and versioned hook paths.
+- `skills/clean-development/SKILL.md` is the agent-facing skill. `plugin.json` and `.claude-plugin/plugin.json` package the skill. Hook installation is separate from plugin auto-loading.
+- `fragments/` contains blocks for Claude, Codex and claude-work settings plus `merge-hooks.py`.
+- `schemas/project-config.schema.json` defines schema v2; the reader also supports v1.
 
-Session planning is read-only. `session-only` writes no project configuration; `persist` can create an absent `.clean-development.json`; `skip` removes inherited routing while retaining independent overrides. Native integrations default to skip. Tests use disposable homes, settings and storage roots for setup, update, uninstall, persistence and deletion scenarios.
+`removeManaged` requires an independently trusted anchor, refuses redirected layout/trash directories and retains sources on rename failure. Deletion workers write separate completion receipts. The shared lifecycle lock fences selection/rename, start/resume/end and explicit leases; stale locks require explicit dead-owner recovery, never age takeover. New JSON pins carry state version, phase and generation; legacy pins remain readable. Project build/dependency directories are registered by `buildDirs` and `depDirs`. Hooks return exit 0 on errors. SessionStart has a subsecond target and Codex SessionEnd a 3-second host deadline; cooperative budgets do not interrupt blocked kernel filesystem calls.
+
+The session-key algorithm in `machine/env.zsh` and `runtime/lib/sessions.mjs` uses a harness letter and the final 12 characters of `CLAUDE_CODE_SESSION_ID` or `CODEX_THREAD_ID`. Codex trust hashes depend on hook command text. The command `clean-development codex-trust --apply` updates that trust configuration.
+
+Version references appear in `runtime/VERSION`, `runtime/lib/conf.mjs`, `machine/env.zsh`, all three plugin manifests, `package.json`, fragment paths, marketplace entries and the claude-work provisioning pin; `scripts/check-release.mjs` checks agreement.
+
+`installer.mjs` stages immutable releases and journals activation/rollback under machine state. `--config` preserves existing storage policy; `--replace-config` is explicit. Do not install, merge live hooks or exercise real mounts as part of source validation. `docs/safety-release.md` records remaining acceptance gates.
 
 ## Command references
 
 ```sh
-node --test test/session.test.js
-node --test test/prune.test.js
 npm run check
-npm test
-npm run test:package
+CLEAN_DEV_TEST_DIR="$TMPDIR/cd-test-$$" npm test
 ```
 
-The session and prune suites cover consent and retention respectively. `test:package` installs temporary tarballs and uses the preceding-release tag named in `scripts/verify-package.mjs` for upgrade verification. [CONTRIBUTING.md](CONTRIBUTING.md) describes smoke, fixture and performance checks.
-
-## Configuration and documentation map
-
-`.version-bump.json`, both root package-lock versions and the bug-report placeholder contain version information. Codex skills live in `skills/`; Claude skills live in `claude-skills/`. Claude Code also scans the root `skills/` directory. The `disable-model-invocation` frontmatter controls Claude skill loading; `agents/openai.yaml` contains Codex invocation metadata.
-
-[Architecture](docs/architecture.md) and [the safety model](docs/safety-model.md) describe routing and ownership. Package-loader and fixture results cover different conditions from live host operation or billed-token measurements. The machine integration includes shell routing, `.clean-development.json` project metadata, environment checks and audit tools; their behaviour is documented alongside the integrations.
+The tests provide simulated homes and a simulated `Volumes/4TB`.

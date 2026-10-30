@@ -1,9 +1,0 @@
-{
-  "$schema": "https://raw.githubusercontent.com/magrathean-uk/clean-development/main/schemas/project-config.schema.json",
-  "schemaVersion": 1,
-  "enabled": true,
-  "tools": {
-    "npm": true,
-    "npx": true
-  }
-}

@@ -1,0 +1,40 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact|fork",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "'/Users/bolyki/dev/machine/runtime/clean-development/0.6.1/bin/cd-hook' session-start codex",
+            "timeout": 30,
+            "statusMessage": "clean-development"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "'/Users/bolyki/dev/machine/runtime/clean-development/0.6.1/bin/cd-hook' stop codex",
+            "async": true,
+            "timeout": 300
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "'/Users/bolyki/dev/machine/runtime/clean-development/0.6.1/bin/cd-hook' session-end codex",
+            "timeout": 3
+          }
+        ]
+      }
+    ]
+  }
+}

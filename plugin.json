@@ -1,41 +1,24 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "clean-development",
-  "version": "0.5.0",
-  "description": "Explicit management skill for configuring and inspecting clean-development.",
+  "version": "0.6.1",
+  "description": "Storage routing (4TB external or internal fallback), the 5 GB rule, session-end cleanup and the no-dot-folder policy for G's Mac. Hooks are installed in user settings, not by this plugin.",
   "author": {
     "name": "MAGRATHEAN UK LTD",
     "url": "https://github.com/magrathean-uk"
   },
-  "homepage": "https://github.com/magrathean-uk/clean-development",
-  "repository": "https://github.com/magrathean-uk/clean-development",
+  "repository": "https://github.com/magrathean-uk/bolyki-dev",
   "license": "MIT",
-  "keywords": [
-    "build-cache",
-    "developer-tools",
-    "ai-agent"
-  ],
   "extensions": {
     "com.openai": {
       "interface": {
         "displayName": "Clean Development",
-        "shortDescription": "Managed developer caches and build output",
-        "longDescription": "Preview, configure, inspect, and explicitly prune supported local development caches and build output. Requires Node.js 20.12 or later and a coding host with local command access.",
+        "shortDescription": "Storage routing and cleanup on this Mac",
+        "longDescription": "Where caches, builds, scratch, models and VMs go on this Mac, the 5 GB rule when the 4TB is absent, automatic session-end cleanup and the no-dot-folder policy. Hooks live in ~/.codex/hooks.json.",
         "developerName": "MAGRATHEAN UK LTD",
-        "category": "Productivity",
-        "capabilities": [
-          "Read",
-          "Write"
-        ],
-        "websiteURL": "https://github.com/magrathean-uk/clean-development",
-        "defaultPrompt": [
-          "Use Clean Development only when explicitly requested."
-        ],
-        "privacyPolicyURL": "https://github.com/magrathean-uk/clean-development/blob/main/PRIVACY.md",
-        "termsOfServiceURL": "https://github.com/magrathean-uk/clean-development/blob/main/TERMS.md",
-        "brandColor": "#122B35",
-        "composerIcon": "./docs/assets/logo.png",
-        "logo": "./docs/assets/logo.png"
+        "category": "Developer Tools",
+        "capabilities": ["Read"],
+        "defaultPrompt": ["Use Clean Development for storage, download-size and cleanup decisions."]
       }
     }
   }

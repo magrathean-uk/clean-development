@@ -1,0 +1,8 @@
+#!/bin/sh
+# clean-development 0.6.0 CLI launcher (status, doctor, housekeeping, reap, codex-trust, init, migrate, hook, version).
+rt="${0%/bin/clean-development}"
+for n in "${CLEAN_DEV_NODE:-}" "$HOME/dev/machine/toolchains/node/current/bin/node" "$HOME/dev/toolchains/node/current/bin/node" /opt/homebrew/bin/node; do
+  if [ -n "$n" ] && [ -x "$n" ]; then exec "$n" "$rt/bin/clean-development.mjs" "$@"; fi
+done
+echo "clean-development: node not found" >&2
+exit 127

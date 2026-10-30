@@ -1,229 +1,80 @@
-<h1 align="center">clean-development</h1>
+# clean-development 0.6.1
 
-<p align="center">Routes new development caches and build output to a managed root, for developers and coding agents.</p>
+Keeps G's Mac tidy while agents work.
 
-<p align="center">
-  <a href="docs/index.md">Documentation</a>
-</p>
+- **Routing.** `~/dev/machine/env.zsh` sends every cache, build and temp file to one root: `/Volumes/4TB/machine/cache` when the 4TB is attached (detected by name plus a write probe), otherwise `~/dev/machine/cache`. Claude Code, Codex and claude-1..5 pin the choice per session.
+- **Cleanup.** At session end disposable scratch/internal builds become eligible, subject to ownership, generation, leases and validated paths. Each turn, throttled housekeeping reaps finished/stale sessions and prunes old output. Dependency eviction is a best-effort shallow-mtime cap, not a strict quota or read-aware LRU. Xcode DerivedData is never last-out wiped.
+- **Rules for agents.** The session-start message states the mode, the 5 GB rule when the 4TB is away, and any unexpected dot-folders in `~` or `~/dev` (reported, never deleted).
 
-## Overview
+## Safety contract
 
-`clean-development` routes new development caches and supported build output to a managed root. It is a local Node.js CLI for developers and coding agents. Routing is explicit and preserves existing environment values unless force mode is selected.
+- Live keys protect builds on **both roots**, including external-pinned internal fallback. Reopening deferred-ended sessions establishes a new live generation; old snapshots/tagged events cannot reap it.
+- The same lifecycle lock covers supported hook transitions, selection/rename and explicit lease mutations. A paused owner is never evicted by age. A dead owner requires reviewed `locks --recover ... --apply`; startup stays fail-open, uncertain cleanup stays closed.
+- Whole cache anchors and their managed children/trash must be real directories, not redirection links. A candidate leaf link is removable without following its target. Unexpected rename failure, including cross-device failure, retains the source; no unchecked direct-delete fallback.
+- Invalid machine/project policy grants no deletion authority. Machine policy is parsed as data by both shell and Node; the shell remains fork-free and compatible with stock Bash 3.2. Project identity is canonical per checkout, not shared Git history.
+- Scratch is **not** durable unfinished work, rollback storage or final/partial evidence. Keep unique bytes in the project's durable directory. An explicit job lease protects required paths beyond the conversation; expiry is not proof of process completion.
+- Hook completion and deletion completion are different. `events.jsonl` records hook outcomes/version/generation; `deletions.jsonl` correlates queued and completed/failed jobs. One worker per anchor/invocation consumes a manifest, rather than spawning Node for every entry.
 
-The current version is `0.5.0` and requires Node.js `20.12` or newer. Release artifacts and publication status are on the [`v0.5.0` GitHub release](https://github.com/magrathean-uk/clean-development/releases/tag/v0.5.0). The repository is MIT licensed. See [release verification](docs/verification.md) for executed checks and host coverage. The source installation below works independently of npm publication.
+These are cooperative same-user safeguards, not a hostile-filesystem sandbox or an OS job supervisor. Kernel-blocked synchronous filesystem calls cannot be interrupted by a JavaScript deadline. See [implementation and remaining acceptance](docs/safety-release.md).
 
-Windows and Linux use their native environment, path, and storage semantics. See [platform support](docs/platform-support.md) for location overrides, quoted Windows PATH entries, WSL boundaries, and the distinction between configured CI checks and completed native acceptance.
+## Explicit work lifetimes
 
-Directory review is separate from public availability. The Claude directory submission passed its automated security scan and is in manual policy review because the bundle contains executable files. The [Codex community submission](https://github.com/openai/community-plugins/pull/21) is open but not live. The global OpenAI directory listing is a draft and has not been submitted because its MCP form blocks the submission.
-
-## Preview a command without running it
-
-From a source checkout, inspect the environment a wrapped command would receive:
-
-```sh
-node bin/clean-development.js explain -- npm test
-node bin/clean-development.js explain --json -- cargo check
-node bin/clean-development.js explain --session skip --json -- npm test
-```
-
-After installation, use `clean-development explain` with the same arguments.
-This read-only prediction reports the selected executable, project, configuration
-sources, managed environment values and preserved overrides. It creates no
-runtime, storage directories or receipts and executes no tools or project code.
-Cargo identities are provisional until command-time discovery; native flags,
-configuration and scripts can choose other paths. It does not prove that an agent
-host or the current parent shell is routed. See [command explanations](docs/explain.md).
-
-## Check an installed adapter
+Commands below require the **0.6.1 runtime**, not merely an updated skill/plugin. All preview commands are read-only; mutations require `--apply`.
 
 ```sh
-node bin/clean-development.js probe --tool npm --json
-node bin/clean-development.js probe --tool npm --execute --json
+clean-development version
+clean-development leases list
+clean-development leases create --path "$CLEAN_DEV_SCRATCH" --path "$CLEAN_DEV_BUILDS" --minutes 60 --owner 'long build'  # preview
+clean-development leases create --path "$CLEAN_DEV_SCRATCH" --path "$CLEAN_DEV_BUILDS" --minutes 60 --owner 'long build' --apply
+clean-development leases renew LEASE_ID --minutes 60 --apply
+clean-development leases release LEASE_ID --apply
+
+clean-development publish --source "$TMPDIR/result.json" --destination /absolute/project/evidence/result.json  # preview
+clean-development publish --source "$TMPDIR/result.json" --destination /absolute/project/evidence/result.json --kind evidence --apply
+clean-development locks
+clean-development locks --recover lifecycle              # inspect a provably dead owner
+clean-development locks --recover lifecycle --apply       # explicit recovery, never a live owner
 ```
 
-The first command only plans. The second explicitly queries the installed tool
-with a temporary project, tool home and cache. Supported probes are npm, Go and uv.
-An observed match verifies the adapter in that disposable fixture, **not** the
-configured volume, a repository build or an agent session. Overrides and disabled
-routing are reported without probing user-owned paths. No repository scripts run.
-See [probe scope, limits and cleanup](docs/probe.md).
+Acquire protection **before** using required paths; protect every scratch/build/cache/project path the job needs. Leases last 1-1440 minutes and must be renewed before expiry; released/expired leases cannot silently be revived. They do not launch, supervise or kill processes. A corrupt registry blocks cleanup until inspected. Released records move into durable `lease-history/`, outside the active-registry inspection limit; recovery metadata is not automatically evicted cache.
 
-## Inspect stored builds
+Publication currently handles **one regular file**. It creates a durable source hold, copies to the destination device, verifies SHA-256 and mode, fsyncs, then publishes without overwriting. The source is never deleted; conflicting existing output is retained. Identical bytes/mode permit an idempotent retry. Cache/temp and declared disposable project destinations are rejected. Pending/failed publication holds **do not expire**: even parent end or a long copy cannot make the sole source evictable. Success releases its hold; failures or interrupted release require inspection and `leases release HOLD_ID --recovery-confirmed --apply` only after the bytes are durably recovered/published. Retain the receipt/recovery copy and never claim completion without a completed receipt. Package directories explicitly or promote them in project-specific transactions; do not assume recursive directory publication exists.
+
+## Installation and recovery - not automatic deployment
+
+Source validation does not install anything. First inspect the plan:
 
 ```sh
-node bin/clean-development.js status --workspaces --sizes
-node bin/clean-development.js status --build-budget 20GiB --json
+./install.sh --dry-run --config
 ```
 
-The workspace view shows valid registered records, last use, pins, active or uncertain
-leases and retention eligibility. Sizes are bounded metadata scans; incomplete or
-missing measurements are explicitly unknown, not zero. The build budget is
-advisory, covers registered logical bytes only, and never changes retention or
-triggers cleanup. Shared caches are not arbitrarily attributed to projects.
-See [workspace status and size limits](docs/status.md) and
-[read-only inspection guarantees](docs/inspection.md).
+When separately approved, `./install.sh --config` installs an immutable versioned runtime and new environment, **preserving existing `storage.conf` overrides**. `--config --replace-config` is the explicit policy-replacement option; unknown flags are rejected in every order. Existing releases are retained; changed bytes/permissions under an existing version are refused. Activation files have private backups, a journal and conflict-aware rollback under `~/dev/machine/state/clean-development/installations/`.
 
-Status also separates recorded integration ownership from current host
-configuration health. Doctor fails for a broken selected integration. Both are
-read-only; neither repairs settings or changes a running session. Effective tool
-coverage makes disabled Swift routing and native `.build` output visible. See
-[diagnostics](docs/diagnostics.md).
+After interrupted installation, inspect its receipt/lock and use `./install.sh --recover TRANSACTION_ID`. Recovery refuses a live/unverifiable installer and never overwrites a subsequent user edit. A published but inactive runtime is retained. Receipts, rollback predecessors and failed reprovision snapshots are not age-trimmed; review their storage separately.
 
-## What it manages
+Hook deployment is separate. Preview `fragments/merge-hooks.py FRAGMENT TARGET --dry-run` before any approved merge. Real merges preserve recovery bytes, unrelated handlers and file mode. Changing Codex hooks with positional disablement/unknown preferences is refused until explicitly reviewed/remapped. Trust refresh preserves such state; `clean-development codex-trust` defaults to **managed CD handlers**, with `--all` an explicit broader approval. The dependency-free editor supports ordinary host table syntax; complex/ambiguous TOML is refused in favour of the TOML-aware `codex-hooks-trust` helper, which also preserves disablement. Hash/config consistency is not actual host dispatch evidence.
 
-When a routed session is active, the CLI provides adapters for:
+On G's machine, explicitly running manual `dev-update` (or `--development-only`) coordinates these steps for the current coherent source release. It checks release identity, every hook merge and the restricted trust editor **before** activation, retains policy/old runtimes/recovery bytes, and never uses `--all` trust or resets disabled state. Hook replacement retains unrelated handler positions. Active or unverifiable native sessions/leases/locks defer runtime changes; the updater never stops a process to pass admission. Do not start new native sessions during a release update. Component journals are retained on failure; this is ordered deployment, not a cross-process atomic transaction. No production rollout/model/hardware acceptance is implied by source tests or the updater's configuration checks.
 
-| Tool | Managed value |
-| --- | --- |
-| Cargo | Per-workspace `CARGO_TARGET_DIR` |
-| Go | `GOCACHE` and `GOMODCACHE` |
-| npm and npx | npm cache |
-| pnpm | npm cache and pnpm store |
-| Yarn | Yarn cache |
-| Bun | Bun install cache |
-| uv | uv cache |
-| pip and pip3 | pip cache |
-| dotnet | NuGet packages |
-| Composer | Composer cache |
-| ccache and sccache | Native compiler cache |
+Policy values live in `~/dev/machine/storage.conf`; paths must be absolute without dot/traversal components, numeric values non-negative plain decimals. Approved internal lab/model overrides remain valid. Reconnection may route subsequent external-pinned shells externally again; no fallback data is copied back. Existing processes retain their own environment.
 
-On macOS, `setup` also asks whether to manage Xcode DerivedData and simulator leftovers (default no); see [Xcode management](docs/xcode.md). It does not move `node_modules`, virtual environments, final Go binaries, release archives, Xcode archives, Rust toolchains, credentials, or arbitrary framework output. `CARGO_HOME` is not relocated because it can contain configuration, credentials, installed binaries, and caches together.
+## Harness scope and validation
 
-The default managed layout is one root with `caches/`, `builds/`, and `scratch/` children. Routed Cargo build workspaces receive ownership records and active-build leases. `clean-development scratch --prefix verification --json` explicitly allocates a private directory beneath an existing selected scratch root; see [scratch and status-preserving logs](docs/scratch.md). Automatic scratch cleanup is not implemented. Pruning is limited to registered direct children of the managed build root and is a dry run unless `--apply` is supplied.
+`.node-version` pins development to current Node **26.12.1**; select it with your version manager or an explicit Node `PATH`. Current LTS **24.22.1** and the minimum supported **20.12.0** remain compatibility targets, not development defaults. The [current validation record](docs/validation-2026-10-25-current.md) separates isolated source/native checks from the still-pending live rollout. The project pin does not replace the machine's shared Node installation.
 
-## Install and develop from this checkout
+Clean Development uses Node built-ins only: no third-party npm packages, AI model, model SDK or API version needs upgrading. Project configuration schema v2 is current; v1 support is intentionally read/migrate compatibility.
 
-The source checkout uses the standard npm scripts:
+| Consumer | Support |
+|---|---|
+| Claude, Codex, managed numbered Claude seats | Native lifecycle implementation; actual installed-host acceptance remains separate |
+| OpenCode | Environment routing only; no native session deletion adapter. `bin/opencode2` filters foreign identities for new client launches; reused-server environment is not validated by that test |
+| Plain shells / GUI tools | Tool routing only; no conversation ownership or process supervision |
+
+`run [--session X] -- CMD` remains a no-policy compatibility shim, with direct-child signal forwarding. It creates no lease, budget or durable task. Never interpret a parent's `$TMPDIR` as a handoff protocol.
 
 ```sh
 npm run check
-npm test
-npm run test:package
+CLEAN_DEV_TEST_DIR="$TMPDIR/unique-cd-test-root" npm test
 ```
 
-The package has no runtime or development dependency declaration, so a clean checkout does not need `npm install` for these scripts. `package.json` declares Node.js `>=20.12`. `npm run check` validates repository-facing files, `npm test` runs the Node test suite, and `npm run test:package` packs and installs temporary tarballs, including the preceding-release tag named in `scripts/verify-package.mjs`. Run it only with that tag available. A quick check should not use `npm pack --dry-run`: the package's `prepack` hook runs the check and test suite. The fixture lab is a separate offline integration exercise described in [`test/lab/README.md`](test/lab/README.md).
-
-For required real-tool coverage and a source-fingerprinted JSON record:
-
-```sh
-node scripts/smoke-real-tools.mjs --require cargo,go,npm --json
-```
-
-Missing required tools fail the run rather than silently reducing coverage. The
-harness uses predefined offline fixtures, not live agent sessions; see
-[verification evidence](docs/verification-evidence.md) for the schema and limits.
-
-The CLI can be run directly without installing a global command:
-
-```sh
-node ./bin/clean-development.js --help
-node ./bin/clean-development.js status --json
-```
-
-For an installed package, the executable is `clean-development`. Setup is explicit and does not run as an npm install side effect. Review a proposed session first when deciding whether to use routing in another repository:
-
-```sh
-clean-development session --dry-run --json
-```
-
-## Configuration and storage
-
-`setup` resolves a root and selected agent integrations. It creates the managed directories, durable runtime, and user configuration only when run without `--dry-run`:
-
-```sh
-clean-development setup --dry-run --root /path/to/artifacts --agents claude,codex
-clean-development setup --root /path/to/artifacts --agents claude,codex
-```
-
-The project configuration file is `.clean-development.json`. `init` writes a project file, while `prepare` creates or checks the effective cache, build, and scratch directories:
-
-```sh
-clean-development init --root /path/to/artifacts
-clean-development prepare --dry-run --json
-clean-development prepare
-```
-
-Paths must be absolute. The parent of an external destination must already exist, so an unavailable mount fails instead of being silently created elsewhere. Resolution precedence is command-line option, environment variable, project configuration, user configuration, then platform default. Supported environment overrides include `CLEAN_DEVELOPMENT_ROOT`, `CLEAN_DEVELOPMENT_CACHE_ROOT`, `CLEAN_DEVELOPMENT_BUILD_ROOT`, and `CLEAN_DEVELOPMENT_SCRATCH_ROOT`.
-
-## Session modes and routing
-
-The session command can inspect or apply one of three modes:
-
-```sh
-clean-development session --dry-run --json
-clean-development session --session session-only --json
-clean-development session --session persist --json
-clean-development session --session skip --json
-```
-
-The standalone `session` command applies or prepares its choice for that invocation and then exits. It cannot change the environment of its parent shell. Use `run` or `agent` to route a child command. `session-only` routes that child without creating project settings. `persist` may create the reviewed `.clean-development.json`. `skip` leaves ordinary tool storage unchanged. When no explicit mode is supplied, selection first considers inherited `CLEAN_DEVELOPMENT_SESSION_MODE`; noninteractive `agent` and `run` invocations otherwise default to `session-only`, while direct native integrations default to `skip` until an explicit choice is made.
-
-Route a child command with the public wrapper:
-
-```sh
-clean-development run --session session-only -- npm test
-clean-development run --session skip -- cargo test --offline
-```
-
-Cargo should run through the wrapper or Cargo shim because its per-workspace output needs ownership and lease tracking. Shared cache adapters can also be inspected with:
-
-```sh
-clean-development env --tool npm --format sh
-clean-development env --format json
-```
-
-Explicit environment variables win by default. `CLEAN_DEVELOPMENT_FORCE=1` is required to override them. The runtime does not inject prompts, bootstrap text, telemetry, or model calls.
-
-## CLI reference
-
-The executable exposes these commands:
-
-```text
-setup [--root PATH] [--agents LIST] [--xcode | --no-xcode] [--dry-run] [--json]
-update [--root PATH] [--agents LIST] [--xcode | --no-xcode] [--dry-run] [--json]
-prepare [--dry-run] [--json]
-session [--session session-only|persist|skip] [--dry-run] [--json]
-init [--root PATH] [--force]
-agent AGENT [--session session-only|persist|skip] [-- ARGS...]
-run [--session session-only|persist|skip] -- COMMAND [ARGS...]
-explain [--session session-only|skip] [--json] -- COMMAND [ARGS...]
-env [--tool TOOL] [--format json|sh|fish|powershell]
-status [--workspaces] [--sizes] [--build-budget SIZE] [--json]
-  [--max-scan-entries COUNT] [--max-scan-ms MS]
-doctor [--json]
-probe --tool npm|go|uv [--execute] [--timeout-ms MS] [--json]
-prune [--older-than DAYS] [--apply] [--json]
-xcode [status|prune] [--older-than DAYS] [--apply] [--sizes] [--json]
-xcode test-run --device-type ID --runtime ID [--session session-only|skip] -- COMMAND [ARGS...]
-xcode test-cleanup RUN_ID [--json]
-pin WORKSPACE_ID
-unpin WORKSPACE_ID
-uninstall [--dry-run] [--json]
-```
-
-Use `clean-development COMMAND --help` to display CLI usage. Child command options belong after `--`.
-
-`status` reports configured paths and workspace records. `doctor` checks managed directories and owned runtime files without repairing them. `update` refreshes the durable runtime and configured integrations. `uninstall` removes owned integrations and launchers while retaining configuration and managed data. Use `prune --json` first; add `--apply` only when the listed registered workspaces are intended for removal. `xcode status` and `xcode prune` (macOS, opt-in) follow the same dry-run-first rule.
-
-`xcode test-run` is an explicitly requested simulator lifecycle on macOS. It creates one receipt-owned simulator,
-runs a child with the selected local tool routing, and removes only that simulator when activity and ownership can
-be verified. Its test results are retained. See [Xcode management](docs/xcode.md) for the external-root requirement,
-child runner variables, and exact-ID cleanup after an interruption.
-
-## Safety boundaries
-
-The router is not a filesystem sandbox. A tool can still write an absolute path outside the managed root. Managed paths must be real directories and are checked against the configured root. Existing explicit environment values are preserved. Unregistered paths are outside automatic prune ownership. The CLI refuses a managed root inside the detected project for routed sessions.
-
-The test suite covers configuration precedence, routing, ownership, leases, pruning, integration edits, and safety regressions. The fixture lab provides separate baseline and routed projects for Rust, Node, and Go. Neither source tests nor package metadata establish ordinary-user acceptance for every listed host integration.
-
-## Documentation
-
-The detailed documents in `docs/` cover [architecture](docs/architecture.md), [configuration](docs/configuration.md), [agent integrations](docs/agent-integrations.md), [safety](docs/safety-model.md), and [verification](docs/verification.md). Read the verification document before treating an integration manifest or launcher as host acceptance evidence.
-
-Contributions and security reports are covered by [`CONTRIBUTING.md`](CONTRIBUTING.md) and [`SECURITY.md`](SECURITY.md). Project guidance on licensing is in [`docs/licensing.md`](docs/licensing.md). The project also includes [`SUPPORT.md`](SUPPORT.md), [`GOVERNANCE.md`](GOVERNANCE.md), and [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md). Its privacy notice and software terms are at [`PRIVACY.md`](PRIVACY.md) and [`TERMS.md`](TERMS.md).
-
-## Licence
-
-clean-development is open source under the MIT licence. See [LICENSE](LICENSE). Contributions: see [CONTRIBUTING](CONTRIBUTING.md).
-
-<sub>© 2026 MAGRATHEAN UK LTD and contributors · [Legal](https://github.com/magrathean-uk/.github/blob/main/LEGAL.md)</sub>
+Tests require explicit scratch and fabricated homes/volumes; adjacent profile tests use fake CLIs/authentication and mocked VPS responses. No real mount, service restart, model call or native login is part of the suite. See [the acceptance matrix](docs/safety-release.md) before considering production rollout.

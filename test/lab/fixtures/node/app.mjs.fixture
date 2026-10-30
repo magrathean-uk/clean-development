@@ -1,3 +1,0 @@
-import { add } from "clean-lab-math";
-
-console.log(`total=${add(5, 7)}`);

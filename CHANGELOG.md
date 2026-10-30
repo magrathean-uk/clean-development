@@ -1,165 +1,34 @@
 # Changelog
 
-This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Compatibility can still change during `0.x` releases.
+## 0.6.1 (30 Oct 2026)
 
-## [Unreleased]
+First published release of the 0.6 machine-scoped rewrite, replacing public v0.5.0.
 
-## [0.5.0] - 2026-10-15
+- Make standalone source validation independent of adjacent monorepo tools; retain their regression coverage when present. Add macOS CI for minimum Node 20.12.0 and Node 24/26; retain required Linux Node checks and CodeQL.
+- Protect active fallback builds in every selector; reopen deferred-ended owners with versioned phase/generation metadata, fence stale snapshots/tagged events and canonicalise checkout identity. Refuse collisions/invalid ownership rather than replace another owner.
+- Unify supported lifecycle cleanup/lease locking; remove age-based lock takeover, add explicit dead-owner recovery and fail-closed configuration/path admission. Reject redirected layout/trash directories; retain sources on rename failure.
+- Parse storage policy as data in fork-free POSIX shell and Node; align path/numeric validation and preserve approved lab/model overrides.
+- Add renewable explicit path leases and verified no-clobber single-file publication with durable receipts and retained source/recovery copies. These are not process supervision or an OS quota.
+- Bound cooperative hook/Git/measurement work, retain deferred cleanup, and distinguish hook completion from queued/completed deletion. Batch deletion jobs per anchor to avoid per-entry Node process storms.
+- Add immutable runtime publication, digest/permission receipts, policy-preserving configuration installation, strict flags, truthful preview and conflict-aware rollback/recovery. Retain previous releases and recovery data.
+- Revalidate activation target topology, bytes and permissions at backup/activation; journal write intent only after conflict checks so rollback cannot claim pre-existing user edits. Make offline profile fixtures independent of TMPDIR aliases.
+- Report bounded Git/rename deferrals with their repo paths and leave incomplete repository sweeps due instead of postponing them for a week. Keep the 200 ms Git bound; test both successful cleanup and explicit, fail-closed timeout deferral.
+- Pin project development to Node 26.12.1 via `.node-version`; retain the tested minimum-runtime and project-schema compatibility contracts. No third-party npm/model dependency is introduced.
+- Preserve Codex disablement/unknown state in offline and host trust refresh plus config rebuild; refuse positional preference changes without explicit review. Hook merges retain recovery bytes and unrelated handlers.
+- Fix wider-tooling reprovision rollback so never-moved originals survive; retain failed replacement snapshots, journal outcomes and do not trim failed reprovision recovery data. Claude-tooling preview now performs no deployment.
+- Expand diagnostics/support claims and regression coverage. OpenCode remains environment-only; its source client alias filters inherited session identity without claiming a reused server is repaired.
 
-Release of the storage, diagnostics and host-integration improvements developed in the 0.4.x source versions below. Publication status and artifacts are recorded on the [GitHub release](https://github.com/magrathean-uk/clean-development/releases/tag/v0.5.0); a source version alone does not establish npm availability.
+## 0.6.0 (20 Oct 2026)
 
-### Added
+Rewrite for one machine (G's Mac), replacing the 0.2-0.5 multi-host package (last public state: tag v0.5.0).
 
-- Observed integration health, effective tool coverage and bounded storage/lock diagnostics help explain blocked commands without changing configuration or storage.
-- An explicit, isolated Claude API smoke runner correlates native hook, session, tool-call and real offline build evidence while bounding cost, time and output. Its fixture forwards the owned hook's original input and environment, uses a locked Cargo build, and verifies credential absence and source preservation.
-
-### Fixed
-
-- Storage admission and ownership publication reject missing or replaced managed roots using physical identity and ownership receipts. Cleanup preserves initiating failures and completed child exit status.
-- Ordinary and recovery lock operations coordinate removal and admission, recheck generations, and retain interrupted guards and renamed-lock evidence instead of deleting a successor's state.
-- Claude hook ownership tracks the selected runtime and Node command; Codex repair reconciles missing owned configuration while preserving independent settings and launcher fallback.
-- Disposable installer, updater and host fixtures preserve selected toolchains, route generated state, and cover native Windows and macOS path behavior.
-
-### Changed
-
-- All package and integration manifests are versioned as 0.5.0. Management skills remain explicitly invoked, with matching Claude/Codex instructions and no automatic prompt bootstrap.
-- The [verification ledger](docs/verification.md) records the tested 0.4.3 source and successful bounded Claude observation separately from release-artifact checks and untested host lifecycles.
-
-## [0.4.3] - 2026-10-15
-
-Prepared as a source version for local runtime activation. This entry records no npm package publication or release tag.
-
-### Fixed
-
-- Explicit recovery now shares the lock-removal protocol with ordinary runtime and setup operations. A stale-lock reclaimer cannot delete or rename a successor's lock while recovery acquires ownership; uncertain guards and stale recovery evidence remain retained.
-- Doctor now reports missing storage identity receipts for already-bound workspaces and uncertain lock-removal state, instead of reporting healthy configuration while the corresponding operation is blocked. Diagnostics remain read-only and preserve legacy unbound storage.
-
-### Added
-
-- An opt-in, bounded Claude Code smoke protocol with disposable configuration, a model budget, process cleanup, and correlated native hook, tool-call and build evidence. Automated harness tests do not invoke a model; authenticated host acceptance remains a separate explicit run.
-
-## [0.4.2] - 2026-10-14
-
-Prepared as a source version for local runtime activation. This entry records no npm package publication or release tag.
-
-### Fixed
-
-- Lock release and stale-owner recovery now serialize removal with a sibling guard and recheck the lock generation after claiming that guard. A delayed reclaimer cannot unlink a successor's live owner; unknown or interrupted guards remain retained.
-- Claude native hook ownership now follows the selected Node executable and versioned runtime command. Same-generation updates remain idempotent, while a superseded cached hook cannot authorize automatic publication of its older runtime.
-- Explicit repair of a completely missing Codex block now replaces its stale native ownership receipt when existing user settings require launcher fallback. A retry can reconcile the single native-plus-launcher residue from the earlier updater while retaining user configuration and refusing ambiguous native claims.
-- Missing-block previews use a read-only snapshot and apply rechecks that snapshot before editing or selecting launcher fallback.
-
-## [0.4.1] - 2026-10-14
-
-Prepared as a source version for local runtime activation. This entry records no npm package publication or release tag.
-
-### Added
-
-- Read-only observed integration health and effective tool coverage in status/session diagnostics; doctor now identifies broken selected host configuration independently of installation receipts.
-- Explicit private scratch allocation, status-preserving logging guidance, and bounded native-home/installer footprint verification with disposable Claude/Codex lifecycle fixtures.
-- Physical Cargo build-root identity binding outside disposable storage, with explicit reapproval and exact command-admission checks.
-
-### Fixed
-
-- Ownership publication no longer recreates a vanished managed ancestor. Storage replacement during publication or admission refuses child launch.
-- Cleanup failures preserve the initiating error and completed child exit status. Unchanged runtime receipts preserve installation time, identity and bytes.
-- Native verification and package consumers use disposable homes, configuration and temporary paths while preserving selected installed toolchains and SDKs.
-
-## [0.4.0] - 2026-09-30
-
-Prepared as a source version; npm publication and release-tag creation are separate actions. Verification remains tied to the exact tested source or package in the [verification ledger](docs/verification.md).
-
-### Added
-
-- Opt-in macOS `xcode test-run` and `xcode test-cleanup` for one fresh, receipted simulator. Cleanup rechecks the exact owned UDID, preserves unrelated activity, and retains failed cleanup for an explicit retry. Child argv, cwd, stdio, signals and exit status are preserved; result bundles remain retained and visible in `xcode status`, outside pruning.
-- Development-history lessons and management-skill guidance for exact-command diagnosis, simulator reuse, retained products, remote command boundaries and installed-runtime checks. Private transcripts and historical approvals are not bundled or consumed by the runtime.
-
-### Fixed
-
-- Xcode cleanup now blocks on malformed or unreadable simulator state and noncanonical directory ancestors, including apply-time replacement. Malformed device records retain the owned test device and retryable receipt instead of falsely proving absence. Preference restoration retains its receipt when the preference cannot be read and preserves independent user changes and explicit output overrides.
-- Environment lookup and routing now respect POSIX case-sensitive native variable names while preserving npm's case-insensitive aliases. Skip retains independent empty overrides, and nested Cargo commands use their actual cwd and effective project routing.
-- Windows executable discovery and routing preserve quoted PATH directories containing semicolons. Generated launchers keep fixed percent/bang paths literal and preserve native child exit status, including high unsigned 32-bit values and an independent inherited `ERRORLEVEL` variable.
-- The source-to-npm release audit skips generated managed npm shims during executable discovery while retaining its standard `npm-cli.js` requirement, allowing the audit to run through the required session wrapper.
-
-### Changed
-
-- Windows fixtures perform real NTFS-compatible executable replacement without weakening identity assertions. Installed-package verification invokes npm's actual `.cmd` wrapper and checks exact managed-shim argv/cwd, missing and broken shims, and genuine preceding-release upgrades; npm 10.5's ampersand install-prefix limitation remains explicit.
-- Native CI fixtures canonicalize short Windows temporary paths, set PATH through its native environment key, and use JavaScript traversal when copying Unicode Windows package fixtures on Node 22. Fake Xcode executables use an explicit CommonJS format so the exact Node 20.12.0 minimum can run the lifecycle assertions.
-- CI selects the exact Node 20.12.0 minimum alongside configured Node 20/22/24 on Ubuntu/macOS, and selected native Windows contracts on 20.12.0/22/24. Dated local ARM64 evidence, tool skips, known fault TODOs and remaining live-host acceptance are recorded separately from configured workflows.
-- Windows steps selecting multiple test files run one file at a time to reduce runner contention while preserving real-tool deadlines and timeout/cleanup assertions.
-
-## [0.3.1] - 2026-09-29
-
-Prepared for local runtime rollout; not yet published to npm or tagged.
-
-### Fixed
-
-- The management skill is now explicit-only for Claude Code. Claude Code adds the marketplace's `claude-skills/` path to the plugin's default `skills/` scan, so the root copy, which lacked `disable-model-invocation: true`, kept the skill description in every turn's context. Every tracked copy now carries the key, less always-on context. `npm run check` requires the key in each copy and identical skill files.
-
-## [0.3.0] - 2026-09-29
-
-Prepared for local runtime rollout; not yet published to npm or tagged.
-
-### Added
-
-- Opt-in macOS Xcode management. `setup` asks whether to route Xcode DerivedData into the managed root and whether to enable simulator and device clean-up (both default to no; `--xcode` and `--no-xcode` answer for noninteractive runs). DerivedData routing sets one restorable Xcode preference. `clean-development xcode status|prune` inspects and, only with `--apply`, removes old marker-verified DerivedData projects, DeviceSupport folders, unavailable simulators, the XCTest device set and CoreSimulator caches. See `docs/xcode.md`.
-
-## [0.2.1] - 2026-09-26
-
-Prepared for local runtime rollout; not yet published to npm or tagged.
-
-### Fixed
-
-- Management skills now separate read-only diagnosis from activation, reuse prior session consent, preserve requested prune ages, and document Codex, Claude, Antigravity/agy, and Grok invocation routes. Packaging checks enforce matching host instructions and explicit-only metadata.
-- `doctor` checks every managed storage directory and verifies installed runtime files, launcher permissions, and the recorded Node executable instead of trusting an installation receipt alone.
-- The public session API honors disabled project settings without creating managed storage, removes inherited routing on skip, and preserves user overrides. Project initialization cannot overwrite a configuration file created concurrently.
-- Pruning retains corrupt ownership state, protects workspaces with unreadable leases, and revalidates workspace receipts and retention timestamps before deletion.
-- Cargo recognizes inherited routing markers regardless of environment-variable casing and emits one canonical set of markers.
-- Native Claude setup activates on forked sessions, matching the bundled hook configuration.
-- CLI commands accept `--help`, describe session defaults, and reject unsupported environment formats and empty agent lists before making changes.
-
-## [0.2.0] - 2026-09-19
-
-### Added
-
-- Read-only project stack detection and a consent-gated session plan with session-only, saved project settings, and skip choices.
-- Static cache environment overlays for detected tools, while Cargo targets continue through workspace-aware ownership and lease routing.
-- Interactive agent-launch prompts and explicit `--session` controls for automation; noninteractive launches default to session-only and never persist repository settings.
-- A deterministic multi-language fixture lab and isolated real-tool smoke harness with recorded artifact checks.
-- Native Grok Build command-prefix activation that restores managed shims after Grok captures its login-shell environment.
-
-### Fixed
-
-- Session-only activation leaves the repository unchanged, persistence writes only the exact reviewed `.clean-development.json`, and skip bypasses new runtime creation and managed routing. Preinstalled native shims remain available in pass-through mode.
-- Codex CLI launchers now disable login-shell command execution so macOS `path_helper` cannot move native tools ahead of Clean Development's managed shims.
-- Fresh native Codex integration owns the matching `allow_login_shell = false` setting. Existing user shell policies or conflicting login-shell choices are preserved and reported as launcher fallbacks.
-- Generated shell activation now keeps the managed shim directory first, defaults native startup to pass-through `skip`, and preserves an inherited explicit session choice.
-- Native Codex configuration starts in `skip`; routed launchers override it with the reviewed mode. Claude environment-file blocks are bound to the installed receipt owner and exact whole-line markers.
-- Claude environment writes now require the owner on every active hook invocation. Disabled-project transitions use an integrity-tagged cleanup block, and the generic packaged hook remains inert without an owner.
-- OpenCode launchers defer static cache variables to command shims so its additive environment hook can enter disabled projects safely; older fully routed parents fail closed instead of leaking cache routes.
-- Runtime and integration receipts validate ownership, hashes, referents, and configuration-location bindings before update or removal.
-- Directory-lock waiters now retry when the current owner releases the lock between an `EEXIST` result and validation, instead of failing with a transient `ENOENT`.
-- Cargo routing now protects nested and explicit managed targets with stable ownership checks and active leases, including concurrent and cross-workspace use.
-- Setup, preparation, pruning, executable probing, stale-lock handling, Windows argument forwarding, Yarn cache modes, and integration removal now fail closed on unsafe or ambiguous state.
-
-## [0.1.0] - 2026-09-19
-
-### Added
-
-- Managed cache, build, and scratch roots with user, project, and environment configuration.
-- Explicit `update` command for refreshing the durable runtime and configured agent integrations without changing the selected agent set.
-- Per-checkout Cargo targets and shared caches for Go, Node package managers, Python package managers, .NET, Composer, ccache, and sccache.
-- Zero-context agent launchers for 13 agent families and native adapters for Claude, Codex, Grok, OpenCode, and Pi.
-- Active leases, workspace registry, pinning, and explicit dry-run-first pruning.
-- Safe project-root preparation, mount-loss failure behavior, per-workspace mutation locks, and ownership-verified versioned uninstall receipts.
-- Stable agent PATH activation with duplicate removal and npm/npx launcher fallback instead of persisting transient package-runner paths.
-- Agent integration receipts bound to the exact config locations selected during setup, with fail-closed uninstall behavior.
-- Explicit-only Claude and Codex management skills plus a skill-free Grok marketplace package.
-- Portable, Codex, Claude-compatible, Cursor, Devin, Gemini, Grok, Kimi, Pi, OpenCode, and Hermes packaging metadata.
-- Isolated tests, OSS governance, security, contribution, and release documentation.
-
-### Fixed
-
-- Explicit `setup --agents` selections now deactivate previously owned Claude, Codex, and Grok integrations that are no longer selected, while preserving unrelated configuration.
-- Codex repo marketplace metadata now uses the current local `source` / `path` schema and is covered by the package check.
-- Codex plugin UX metadata now uses an explicit-only starter prompt and cannot become a normal-session bootstrap instruction.
+- Storage policy moves to `~/dev/machine/storage.conf`; env.zsh rewritten (fork-free session pin, stamp-based precedence, no exits, TMPDIR per session only).
+- Mode detected by volume name plus a real write probe at session start and pinned per session; internal fallback is normal.
+- New hooks: SessionStart (pin, context, time-boxed reap), Stop (async, throttled housekeeping), SessionEnd (immediate session cleanup) for Claude Code and Codex; same hooks for claude-1..5.
+- Automatic cleanup per G's rules (Q30), 30 GB LRU cap on dependency caches, 14-day external build prune, repo build/dependency dirs via `.clean-development.json` v2 (`buildDirs`, `depDirs`, git-ignored only).
+- No-dot-folder report for `~` and `~/dev` (allowlist includes `.aws`, `.insightface`, `.opencode`); `doctor` and `status` also list unmanaged top-level entries of each cache root.
+- Every hook call appends one JSON line (`ts`, `harness`, `event`, `session_id`, `mode`) to `~/dev/machine/state/clean-development/events.jsonl` (rotated at 512 KB).
+- Xcode DerivedData is never wiped by the last-session-out cleanup; it ages out after 14 days.
+- `DEV_STORAGE_VOLUME_TEST=present` is accepted as an alias of `mounted`.
+- Codex hook trust hashes computed (`codex-trust --apply`), so changed hooks run without a review click.
+- Removed: command shims and `clean-development agent|session|setup|prune` consent flows (`run [--session X] -- CMD` stays as a no-policy shim that just execs CMD, for stale per-repo docs), per-host integrations (Cursor, Devin, Grok, Kimi, Hermes, Pi, OpenCode, Gemini), npm publishing. `pnpm_config_store_dir` replaces `npm_config_store_dir` (ignored by pnpm 12).

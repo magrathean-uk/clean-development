@@ -1,7 +1,5 @@
 node_modules/
-coverage/
-*.tgz
 .DS_Store
 *.log
-.idea/
-.vscode/
+__pycache__/
+*.pyc

@@ -1,17 +1,11 @@
 {
   "name": "clean-development",
-  "description": "Managed build and cache storage without prompt injection.",
-  "version": "0.5.0",
+  "version": "0.6.1",
+  "description": "Storage routing (4TB external or internal fallback), the 5 GB rule, session-end cleanup and the no-dot-folder policy for G's Mac. Hooks are installed in user settings, not by this plugin.",
   "author": {
-    "name": "MAGRATHEAN UK LTD"
+    "name": "MAGRATHEAN UK LTD",
+    "url": "https://github.com/magrathean-uk"
   },
-  "homepage": "https://github.com/magrathean-uk/clean-development",
-  "repository": "https://github.com/magrathean-uk/clean-development",
-  "license": "MIT",
-  "keywords": [
-    "build-cache",
-    "developer-tools",
-    "storage"
-  ],
-  "hooks": "./integrations/claude/hooks.json"
+  "repository": "https://github.com/magrathean-uk/bolyki-dev",
+  "license": "MIT"
 }
