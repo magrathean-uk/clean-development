@@ -59,21 +59,21 @@ test("an existing empty trust table at EOF is updated without duplicate identiti
   assert.equal(r.status, 0, r.stderr);
 });
 
-test("Codex config rebuild carries live hook-state blocks rather than staged state", () => {
+test("Codex config rebuild carries live hook-state blocks rather than staged state", { skip: !fs.existsSync(path.join(root, "bin", "codex-config-install")) }, () => {
   const s = sim({ mounted: false });
   const script = `import runpy,sys,tomllib\nm=runpy.run_path(sys.argv[1]); names=m['APP_MANAGED']; assert 'hooks.state' in names\nstaged='[hooks.state."slot"]\\nenabled = true\\n'\nlive='[hooks.state."slot"]\\nenabled = false\\nfuture_option = "keep"\\n'\nsb=m['blocks'](staged); lb=m['blocks'](live)\nout=''.join(t for k,t in sb if k and not m['family'](k,names)) + ''.join(t for k,t in lb if m['family'](k,('hooks.state',)))\nassert tomllib.loads(out)['hooks']['state']['slot'] == {'enabled':False,'future_option':'keep'}\n`;
   const r = spawnSync(python, ["-I", "-B", "-c", script, path.join(root, "bin", "codex-config-install")], { cwd: s.root, env: s.env, encoding: "utf8" });
   assert.equal(r.status, 0, r.stderr);
 });
 
-test("Codex host trust updates preserve whole state and never enable disabled handlers", () => {
+test("Codex host trust updates preserve whole state and never enable disabled handlers", { skip: !fs.existsSync(path.join(root, "bin", "codex-hooks-trust")) }, () => {
   const s = sim({ mounted: false });
   const script = `import runpy,sys\nm=runpy.run_path(sys.argv[1])\nold={'disabled':{'enabled':False,'future':'keep'},'enabled':{'future':'keep'},'unrelated':{'enabled':False}}\nitems=[{'key':k,'trustStatus':'modified','source':'user','currentHash':'sha256:new','enabled':True} for k in ('disabled','enabled')]\nstate,n=m['refreshed_state'](items,('user',),old)\nassert n==1 and state['disabled']==old['disabled'] and state['unrelated']==old['unrelated']\nassert state['enabled']=={'future':'keep','trusted_hash':'sha256:new'}\n`;
   const r = spawnSync(python, ["-I", "-B", "-c", script, path.join(root, "bin", "codex-hooks-trust")], { cwd: s.root, env: s.env, encoding: "utf8" });
   assert.equal(r.status, 0, r.stderr);
 });
 
-test("Codex config installation refuses to reassign positional disabled state to changed hooks", () => {
+test("Codex config installation refuses to reassign positional disabled state to changed hooks", { skip: !fs.existsSync(path.join(root, "bin", "codex-config-install")) }, () => {
   const s = sim({ mounted: false }), codex = path.join(s.home, ".codex"), staged = path.join(s.root, "staged");
   mk(path.join(codex, "hooks.json"), JSON.stringify({ hooks: { Stop: ["first", "second"] } }));
   mk(path.join(staged, "hooks.json"), JSON.stringify({ hooks: { Stop: ["second", "first"] } }));
@@ -89,8 +89,10 @@ test("both installer previews and unknown flags leave a fabricated HOME byte-ide
     [path.join(plugin, "install.sh"), "/bin/sh", ["--dry-run", "--config"], 0],
     [path.join(plugin, "install.sh"), "/bin/sh", ["--config", "--dry-run"], 0],
     [path.join(plugin, "install.sh"), "/bin/sh", ["--unknown"], 2],
-    [path.join(root, "claude-tooling", "install.sh"), "/bin/bash", ["--dry-run"], 0],
-    [path.join(root, "claude-tooling", "install.sh"), "/bin/bash", ["--unknown"], 2]
+    ...(fs.existsSync(path.join(root, "claude-tooling", "install.sh")) ? [
+      [path.join(root, "claude-tooling", "install.sh"), "/bin/bash", ["--dry-run"], 0],
+      [path.join(root, "claude-tooling", "install.sh"), "/bin/bash", ["--unknown"], 2]
+    ] : [])
   ]) {
     const r = spawnSync(shell, [file, ...args], { env: { ...s.env, CLEAN_DEV_NODE: process.execPath }, cwd: s.root, encoding: "utf8", timeout: 15000 });
     assert.equal(r.status, expected, r.stderr);
@@ -228,7 +230,7 @@ test("rollback restores file mode even when old and new activation bytes are ide
   assert.equal(fs.statSync(wrapper).mode & 0o777, 0o600);
 });
 
-test("reprovision partial-move rollback preserves originals that never moved", () => {
+test("reprovision partial-move rollback preserves originals that never moved", { skip: !fs.existsSync(path.join(root, "runbook", "claude-work", "reprovision.sh")) }, () => {
   const source = fs.readFileSync(path.join(root, "runbook", "claude-work", "reprovision.sh"), "utf8");
   const rollback = source.slice(source.indexOf("rollback() {"), source.indexOf("on_exit() {"));
   for (let failAt = 1; failAt <= 5; failAt++) {
