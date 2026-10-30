@@ -12,12 +12,19 @@ permissions:
 
 jobs:
   test:
-    runs-on: macos-latest
+    name: test (${{ matrix.node }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
-        node: ['20.12.0', '24', '26']
+        include:
+          - {node: '20.12.0', os: macos-latest}
+          - {node: '24', os: macos-latest}
+          - {node: '26', os: macos-latest}
+          - {node: '20', os: ubuntu-latest}
+          - {node: '22', os: ubuntu-latest}
+          - {node: '24', os: ubuntu-latest}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -25,10 +32,16 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ matrix.node }}
+      - name: Provide the shell used by policy fixtures
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y zsh
       - run: npm run check
       - name: Test isolated homes and volumes
         shell: bash
         run: |
           export CLEAN_DEV_TEST_DIR="$(mktemp -d "$RUNNER_TEMP/clean-development.XXXXXX")"
           export CLEAN_DEV_TEST_PYTHON="$(command -v python3)"
-          npm test
+          node --test test/*.test.mjs
+          if [[ "$RUNNER_OS" == macOS ]]; then
+            zsh test/env-modes.sh "$CLEAN_DEV_TEST_DIR/env"
+          fi

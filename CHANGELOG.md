@@ -4,7 +4,7 @@
 
 First published release of the 0.6 machine-scoped rewrite, replacing public v0.5.0.
 
-- Make standalone source validation independent of adjacent monorepo tools; retain their regression coverage when present. Add macOS CI for minimum Node 20.12.0 and Node 24/26.
+- Make standalone source validation independent of adjacent monorepo tools; retain their regression coverage when present. Add macOS CI for minimum Node 20.12.0 and Node 24/26; retain required Linux Node checks and CodeQL.
 - Protect active fallback builds in every selector; reopen deferred-ended owners with versioned phase/generation metadata, fence stale snapshots/tagged events and canonicalise checkout identity. Refuse collisions/invalid ownership rather than replace another owner.
 - Unify supported lifecycle cleanup/lease locking; remove age-based lock takeover, add explicit dead-owner recovery and fail-closed configuration/path admission. Reject redirected layout/trash directories; retain sources on rename failure.
 - Parse storage policy as data in fork-free POSIX shell and Node; align path/numeric validation and preserve approved lab/model overrides.
