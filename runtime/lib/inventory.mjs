@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { homeDir, stateDir } from "./conf.mjs";
-import { detect, rootExtras, workRoot } from "./storage.mjs";
+import { detect, externalWorkRoot, rootExtras } from "./storage.mjs";
 import { lstatOrNull, readJsonOrNull, safeDirectory } from "./fsutil.mjs";
 
 const realDir = (p) => lstatOrNull(p)?.isDirectory() === true;
@@ -169,8 +169,8 @@ export function policyInventory(conf, env = process.env) {
 
 export function worktreeInventory(conf, env = process.env, { deadline = Date.now() + 5000 } = {}) {
   deadline = Math.min(deadline, Date.now() + 5000);
-  const mode = detect(conf, env, { probe: false, create: false }).mode;
-  const root = path.join(workRoot(conf, mode, env), "worktrees"), worktrees = [], seen = new Set();
+  const root = [path.join(externalWorkRoot(conf), "worktrees"), path.join(conf.externalRoot, "worktrees"), path.join(homeDir(env), "dev", "machine", "worktrees")];
+  const worktrees = [], seen = new Set();
   let incomplete = false;
   for (const repo of sourceDirs(homeDir(env))) {
     if (!lstatOrNull(path.join(repo, ".git"))) continue;
@@ -182,7 +182,7 @@ export function worktreeInventory(conf, env = process.env, { deadline = Date.now
     if (r.error || r.status !== 0) { incomplete = true; continue; }
     const paths = r.stdout.split("\0").filter((s) => s.startsWith("worktree ")).map((s) => s.slice(9));
     // Repos sharing one git dir list the same worktrees; report each path once, under the repo that owns the main tree.
-    for (const p of paths.slice(1)) if (p !== root && !p.startsWith(root + path.sep) && !seen.has(p)) { seen.add(p); worktrees.push({ repo: paths[0] || repo, path: p }); }
+    for (const p of paths.slice(1)) if (!root.some((r) => p === r || p.startsWith(r + path.sep)) && !seen.has(p)) { seen.add(p); worktrees.push({ repo: paths[0] || repo, path: p }); }
   }
   return { worktrees, incomplete };
 }

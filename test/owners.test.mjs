@@ -8,7 +8,7 @@ import { canonicalPath, withLock } from "../runtime/lib/fsutil.mjs";
 import { createLease } from "../runtime/lib/leases.mjs";
 import { lifecycleLock, writePin } from "../runtime/lib/sessions.mjs";
 import { OWNER_FILE, OWNER_CONFLICT_FILE, ownerRecord, readOwner, writeOwner, markOwnerConflict, pruneProject } from "../runtime/lib/owners.mjs";
-import { stop } from "../runtime/lib/hook.mjs";
+import { sessionStart, stop } from "../runtime/lib/hook.mjs";
 
 const keyA = "x-aaaaaaaaaaaa", keyB = "c-bbbbbbbbbbbb";
 const info = (repo, key = keyA) => ({ repo, cwd: repo, harness: "codex", key, created: "2026-11-05T12:00:00.000Z" });
@@ -51,10 +51,14 @@ test("owner storage history promotes to external and never downgrades legacy unk
   assert.equal(readOwner(legacy).externalUsed, undefined);
 });
 
-test("internal-only owner index entries age out while external storage is unavailable", () => {
-  const { s, a } = fixture(), internalOnly = path.join(ownersDir(s.env), keyA), external = path.join(ownersDir(s.env), keyB);
+test("new internal-only owner entries age out while external storage is unavailable", () => {
+  const { s, a } = fixture(), internalId = "aaaaaaaa-bbbb-4ccc-8ddd-0123456789ab", internalSessionRef = "x-0123456789ab";
+  s.env.DEV_STORAGE_VOLUME_TEST = "absent";
+  sessionStart({ session_id: internalId, cwd: a }, "codex", s.env);
+  const internalOnly = path.join(ownersDir(s.env), internalSessionRef), external = path.join(ownersDir(s.env), keyB);
+  assert.equal(readOwner(internalOnly).externalUsed, false, "a brand new internal session records known internal-only history");
+  for (const ext of ["mode", "json", "ended", "lost"]) fs.rmSync(path.join(s.sessions, `${internalSessionRef}.${ext}`), { force: true });
   const legacyKey = "x-cccccccccccc", legacy = path.join(ownersDir(s.env), legacyKey), created = "2026-11-05T12:00:00.000Z";
-  writeOwner(internalOnly, { ...info(a), created, externalUsed: false });
   writeOwner(external, { ...info(a, keyB), created, externalUsed: true });
   fs.mkdirSync(legacy, { recursive: true });
   fs.writeFileSync(path.join(legacy, OWNER_FILE), JSON.stringify(ownerRecord({ ...info(a, legacyKey), created })) + "\n");
@@ -66,6 +70,19 @@ test("internal-only owner index entries age out while external storage is unavai
   assert.equal(fs.existsSync(internalOnly), false, "internal-only metadata is no longer needed after its build root is clear");
   assert.equal(fs.existsSync(external), true, "external-linked ownership waits until that root can be inspected");
   assert.equal(fs.existsSync(legacy), true, "legacy records with unknown storage history are retained conservatively");
+});
+
+test("external-used and legacy owner entries age out after every build root is inspectable", () => {
+  const { s, a } = fixture(), external = path.join(ownersDir(s.env), keyA), legacyKey = "x-cccccccccccc", legacy = path.join(ownersDir(s.env), legacyKey);
+  writeOwner(external, { ...info(a), externalUsed: true });
+  fs.mkdirSync(legacy, { recursive: true });
+  fs.writeFileSync(path.join(legacy, OWNER_FILE), JSON.stringify(ownerRecord(info(a, legacyKey))) + "\n");
+  const old = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+  for (const dir of [external, legacy]) fs.utimesSync(path.join(dir, OWNER_FILE), old, old);
+  const result = stop({}, "codex", s.env, { force: true, budgetMs: 2000 });
+  assert.equal(result.locked, false);
+  assert.equal(fs.existsSync(external), false, "external-used metadata is removable once its root has been inspected");
+  assert.equal(fs.existsSync(legacy), false, "legacy unknown history is removable once every root has been inspected");
 });
 
 test("owner writes are private, atomic, idempotent and never replace another key", () => {

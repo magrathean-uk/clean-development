@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { sessionsDir, VERSION, RELEASE_DIR, homeDir, hookShimPath, hookShimText, shimRelease, loadConf, runtimeRoot, stateDir } from "./conf.mjs";
-import { detect, fmtGB, GB, internalFreeBytes, layout, workRoot } from "./storage.mjs";
+import { detect, externalWorkRoot, fmtGB, GB, internalFreeBytes, layout } from "./storage.mjs";
 import { children, lstatOrNull, readJsonOrNull, safeDirectory } from "./fsutil.mjs";
 import { managedTrustEntries, readHookStates, trustEntries } from "./codex-trust.mjs";
 import { claudeProfiles, claudeSettings, codexHomes, inventoryExtras, policyInventory, scanLiteralCachePaths, worktreeInventory } from "./inventory.mjs";
@@ -14,6 +14,7 @@ import { inspectLocks } from "./locks.mjs";
 import { DIGEST_ALGORITHM, treeDigest } from "./release.mjs";
 import { listSessions } from "./sessions.mjs";
 import { sourceRepos } from "./project.mjs";
+import { colimaHomeMatches, vmHome } from "./vm.mjs";
 
 const EVENTS = { SessionStart: "session-start", Stop: "stop", SessionEnd: "session-end" };
 
@@ -71,7 +72,7 @@ export function doctor(env = process.env, { gui = false, internalWarnBytes = 102
   results.push({ name: "env.zsh", ok: envText.includes(`CLEAN_DEV_VERSION=${VERSION}`), detail: envFile });
   const shell = path.basename(env.SHELL || "zsh");
   const startupNames = shell === "bash" ? [".bash_profile", ".bash_login", ".profile", ".bashrc"]
-    : shell === "zsh" ? [".zshenv", ".zprofile", ".zshrc"] : [];
+    : shell === "zsh" ? [".zshenv"] : [];
   const startupFiles = startupNames.map((name) => path.join(home, name));
   const sourcesEnv = startupFiles.some((file) => { try { return fs.readFileSync(file, "utf8").includes("dev/machine/env.zsh"); } catch { return false; } });
   results.push({ name: "shell startup", ok: startupNames.length === 0 || sourcesEnv, ...(startupNames.length === 0 ? { warn: true } : {}),
@@ -233,18 +234,21 @@ export function doctor(env = process.env, { gui = false, internalWarnBytes = 102
     const names = lacking(file);
     if (names.length) warn(`repos without ${file}`, `${names.length}: ${names.join(" ")}; ${why}`);
   }
-  const configuredWorkRoot = workRoot(conf, d.mode, env), worktreeRoot = path.join(configuredWorkRoot, "worktrees");
+  const worktreeRoots = [...new Set([externalWorkRoot(conf), conf.externalRoot, path.join(home, "dev", "machine")].map((root) => path.join(root, "worktrees")))];
   const worktrees = worktreeInventory(conf, env);
-  for (const wt of worktrees.worktrees) warn("worktree outside root", `${wt.path} (repo ${wt.repo}); expected ${worktreeRoot}${path.sep}`);
+  for (const wt of worktrees.worktrees) warn("worktree outside root", `${wt.path} (repo ${wt.repo}); expected under ${worktreeRoots.join(" or ")}`);
   if (worktrees.incomplete) warn("worktree scan", "scan incomplete: git inspection failed or time bound reached");
   // Colima support is optional. A general private environment extension does not opt into Colima; its installed
   // shim is the concrete marker that this host chose the optional integration.
   const colimaShim = path.join(home, "dev", "machine", "bin", "colima");
   const colimaShimStat = lstatOrNull(colimaShim);
   if (colimaShimStat?.isFile() && !colimaShimStat.isSymbolicLink()) {
-    let strayColima = [];
-    try { strayColima = children(path.join(conf.labRoot, "VM", "lima-home")).filter((e) => e.isDirectory() && /^colima(-.+)?$/.test(e.name)).map((e) => e.name); } catch { /* external lab unavailable or unreadable */ }
-    if (strayColima.length) warn("colima instances in lima-home", `${strayColima.join(" ")}: run clean-development vm colima-rehome to preview moving stopped instances`);
+    if (!colimaHomeMatches(conf, env)) warn("Colima home", `COLIMA_HOME must resolve to ${vmHome(conf, "colima")}; rehome is disabled until it matches`);
+    else {
+      let strayColima = [];
+      try { strayColima = children(path.join(conf.labRoot, "VM", "lima-home")).filter((e) => e.isDirectory() && /^colima(-.+)?$/.test(e.name)).map((e) => e.name); } catch { /* external lab unavailable or unreadable */ }
+      if (strayColima.length) warn("colima instances in lima-home", `${strayColima.join(" ")}: run clean-development vm colima-rehome to preview moving stopped instances`);
+    }
   }
   return { version: VERSION, ok: results.every((r) => r.ok), results };
 }

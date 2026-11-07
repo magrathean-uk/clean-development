@@ -18,4 +18,6 @@ else
   done
   [ -n "$node" ] || { echo "install.sh: Node.js 20.12 or later not found; install a supported Node on PATH or set CLEAN_DEV_NODE to its absolute path" >&2; exit 1; }
 fi
+CLEAN_DEV_NODE="$node"
+export CLEAN_DEV_NODE
 exec "$node" "$src/installer.mjs" "$@"

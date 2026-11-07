@@ -20,6 +20,10 @@ const toolInfo = (tool) => {
 const expand = (p, env) => path.resolve(p.startsWith("~/") ? path.join(homeDir(env), p.slice(2)) : p);
 const stat = (p) => { try { return fs.lstatSync(p); } catch (e) { if (e.code === "ENOENT") return null; throw e; } };
 export function vmHome(conf, tool) { return path.join(conf.labRoot, "VM", toolInfo(tool).home); }
+export function colimaHomeMatches(conf, env = process.env) {
+  return typeof env.COLIMA_HOME === "string" && env.COLIMA_HOME.length > 0
+    && path.resolve(expand(env.COLIMA_HOME, env)) === path.resolve(vmHome(conf, "colima"));
+}
 
 export function sparseCopyFile(src, dst, { blockSize = 1024 * 1024 } = {}) {
   if (!Number.isSafeInteger(blockSize) || blockSize < 1) throw new Error("blockSize must be a positive integer");
@@ -474,17 +478,20 @@ function inspectInstance(conf, name, from, to, env) {
   return { instance: name, profile: COLIMA_INSTANCE.exec(name)[1] || "default", moves };
 }
 // A Lima additional disk is shared by pathname, not copied into an instance directory. Each migration plan moves
-// one profile's disks without consolidating duplicate paths, so inspect every Colima profile and refuse shared disks.
+// one profile's disks without consolidating duplicate paths, so inspect every Lima instance and refuse shared disks.
 function diskReferences(from) {
   const references = new Map(), problems = [];
   let names;
-  try { names = fs.readdirSync(from).filter((name) => COLIMA_INSTANCE.test(name)).sort(); }
+  try { names = fs.readdirSync(from).sort(); }
   catch (e) { return { references, problems: [e.code || e.message] }; }
   for (const name of names) {
     const instance = path.join(from, name), instanceStat = stat(instance);
-    if (!instanceStat?.isDirectory() || instanceStat.isSymbolicLink()) { problems.push(`${name}: not a real directory`); continue; }
+    if (!instanceStat) continue;
+    if (instanceStat.isSymbolicLink()) { problems.push(`${name}: linked entry prevents disk-reference verification`); continue; }
+    if (!instanceStat.isDirectory()) continue;
     const yamlFile = path.join(instance, "lima.yaml"), yamlStat = stat(yamlFile);
-    if (!yamlStat?.isFile() || yamlStat.isSymbolicLink()) { problems.push(`${name}: lima.yaml unavailable or linked`); continue; }
+    if (!yamlStat) continue;
+    if (instanceStat.isSymbolicLink() || !yamlStat.isFile() || yamlStat.isSymbolicLink()) { problems.push(`${name}: lima.yaml unavailable or linked`); continue; }
     let yaml;
     try { yaml = fs.readFileSync(yamlFile, "utf8"); } catch (e) { problems.push(`${name}: lima.yaml unreadable (${e.code || e.message})`); continue; }
     const disks = limaDiskNames(yaml);
@@ -562,6 +569,7 @@ const journal = (file, body) => writeFileAtomic(file, JSON.stringify(body, null,
 
 export function colimaRehome(conf, env, { profile = null, apply = false, now = new Date() } = {}) {
   const from = vmHome(conf, "lima"), colima = vmHome(conf, "colima"), to = path.join(colima, "_lima");
+  if (!colimaHomeMatches(conf, env)) throw new Error(`COLIMA_HOME must resolve to ${colima} to use this migration`);
   mountedLab(conf, env, colima);
   for (const d of [from, colima]) if (!safeDirectory(conf.labRoot, d)) throw new Error(`not a real lab directory: ${d}`);
   if (!safeDirectory(conf.labRoot, path.join(to, "_disks"))) throw new Error(`not a real lab directory: ${to}`);
@@ -652,10 +660,28 @@ export function colimaRehomeRollback(conf, env, manifest, { apply = false } = {}
       if (lima.status !== "Stopped") throw new Error(`${i.instance}: limactl reports ${lima.status}`);
     }
   };
+  // A destination-home Lima instance may have started using a moved disk after migration. Refuse to move any
+  // referenced disk back until all consumers have detached it.
+  const sharedDiskChange = () => {
+    const byHome = new Map();
+    for (const move of m.moves) {
+      if (path.basename(path.dirname(move.to)) !== "_disks" || locate(move) !== "moved") continue;
+      const disk = path.basename(move.to), home = path.dirname(path.dirname(move.to));
+      if (!byHome.has(home)) byHome.set(home, diskReferences(home));
+      const { references, problems } = byHome.get(home);
+      if (problems.length) throw new Error(`cannot verify shared disk references (${problems[0]}); rollback refused`);
+      const owner = m.instances.find((i) => Array.isArray(i.disks) && i.disks.includes(disk) && path.dirname(i.to) === home);
+      if (!owner) throw new Error(`cannot identify the moved instance for additional disk ${disk}; rollback refused`);
+      const otherUsers = [...(references.get(disk) || [])].filter((name) => name !== owner.instance);
+      if (otherUsers.length) throw new Error(`additional disk ${disk} is also referenced by ${otherUsers.join(", ")}; rollback refused`);
+    }
+  };
   const colima = vmHome(conf, "colima");
+  if (!colimaHomeMatches(conf, env)) throw new Error(`COLIMA_HOME must resolve to ${colima} to use this rollback`);
   mountedLab(conf, env, colima);
   const survey = () => {
     diskChange();
+    sharedDiskChange();
     const steps = [];
     for (const x of [...m.moves].reverse()) {
       const where = locate(x);

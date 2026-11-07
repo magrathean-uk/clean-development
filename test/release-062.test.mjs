@@ -306,11 +306,19 @@ test("storage follows the drive: no stale state; Stop records the root in use an
   assert.match(JSON.parse(hook(s, "session-start", "claude", { session_id: id, source: "resume" }).stdout).hookSpecificOutput.additionalContext, /mode=external/);
 });
 
-test("work root follows EXTERNAL_ROOT when the VM lab path is customised", () => {
+test("work root follows an external lab parent and falls back to EXTERNAL_ROOT when the parent is outside the volume", () => {
   const s = sim();
   const original = fs.readFileSync(s.config, "utf8");
+  fs.writeFileSync(s.config, original.replace(/^LAB_ROOT=.*$/m, `LAB_ROOT=${s.vol}/work/lab`));
+  fs.mkdirSync(path.join(s.vol, "work"), { recursive: true });
+  let conf = loadConf(s.env);
+  assert.equal(conf.valid, true, conf.errors.join("; "));
+  assert.equal(workRoot(conf, "external", s.env), path.join(s.vol, "work"));
+  fs.chmodSync(path.join(s.vol, "work"), 0o500);
+  try { assert.equal(workRoot(conf, "external", s.env), path.join(s.vol, "dev"), "an unavailable lab parent falls back to EXTERNAL_ROOT"); }
+  finally { fs.chmodSync(path.join(s.vol, "work"), 0o700); }
   fs.writeFileSync(s.config, original.replace(/^LAB_ROOT=.*$/m, `LAB_ROOT=${s.home}/lab`));
-  const conf = loadConf(s.env);
+  conf = loadConf(s.env);
   assert.equal(conf.valid, true, conf.errors.join("; "));
   assert.equal(workRoot(conf, "external", s.env), path.join(s.vol, "dev"));
 });

@@ -73,7 +73,7 @@ function startLocked(input, harness, env, conf, preflight) {
     // $CLEAN_DEV_BUILDS non-empty and break `git clone URL "$CLEAN_DEV_BUILDS"`, and scratch disappears at session end.
     const priorRoots = prev?.ownedRoots;
     const externalUsed = root === conf.externalCache || priorRoots?.includes(conf.externalCache) ? true
-      : Array.isArray(priorRoots) || !pin ? false : null;
+      : Array.isArray(priorRoots) || pin.revision === "-|-|-|-" ? false : null;
     stampOwner(env, ownersDir(env), path.join(ownersDir(env), key), { repo: projectRoot, cwd, harness, key, externalUsed });
   }
   let reap = { reaped: [], live: [], orphans: [] };
@@ -224,7 +224,7 @@ export function stop(input, harness, env = process.env, { force = false, dryRun 
     if (ext) stage("external trash", () => out.trash.push(...sweepTrash(conf.externalCache, { dryRun, eventsFile, protect, deadline, log })));
     // Weekly: drop ownership index entries whose session is gone and whose builds no root holds any more.
     if (!dryRun && (force || stampDue(stamps, "owners", conf.EXTERNAL_PRUNE_EVERY_DAYS * DAY))) stage("owner index", () => {
-      pruneOwnerIndex(env, conf, { roots: [conf.internalRoot].concat(ext ? [conf.externalCache] : []), complete: ext, deadline, log });
+      pruneOwnerIndex(env, conf, { roots: [conf.internalRoot].concat(ext ? [conf.externalCache] : []), external: ext, deadline, log });
       if (timeLeft(deadline)) stampTouch(stamps, "owners");
     });
     // Daily detached size measurement for `status --sizes`, doctor and housekeeping (R9); the CLI refreshes on --apply.

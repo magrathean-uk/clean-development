@@ -129,6 +129,15 @@ test("doctor supports a single-harness Bash setup and treats its optional plugin
   assert.equal(r.ok, true, JSON.stringify(r.results.filter((x) => !x.ok && !x.warn)));
 });
 
+test("doctor requires zsh routing in .zshenv", () => {
+  const s = configure(sim());
+  fs.unlinkSync(path.join(s.home, ".zshenv"));
+  mk(path.join(s.home, ".zshrc"), '. "$HOME/dev/machine/env.zsh"\n');
+  const r = result(s);
+  assert.equal(row(r, "shell startup").ok, false);
+  assert.match(row(r, "shell startup").detail, /\.zshenv/);
+});
+
 test("registries distinguish required missing paths from optional files and follow regular-file symlinks", () => {
   const s = configure(sim()), target = mk(path.join(s.root, "linked-claude-settings.json"), JSON.stringify(hooks(s.env, "claude")));
   const linked = path.join(s.root, "linked", "settings.json"); fs.mkdirSync(path.dirname(linked)); fs.symlinkSync(target, linked);
@@ -309,10 +318,17 @@ test("R14 reports a real linked worktree outside the external worktree root", ()
   fs.mkdirSync(path.dirname(allowed), { recursive: true });
   const allowedAdded = spawnSync("/usr/bin/git", ["-C", p, "-c", "core.hooksPath=/dev/null", "worktree", "add", "--detach", allowed, "HEAD"], { env: { ...s.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_SYSTEM: "/dev/null" }, encoding: "utf8" });
   assert.equal(allowedAdded.status, 0, allowedAdded.stderr);
+  const internalAllowed = path.join(s.home, "dev", "machine", "worktrees", "repo");
+  fs.mkdirSync(path.dirname(internalAllowed), { recursive: true });
+  const internalAdded = spawnSync("/usr/bin/git", ["-C", p, "-c", "core.hooksPath=/dev/null", "worktree", "add", "--detach", internalAllowed, "HEAD"], { env: { ...s.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_SYSTEM: "/dev/null" }, encoding: "utf8" });
+  assert.equal(internalAdded.status, 0, internalAdded.stderr);
   const scan = worktreeInventory(loadConf(s.env), s.env);
   assert.equal(scan.incomplete, false); assert.deepEqual(scan.worktrees, [{ repo: p, path: target }]);
   assert.ok(result(s).results.some((x) => x.warn && x.name === "worktree outside root" && x.detail.includes(target)));
   assert.ok(!result(s).results.some((x) => x.warn && x.name === "worktree outside root" && x.detail.includes(allowed)));
+  assert.ok(!result(s).results.some((x) => x.warn && x.name === "worktree outside root" && x.detail.includes(internalAllowed)));
+  const away = { ...s.env, DEV_STORAGE_VOLUME_TEST: "absent" };
+  assert.deepEqual(worktreeInventory(loadConf(away), away).worktrees, [{ repo: p, path: target }], "an existing external worktree stays valid while the volume is away");
   assert.equal(worktreeInventory(loadConf(s.env), s.env, { deadline: 0 }).incomplete, true);
 });
 

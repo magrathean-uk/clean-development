@@ -214,6 +214,26 @@ test("installer skips an unsupported local Node and rejects an invalid explicit 
   assert.match(unsupported.stderr, /CLEAN_DEV_NODE must be Node\.js 20\.12 or later/);
 });
 
+test("runtime launchers skip an unsupported preferred Node before using a supported local Node", () => {
+  const s = sim({ mounted: false }), runtime = path.join(s.root, "runtime");
+  fs.mkdirSync(path.join(runtime, "bin"), { recursive: true });
+  for (const file of ["clean-development", "cd-hook"]) fs.copyFileSync(path.join(plugin, "runtime", "bin", file), path.join(runtime, "bin", file));
+  const oldNode = path.join(s.home, "dev/machine/toolchains/node/current/bin/node"), log = path.join(s.root, "node-selection.log");
+  mk(oldNode, '#!/bin/sh\nif [ "$1" = "-e" ]; then exit 1; fi\nprintf old >> "$NODE_SELECTION_LOG"\nexec "$REAL_NODE" "$@"\n'); fs.chmodSync(oldNode, 0o755);
+  const supported = mk(path.join(s.home, ".local/bin/node"), '#!/bin/sh\nif [ "$1" = "-e" ]; then exec "$REAL_NODE" "$@"; fi\nprintf supported >> "$NODE_SELECTION_LOG"\nexec "$REAL_NODE" "$@"\n'); fs.chmodSync(supported, 0o755);
+  const marker = path.join(s.root, "runtime-launched");
+  for (const file of ["clean-development.mjs", "cd-hook.mjs"])
+    mk(path.join(runtime, "bin", file), `import fs from "node:fs"; fs.writeFileSync(${JSON.stringify(marker)}, ${JSON.stringify(file)});\n`);
+  const env = { ...s.env, PATH: "/usr/bin:/bin", REAL_NODE: process.execPath, NODE_SELECTION_LOG: log };
+  delete env.CLEAN_DEV_NODE;
+  for (const file of ["clean-development", "cd-hook"]) {
+    const r = spawnSync("/bin/sh", [path.join(runtime, "bin", file), "session-start", "claude"], { cwd: s.root, env, encoding: "utf8", timeout: 10000 });
+    assert.equal(r.status, 0, `${file}: ${r.stderr}`);
+    assert.equal(fs.readFileSync(marker, "utf8"), file === "clean-development" ? "clean-development.mjs" : "cd-hook.mjs");
+  }
+  assert.equal(fs.readFileSync(log, "utf8"), "supportedsupported", "unsupported preferred Node was skipped for both launchers");
+});
+
 test("stable hook shim exits successfully when its Node-backed launcher fails", () => {
   const s = sim({ mounted: false }), shim = hookShimPath(s.env), versionDir = path.join(runtimeRoot(s.env), VERSION);
   mk(path.join(versionDir, "bin/cd-hook"), "#!/bin/sh\nexit 0\n"); fs.chmodSync(path.join(versionDir, "bin/cd-hook"), 0o755);
@@ -525,12 +545,17 @@ test("hook merge accepts [features] hooks = true with trust-hash-only state, and
 test("installation preserves policy overrides, retains immutable releases and has a receipt", () => {
   const s = sim({ mounted: false });
   fs.appendFileSync(s.config, `LAB_ROOT=${s.home}/dev/approved-travel-lab\n`);
+  const selectedNode = path.join(s.root, "stable-node"); fs.symlinkSync(process.execPath, selectedNode);
+  const installEnv = { ...s.env, CLEAN_DEV_NODE: selectedNode };
   const before = fs.readFileSync(s.config);
-  const r = installPackage(plugin, s.env, { config: true });
+  const r = installPackage(plugin, installEnv, { config: true });
   assert.equal(r.status, "committed"); assert.deepEqual(fs.readFileSync(s.config), before);
   const receipt = JSON.parse(fs.readFileSync(r.receipt));
   assert.equal(receipt.status, "committed"); assert.equal(treeDigest(r.runtime), r.digest);
-  assert.equal(installPackage(plugin, s.env, { config: true }).digest, r.digest);
+  const launcher = fs.readFileSync(path.join(s.home, "dev/machine/bin/clean-development"), "utf8");
+  assert.ok(launcher.includes(`node='${selectedNode}'`), "the unresolved stable installation path survives Node realpath resolution");
+  assert.match(launcher, /node_ok\(\)/, "the installed launcher validates its Node path before use");
+  assert.equal(installPackage(plugin, installEnv, { config: true }).digest, r.digest);
   mk(path.join(r.runtime, "unexpected-edit"), "different release bytes");
   assert.throws(() => installPackage(plugin, s.env), /immutable release differs/);
 });

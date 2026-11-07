@@ -165,8 +165,9 @@ export function installPackage(src, env, { config = false, replaceConfig = false
   if (!conf.valid) throw new Error(`storage.conf invalid: ${conf.errors.join("; ")}`);
   if (!safeDirectory(home, machine)) throw new Error("unsafe machine directory topology");
   if (lstatOrNull(dest) && treeDigest(dest) !== digest) throw new Error(`immutable release differs: ${dest}; bump the version, never replace active bytes`);
-  const node = quote(process.execPath), cli = quote(path.join(dest, "bin", "clean-development.mjs"));
-  const files = [{ path: ownedFiles(env)[0], data: `#!/bin/sh\nnode=${node}\nif [ -x "$node" ]; then exec "$node" ${cli} "$@"; fi\nexec ${quote(path.join(dest, "bin", "clean-development"))} "$@"\n`, mode: 0o755 },
+  const node = quote(path.isAbsolute(env.CLEAN_DEV_NODE || "") ? env.CLEAN_DEV_NODE : process.execPath);
+  const cli = quote(path.join(dest, "bin", "clean-development.mjs")), fallback = quote(path.join(dest, "bin", "clean-development"));
+  const files = [{ path: ownedFiles(env)[0], data: `#!/bin/sh\nnode=${node}\nnode_ok() { [ -x "$1" ] && "$1" -e 'const [major, minor] = process.versions.node.split(".").map(Number); process.exit(major < 20 || (major === 20 && minor < 12) ? 1 : 0)' >/dev/null 2>&1; }\nif node_ok "$node"; then exec "$node" ${cli} "$@"; fi\nexec ${fallback} "$@"\n`, mode: 0o755 },
     { path: ownedFiles(env)[3], data: hookShimText(env, version), mode: 0o755 }];
   if (config) {
     const sidecars = privateSidecars(src, env);

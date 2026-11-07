@@ -2,7 +2,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { children, safeDirectory, sizeBytes, sleepMs } from "./fsutil.mjs";
+import { children, safeDirectory, sizeBytes, sleepMs, strictlyBelow } from "./fsutil.mjs";
 import { homeDir } from "./conf.mjs";
 
 // One real write: exclusive create, write, fsync, close, unlink. access(2) and `test -w` miss macOS removable-volume
@@ -70,11 +70,16 @@ export function externalAvailable(conf, env = process.env) {
 }
 
 export function rootFor(conf, mode) { return mode === "external" ? conf.externalCache : conf.internalRoot; }
-// Work root for worktrees, jobs and bundles (env.zsh exports it as CLEAN_DEV_WORK): configured EXTERNAL_ROOT when
-// the external volume is in use and that root is writable, else ~/dev/machine.
+// Work root for worktrees, jobs and bundles (env.zsh exports it as CLEAN_DEV_WORK): the parent of LAB_ROOT when it
+// is strictly below the mounted volume, otherwise EXTERNAL_ROOT; internal sessions use ~/dev/machine.
+export function externalWorkRoot(conf) {
+  const labParent = path.dirname(conf.labRoot);
+  return conf.mountPoint && strictlyBelow(conf.mountPoint, labParent) ? labParent : conf.externalRoot;
+}
 export function workRoot(conf, mode, env = process.env) {
-  const ext = conf.externalRoot;
-  if (mode === "external") { try { if (fs.statSync(ext).isDirectory()) { fs.accessSync(ext, fs.constants.W_OK | fs.constants.X_OK); return ext; } } catch { /* falls through */ } }
+  if (mode === "external") for (const ext of new Set([externalWorkRoot(conf), conf.externalRoot])) {
+    try { if (fs.statSync(ext).isDirectory()) { fs.accessSync(ext, fs.constants.W_OK | fs.constants.X_OK); return ext; } } catch { /* try the configured fallback */ }
+  }
   return path.join(homeDir(env), "dev", "machine");
 }
 

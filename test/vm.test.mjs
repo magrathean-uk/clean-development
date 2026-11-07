@@ -485,6 +485,7 @@ function colimaLab(t) {
   const s = fixture(t);
   fakeLima(t);
   const lima = vmHome(s.conf, "lima"), colima = vmHome(s.conf, "colima");
+  s.env.COLIMA_HOME = colima;
   mk(path.join(lima, "_config", "user.pub"), `${KEY_A}\n`);
   mk(path.join(colima, "_lima", "_config", "user.pub"), `${KEY_B}\n`);
   mk(path.join(colima, "_lima", "colima", "lima.yaml"), "disk: 20GiB\n");
@@ -656,6 +657,7 @@ test("colima-rehome rollback reconciles planned moves by filesystem truth after 
 
 test("profile-scoped and whole-home rehomes refuse disks shared by Colima profiles", (t) => {
   const s = colimaLab(t), other = path.join(s.lima, "colima-other-profile");
+  t.after(() => setLimaReaderForTests(null));
   mk(path.join(other, "lima.yaml"), "additionalDisks:\n  - name: colima-sample-vm\n");
   setLimaReaderForTests((name) => name === "colima-sample-vm"
     ? { status: "Stopped", disks: ["colima-sample-vm"] }
@@ -668,6 +670,27 @@ test("profile-scoped and whole-home rehomes refuse disks shared by Colima profil
     assert.ok(fs.existsSync(path.join(s.lima, "_disks", "colima-sample-vm", "datadisk")));
     assert.ok(fs.existsSync(path.join(s.inst, "lima.yaml")));
   }
+});
+
+test("colima-rehome refuses a disk shared with an ordinary Lima instance", (t) => {
+  const s = colimaLab(t), other = path.join(s.lima, "fedora44-agent");
+  mk(path.join(other, "lima.yaml"), "additionalDisks:\n  - name: colima-sample-vm\n");
+  const result = colimaRehome(s.conf, s.env, { apply: true });
+  assert.equal(result.status, "nothing to move");
+  assert.deepEqual(result.instances, []);
+  assert.match(result.refused[0].refused, /additional disk colima-sample-vm is also referenced by fedora44-agent/);
+  assert.ok(fs.existsSync(path.join(s.inst, "lima.yaml")), "the shared instance remains in place");
+  assert.ok(fs.existsSync(path.join(s.lima, "_disks", "colima-sample-vm", "datadisk")), "the shared disk remains in place");
+});
+
+test("colima-rehome rollback refuses a disk newly shared in the destination Lima home", (t) => {
+  const s = colimaLab(t), moved = colimaRehome(s.conf, s.env, { apply: true });
+  assert.equal(moved.status, "moved");
+  const home = path.join(s.colima, "_lima"), other = path.join(home, "fedora44-agent");
+  mk(path.join(other, "lima.yaml"), "additionalDisks:\n  - name: colima-sample-vm\n");
+  assert.throws(() => colimaRehomeRollback(s.conf, s.env, moved.manifest), /additional disk colima-sample-vm is also referenced by fedora44-agent; rollback refused/);
+  assert.ok(fs.existsSync(path.join(home, "colima-sample-vm", "lima.yaml")), "the moved instance remains in the destination home");
+  assert.ok(fs.existsSync(path.join(home, "_disks", "colima-sample-vm", "datadisk")), "the shared disk remains in the destination home");
 });
 
 test("colima-rehome preview leaves a missing home absent and apply creates it before fencing", (t) => {
@@ -708,6 +731,13 @@ test("colima-rehome refuses when external storage is unavailable", (t) => {
   assert.throws(() => colimaRehome(s.conf, { ...s.env, DEV_STORAGE_VOLUME_TEST: "absent" }), /not mounted/);
 });
 
+test("colima-rehome refuses when COLIMA_HOME differs from the configured destination", (t) => {
+  const s = colimaLab(t), before = fs.readdirSync(s.lima).sort();
+  s.env.COLIMA_HOME = path.join(s.root, "other-colima-home");
+  assert.throws(() => colimaRehome(s.conf, s.env, { apply: true }), /COLIMA_HOME must resolve to/);
+  assert.deepEqual(fs.readdirSync(s.lima).sort(), before, "no instances or disks move when Colima points elsewhere");
+});
+
 test("doctor reports Colima migration issues only when the optional shim is installed", (t) => {
   const s = colimaLab(t);
   const row = (r, name) => r.results.find((x) => x.name === name);
@@ -721,6 +751,12 @@ test("doctor reports Colima migration issues only when the optional shim is inst
   mk(path.join(s.home, "dev", "machine", "bin", "colima"), "#!/bin/sh\n");
   r = doctor(s.env, { gui: false });
   assert.match(row(r, "colima instances in lima-home").detail, /^colima-sample-vm: run/);
+  s.env.COLIMA_HOME = path.join(s.root, "other-colima-home");
+  r = doctor(s.env, { gui: false });
+  assert.match(row(r, "Colima home").detail, /rehome is disabled/);
+  assert.equal(row(r, "colima instances in lima-home"), undefined, "doctor does not recommend a migration to a different Colima home");
+  s.env.COLIMA_HOME = s.colima;
+  r = doctor(s.env, { gui: false });
   colimaRehome(s.conf, s.env, { apply: true });
   r = doctor(s.env, { gui: false });
   assert.equal(row(r, "colima shim"), undefined); assert.equal(row(r, "colima instances in lima-home"), undefined);
@@ -731,6 +767,7 @@ test("colima-rehome refuses while any Colima or Lima process runs, including a c
   const s = fixture(t);
   fakeLima(t);
   const lima = vmHome(s.conf, "lima"), inst = path.join(lima, "colima-sample-vm");
+  s.env.COLIMA_HOME = vmHome(s.conf, "colima");
   mk(path.join(inst, "lima.yaml"), "additionalDisks:\n  - name: colima-sample-vm\n");
   mk(path.join(lima, "_disks", "colima-sample-vm", "datadisk"), "data");
   fs.mkdirSync(path.join(vmHome(s.conf, "colima"), "_lima"), { recursive: true });

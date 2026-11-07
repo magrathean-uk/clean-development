@@ -22,8 +22,9 @@
 #   the mode when it was written, never a routing order. A shell that finds the external volume gone after the session
 #   used it warns once; that root's scratch and builds wait for the drive.
 #   A session gets TMPDIR=$DEVCACHE/scratch/<key>/tmp and CLEAN_DEV_BUILDS=$DEVCACHE/builds/<key>.
-#   CLEAN_DEV_WORK is the work root for worktrees, jobs and bundles: the configured external development root when mounted and writable, else
-#   ~/dev/machine ($W/worktrees/<repo>/<task>, $W/jobs/<project>, $W/bundles/<repo>).
+#   CLEAN_DEV_WORK is the work root for worktrees, jobs and bundles: the parent of LAB_ROOT when it is below the mounted
+#   volume and writable, otherwise EXTERNAL_ROOT; internal mode uses ~/dev/machine
+#   ($W/worktrees/<repo>/<task>, $W/jobs/<project>, $W/bundles/<repo>).
 #   Ids shorter than 12 characters or with a placeholder token (unset, placeholder, stub, ...) get no key (plain shell).
 #   With no harness id, an inherited CLEAN_DEV_SESSION is the key when CLEAN_DEV_STAMP ends in "|<that key>": a child
 #   started with `clean-development run --clean-env` (no CLAUDE_* variables) keeps its session's scratch and builds.
@@ -230,9 +231,17 @@ __cd_route() {
   eval "$1=\$2; export $1"
 }
 CLEAN_DEV_MODE="$__cd_mode"; CLEAN_DEV_STAMP="$__cd_stamp"
-# Work root (worktrees, jobs, bundles): the configured external development tree when its cache is mounted and writable.
+# Work root: use LAB_ROOT's parent when it is a real subdirectory of the configured volume; this preserves distinct
+# lab and work roots while never selecting the volume root. Otherwise use EXTERNAL_ROOT.
 CLEAN_DEV_WORK="$DEVMACHINE"
-if [ "$__cd_mode" = external ] && [ -d "$EXTERNAL_ROOT" ] && [ -w "$EXTERNAL_ROOT" ] && [ -x "$EXTERNAL_ROOT" ]; then CLEAN_DEV_WORK="$EXTERNAL_ROOT"; fi
+if [ "$__cd_mode" = external ] && [ -d "$EXTERNAL_ROOT" ] && [ -w "$EXTERNAL_ROOT" ] && [ -x "$EXTERNAL_ROOT" ]; then
+  CLEAN_DEV_WORK="$EXTERNAL_ROOT"
+  __cd_mount="$__cd_mp"
+  __cd_lab_parent="${LAB_ROOT%/*}"
+  case "$__cd_lab_parent" in
+    "$__cd_mount"/*) if [ -d "$__cd_lab_parent" ] && [ -w "$__cd_lab_parent" ] && [ -x "$__cd_lab_parent" ]; then CLEAN_DEV_WORK="$__cd_lab_parent"; fi ;;
+  esac
+fi
 export CLEAN_DEV_MODE CLEAN_DEV_STAMP CLEAN_DEV_WORK
 __cd_route DEVCACHE "$__cd_root"
 
@@ -328,7 +337,7 @@ if [ "${DEV_ENV_INSPECT_ONLY:-}" != 1 ] && [ -r "$DEVMACHINE/env.private.zsh" ];
 
 unset -f __cd_route __cd_ext_ok __cd_path_front
 unset __cd_conf_ok __cd_p __cd_state __cd_id __cd_idbad __cd_why __cd_h __cd_key __cd_pre __cd_tail __cd_pin __cd_pinned __cd_mode __cd_lost __cd_root __cd_mp __cd_dm __cd_dp __cd_dc \
-  __cd_stamp __cd_keep __cd_cur __cd_fix_tmp __cd_defined __cd_line __cd_k __cd_v __cd_expand __cd_rest __cd_result __cd_name __cd_repl __cd_cache
+  __cd_stamp __cd_keep __cd_cur __cd_fix_tmp __cd_defined __cd_line __cd_k __cd_v __cd_expand __cd_rest __cd_result __cd_name __cd_repl __cd_cache __cd_work __cd_lab_parent __cd_mount
 unset STORAGE_CONF_VERSION EXTERNAL_VOLUME EXTERNAL_ROOT EXTERNAL_CACHE INTERNAL_ROOT LAB_ROOT MODELS_ROOT SD_VOLUME \
   DEPS_CAP_GB DEPS_MIN_IDLE_HOURS EXTERNAL_BUILD_DAYS EXTERNAL_PRUNE_EVERY_DAYS INTERNAL_BUILD_IDLE_HOURS \
   SESSION_STALE_HOURS BIG_DOWNLOAD_GB INTERNAL_MIN_FREE_GB DEV_TOP_ALLOW HOME_DOT_ALLOW HOME_DOTFILE_ALLOW DEV_DOT_ALLOW

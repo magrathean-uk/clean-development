@@ -36,7 +36,7 @@ After reviewing the preview, install the runtime and environment files:
 ./install.sh --config
 ```
 
-The installer writes under `~/dev/machine/`. It does not edit Claude Code or Codex settings. The portable environment file routes Clean Development cache, build and session scratch variables. It leaves your locale, existing XDG config/data/state locations, installed toolchain homes, model stores, VM homes, Docker config and telemetry preferences unchanged. `HF_HOME` also stays with the host because it may hold credentials; only `HF_HUB_CACHE` and `HF_ASSETS_CACHE` are routed to cache storage. Standalone installs do not set Colima's home or place a shim ahead of your existing Colima command.
+The installer writes under `~/dev/machine/`. It does not edit Claude Code or Codex settings. The portable environment file routes Clean Development cache, build and session scratch variables. It leaves your locale, existing XDG config/data/state locations, installed toolchain homes, model stores, VM homes, Docker config and telemetry preferences unchanged. `HF_HOME` also stays with the host because it may hold credentials; only `HF_HUB_CACHE` and `HF_ASSETS_CACHE` are routed to cache storage. Standalone installs do not set Colima's home or place a shim ahead of your existing Colima command. If a private source manifest opts into the Colima shim, set `COLIMA_HOME` to the configured `LAB_ROOT/VM/colima-home`; rehome and rollback refuse a different path.
 
 `CARGO_HOME` remains a host-managed toolchain home and is not pruned by default. To include its Cargo registry and Git dependency caches in the configured dependency-cache cap, explicitly set `CLEAN_DEV_CARGO_CACHE_HOME` to the same absolute directory. This opt-in covers only Cargo's `registry/cache`, `registry/src`, `git/checkouts` and `git/db` directories.
 
@@ -76,7 +76,7 @@ GUI launchd and Xcode cache checks are opt-in with `doctor --gui`; this package 
 
 ## Storage and cleanup
 
-The active `storage.conf` controls the external volume, internal fallback, cache limits, build retention, free-space threshold and report-only folder allowlists. These values are examples, not universal defaults. Do not override routing variables in child processes. The runtime uses variables such as `$DEVCACHE`, `$TMPDIR` and `$CLEAN_DEV_BUILDS` to expose the selected locations. Cargo cache cleanup is excluded unless `CLEAN_DEV_CARGO_CACHE_HOME` explicitly opts in an absolute Cargo home.
+The active `storage.conf` controls the external volume, internal fallback, cache limits, build retention, free-space threshold and report-only folder allowlists. These values are examples, not universal defaults. On external storage, the work root is the parent of `LAB_ROOT` when it is writable and strictly below the mounted volume; otherwise it is `EXTERNAL_ROOT`. Internal sessions use `~/dev/machine`. Do not override routing variables in child processes. The runtime uses variables such as `$DEVCACHE`, `$TMPDIR`, `$CLEAN_DEV_BUILDS` and `$CLEAN_DEV_WORK` to expose the selected locations. Cargo cache cleanup is excluded unless `CLEAN_DEV_CARGO_CACHE_HOME` explicitly opts in an absolute Cargo home.
 
 Use `clean-development housekeeping` or `clean-development reap` to inspect cleanup plans. These commands preview by default; use `--apply` only after reviewing the listed paths. Never use cache or scratch as the sole copy of unfinished work, rollback data or evidence. Publish important files into durable project storage and retain the completed receipt.
 
@@ -86,10 +86,10 @@ For installer recovery, `install.sh --recover ID` retries a failed rollback. If 
 
 ```sh
 npm run check
-CLEAN_DEV_TEST_DIR="$(mktemp -d "$TMPDIR/clean-development.XXXXXX")" npm test
+CLEAN_DEV_TEST_DIR="$(mktemp -d /tmp/clean-development.XXXXXX)" npm test
 ```
 
-The tests use fabricated homes and volumes. They do not configure a live host, edit user harness settings or exercise a real removable volume. Parent-monorepo scripts are skipped unless CLEAN_DEV_TEST_PRIVATE_SOURCE=1 is explicitly set. See [CHANGELOG.md](CHANGELOG.md) for version history and release-specific changes.
+The test fixtures must be on an internal filesystem path because `test/env-modes.sh` simulates a removable volume. The example uses `/tmp`, which is internal on supported macOS hosts. The tests use fabricated homes and volumes. They do not configure a live host, edit user harness settings or exercise a real removable volume. Parent-monorepo scripts are skipped unless CLEAN_DEV_TEST_PRIVATE_SOURCE=1 is explicitly set. See [CHANGELOG.md](CHANGELOG.md) for version history and release-specific changes.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the supported scope and contribution checks.
 
