@@ -37,6 +37,17 @@ function configure(s) {
   json(codexHooks, codexDoc); mk(path.join(s.home, ".codex", "config.toml"), trustToml(managedTrustEntries(codexHooks, codexDoc)));
   return s;
 }
+
+test("doctor treats conflict-preserving installer recovery as a completed receipt", () => {
+  const s = configure(sim());
+  json(path.join(stateDir(s.env), "installations", "recovered", "receipt.json"), {
+    id: "recovered", status: "recovered-preserving-conflicts", version: VERSION
+  });
+  const check = row(result(s), "deployment receipts");
+  assert.equal(check.ok, true, check.detail);
+  assert.match(check.detail, /^0 unfinished recovery transaction/);
+});
+
 function snapshot(root) {
   const rows = [];
   function walk(p) {

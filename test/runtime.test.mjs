@@ -165,6 +165,20 @@ test("dependency cap evicts least recently used units, never recently used ones"
   assert.ok(fs.existsSync(path.join(deps, "pip", "blob")), "recently used unit must stay");
 });
 
+test("Cargo registry cleanup requires the explicit Clean Development opt-in", () => {
+  const s = sim({ mounted: false });
+  const cargo = path.join(s.home, ".cargo"), cache = path.join(cargo, "registry", "cache");
+  fs.mkdirSync(cache, { recursive: true });
+  fs.writeFileSync(path.join(cache, "registry-cache.bin"), Buffer.alloc(2 * 1024 * 1024));
+  fs.appendFileSync(path.join(s.home, "dev", "machine", "storage.conf"), "DEPS_CAP_GB=0.001\nDEPS_MIN_IDLE_HOURS=0\n");
+  const hostManaged = cli(s, ["housekeeping", "--apply", "--json"], { CARGO_HOME: cargo });
+  assert.equal(hostManaged.status, 0, hostManaged.stderr);
+  assert.ok(fs.existsSync(path.join(cache, "registry-cache.bin")), "CARGO_HOME alone does not authorise pruning");
+  const optedIn = cli(s, ["housekeeping", "--apply", "--json"], { CARGO_HOME: cargo, CLEAN_DEV_CARGO_CACHE_HOME: cargo });
+  assert.equal(optedIn.status, 0, optedIn.stderr);
+  assert.equal(fs.existsSync(cache), false, "explicit opt-in allows normal cap cleanup");
+});
+
 test("external builds older than 14 days are pruned, younger kept", async () => {
   const s = sim();
   const b = path.join(s.ext, "builds");

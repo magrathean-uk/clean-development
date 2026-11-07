@@ -20,7 +20,9 @@ import { dotReport } from "./dots.mjs";
 import { findProjectRoot, loadProjectConfig, sourceRepos } from "./project.mjs";
 import { protections } from "./leases.mjs";
 
-const cargoHome = (env) => env.CARGO_HOME && path.isAbsolute(env.CARGO_HOME) ? env.CARGO_HOME : path.join(homeDir(env), ".cargo");
+// Cargo toolchain homes are host-managed by default. Only prune one when the owner explicitly opts in.
+const cargoCacheHome = (env) => env.CLEAN_DEV_CARGO_CACHE_HOME && path.isAbsolute(env.CLEAN_DEV_CARGO_CACHE_HOME)
+  ? env.CLEAN_DEV_CARGO_CACHE_HOME : null;
 
 // Storage follows the configured external volume: every shell probes it for each session start and resume. The
 // pin's first line only says what the session used before; `lost` marks a session that used the external volume and
@@ -186,7 +188,7 @@ export function stop(input, harness, env = process.env, { force = false, dryRun 
     });
     // Shared dependency caches: LRU cap per root, hourly.
     if (force || stampDue(stamps, "caps", HOUR)) stage("caps", () => {
-      out.caps.push(capPrune(conf.internalRoot, conf, { cargoHome: cargoHome(env), dryRun, log, eventsFile, protect, deadline }));
+      out.caps.push(capPrune(conf.internalRoot, conf, { cargoHome: cargoCacheHome(env), dryRun, log, eventsFile, protect, deadline }));
       if (ext) out.caps.push(capPrune(conf.externalCache, conf, { dryRun, log, eventsFile, protect, deadline }));
       if (!dryRun && timeLeft(deadline) && out.caps.every((c) => !c.skipped)) stampTouch(stamps, "caps");
     });

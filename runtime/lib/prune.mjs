@@ -1,5 +1,5 @@
-// clean-development 0.6.2: housekeeping rules (Q30). Only paths inside the managed cache roots, the cargo registry
-// caches and git-ignored declared repo directories are ever removed.
+// clean-development 0.6.2: housekeeping rules (Q30). Only paths inside the managed cache roots, explicitly opted-in
+// Cargo registry caches and git-ignored declared repo directories are ever removed.
 import path from "node:path";
 import { canonicalPath, children, lastUsedMs, lstatOrNull, removeManaged, safeDirectory, sizeBytes, timeLeft } from "./fsutil.mjs";
 import { GB, layout } from "./storage.mjs";
@@ -11,7 +11,7 @@ const DAY = 24 * HOUR;
 
 // Units of the shared dependency caches for one root. Hugging Face is split per model/dataset so one large pull does not
 // evict everything; token files are never units. A cargo registry stored under the internal root counts toward that
-// root's cap; an external/default cargo home is not managed here.
+// root's cap; a Cargo home is included only when explicitly opted in by the owner.
 export function depsUnits(root, { cargoHome = null } = {}) {
   const l = layout(root);
   const units = [];

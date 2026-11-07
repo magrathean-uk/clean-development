@@ -216,6 +216,17 @@ function privateMonorepoSource(s) {
   return src;
 }
 
+test("installer syntax-checks the exact Colima sidecar source named by the private manifest", () => {
+  const s = sim({ mounted: false }), parent = path.join(s.root, "renamed-source"), src = path.join(parent, "package-copy");
+  fs.mkdirSync(parent, { recursive: true });
+  fs.cpSync(plugin, src, { recursive: true });
+  mk(path.join(parent, "clean-development", "machine", "colima"), "#!/bin/sh\nif then\n");
+  mk(path.join(parent, ".clean-development-private-sidecars.json"), JSON.stringify({
+    schemaVersion: 1, sidecars: ["clean-development/machine/colima"]
+  }));
+  assert.throws(() => installPackage(src, s.env, { config: true, dryRun: true }), /preflight \/bin\/sh:/);
+});
+
 test("the private monorepo installs missing sidecars before env.zsh and preserves existing host edits", () => {
   const s = sim({ mounted: false }), src = privateMonorepoSource(s);
   const preview = installPackage(src, s.env, { config: true, dryRun: true });
@@ -251,13 +262,14 @@ test("private monorepo environment extension retains host-only PATH and telemetr
   fs.copyFileSync(path.join(root, "clean-development/machine/env.zsh"), path.join(s.home, "dev/machine/env.zsh"));
   fs.copyFileSync(path.join(root, "machine/env.private.zsh"), extension);
   const env = { ...s.env, PATH: `${path.join(s.home, "dev/bin")}${path.delimiter}/usr/bin:/bin`, DEV_STORAGE_VOLUME_TEST: "absent" };
-  const script = 'set -e; . "$HOME/dev/machine/env.zsh"; printf "%s|%s|%s|%s|%s" "$PATH" "$CARGO_HOME" "$XDG_DATA_HOME" "$CLEAN_DEV_PRIVATE_EXTENSION" "$DEV_ENV_LOADED"';
+  const script = 'set -e; . "$HOME/dev/machine/env.zsh"; printf "%s|%s|%s|%s|%s|%s" "$PATH" "$CARGO_HOME" "$CLEAN_DEV_CARGO_CACHE_HOME" "$XDG_DATA_HOME" "$CLEAN_DEV_PRIVATE_EXTENSION" "$DEV_ENV_LOADED"';
   const r = spawnSync("/bin/zsh", ["-c", script], { cwd: s.root, env, encoding: "utf8", timeout: 10000 });
   assert.equal(r.status, 0, r.stderr);
-  const [loadedPath, cargoHome, dataHome, privateExtension, envLoaded] = r.stdout.split("|");
+  const [loadedPath, cargoHome, cargoCacheHome, dataHome, privateExtension, envLoaded] = r.stdout.split("|");
   assert.ok(loadedPath.split(path.delimiter).includes("/usr/bin"));
   assert.ok(!loadedPath.split(path.delimiter).includes(path.join(s.home, "dev/bin")));
   assert.equal(cargoHome, path.join(s.home, "dev/machine/toolchains/rust/cargo"));
+  assert.equal(cargoCacheHome, cargoHome, "the private host extension explicitly opts its configured Cargo home into cache cleanup");
   assert.equal(dataHome, path.join(s.home, "dev/machine/state/share"));
   assert.equal(privateExtension, "1");
   assert.equal(envLoaded, "1");
@@ -295,13 +307,19 @@ test("private sidecar installer refuses a group- or world-writable source", () =
 test("legacy removal preview and apply are limited to one fake-home runtime", () => {
   const s = sim({ mounted: false }), old = path.join(s.home, "Library/Application Support/clean-development");
   mk(path.join(old, "runtime/keep.txt"), "fixture only\n");
+  const config = mk(path.join(old, "config.json"), "host configuration\n");
+  const receipt = mk(path.join(old, "uninstall-receipt.json"), "host receipt\n");
   const sibling = mk(path.join(s.home, "Library/Application Support/other-app/keep.txt"), "untouched\n");
   const script = path.join(plugin, "remove-legacy.sh");
   const preview = spawnSync("/bin/sh", [script], { env: s.env, encoding: "utf8" });
   assert.equal(preview.status, 0, preview.stderr); assert.match(preview.stdout, /preview only/);
+  assert.ok(preview.stdout.includes(path.join(old, "runtime")), "preview names only the runtime subdirectory");
   assert.equal(fs.existsSync(path.join(old, "runtime/keep.txt")), true);
   const applied = spawnSync("/bin/sh", [script, "--apply"], { env: s.env, encoding: "utf8" });
-  assert.equal(applied.status, 0, applied.stderr); assert.equal(fs.existsSync(old), false);
+  assert.equal(applied.status, 0, applied.stderr); assert.equal(fs.existsSync(path.join(old, "runtime")), false);
+  assert.equal(fs.existsSync(old), true, "legacy application directory remains when it contains host data");
+  assert.equal(fs.readFileSync(config, "utf8"), "host configuration\n");
+  assert.equal(fs.readFileSync(receipt, "utf8"), "host receipt\n");
   assert.equal(fs.readFileSync(sibling, "utf8"), "untouched\n");
 });
 

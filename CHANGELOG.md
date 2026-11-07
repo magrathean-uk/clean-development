@@ -9,7 +9,9 @@
 - Keeps toolchain homes, VM and Docker settings, histories, telemetry switches and host-specific PATH filtering in the private environment extension. Standalone installs preserve existing host configuration and do not install the optional Colima shim.
 - Makes private sidecar installation opt-in through a validated source manifest, keeps inspection mode from executing the private extension, and preserves existing HF credential locations while routing only model caches.
 - Bounds synchronous Stop hooks to five seconds, matches doctor and release fragments, uses the configured worktree root, and adds conflict-aware installer recovery with `--accept-current`.
-- Narrows the legacy remover to the retired runtime directory. It no longer names or removes private plugin marketplaces, skills or app paths.
+- Narrows legacy removal to the retired `runtime` subdirectory and preserves sibling configuration and receipt files.
+- Keeps host-managed Cargo toolchain caches outside automatic pruning unless `CLEAN_DEV_CARGO_CACHE_HOME` explicitly opts them in.
+- Treats conflict-preserving installer recovery as complete in `doctor`, recognises copied Colima shim headers, and syntax-checks the exact manifest-listed sidecar source.
 - Documents the Python 3.11 requirement for Codex TOML operations and limits tests that read parent-source scripts to explicit private-source opt-in.
 
 ## 0.6.7 (7 November 2026)

@@ -1,6 +1,6 @@
 #!/bin/sh
 # Remove the retired Application Support runtime after the active hooks use the managed runtime.
-# Preview with no arguments. --apply removes only this one legacy runtime directory.
+# Preview with no arguments. --apply removes only its runtime subdirectory and preserves sibling data.
 set -eu
 
 if [ "$#" -gt 1 ]; then
@@ -18,6 +18,7 @@ case "$HOME" in /*) ;; *) echo "remove-legacy: HOME must be an absolute path" >&
 library="$HOME/Library"
 support="$library/Application Support"
 old="$support/clean-development"
+runtime="$old/runtime"
 for parent in "$library" "$support"; do
   if [ -L "$parent" ] || { [ -e "$parent" ] && [ ! -d "$parent" ]; }; then
     echo "remove-legacy: refusing a linked or non-directory parent: $parent" >&2
@@ -26,6 +27,10 @@ for parent in "$library" "$support"; do
 done
 if [ -L "$old" ] || { [ -e "$old" ] && [ ! -d "$old" ]; }; then
   echo "remove-legacy: refusing a linked or non-directory target: $old" >&2
+  exit 1
+fi
+if [ -L "$runtime" ] || { [ -e "$runtime" ] && [ ! -d "$runtime" ]; }; then
+  echo "remove-legacy: refusing a linked or non-directory runtime: $runtime" >&2
   exit 1
 fi
 
@@ -111,8 +116,8 @@ scan_registry "$state/claude-profiles.list" settings-file
 [ "$referenced" -eq 0 ] || exit 1
 
 size() { [ -e "$1" ] && perl -e 'alarm shift; exec @ARGV' 120 du -sh "$1" 2>/dev/null | cut -f1 || echo "-"; }
-printf '%-8s %s\n' "$(size "$old")" "$old"
+printf '%-8s %s\n' "$(size "$runtime")" "$runtime"
 [ "$apply" -eq 1 ] || { echo "preview only; run with --apply after reviewing the target"; exit 0; }
-[ -d "$old" ] || { echo "remove-legacy: no legacy runtime found"; exit 0; }
-/bin/rm -rf "$old"
-echo "removed $old"
+[ -d "$runtime" ] || { echo "remove-legacy: no legacy runtime found"; exit 0; }
+/bin/rm -rf "$runtime"
+echo "removed $runtime"

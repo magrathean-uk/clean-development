@@ -514,8 +514,10 @@ test("colima shim pins LIMA_HOME to $COLIMA_HOME/_lima and fails fast when exter
   assert.equal(absent.status, 78); assert.match(absent.stderr, /configured VM storage/);
   const self = mk(path.join(s.root, "selfbin", "colima"), fs.readFileSync(shim)); fs.chmodSync(self, 0o755);
   assert.equal(spawnSync("/bin/sh", [self, "list"], { env: { PATH: "/usr/bin:/bin", ...base, CLEAN_DEV_COLIMA: self }, encoding: "utf8" }).status, 127);
-  const alias = mk(path.join(s.root, "otherbin", "colima"), fs.readFileSync(shim)); fs.chmodSync(alias, 0o755);
+  const aliasInvoked = path.join(s.root, "alias-invoked");
+  const alias = mk(path.join(s.root, "otherbin", "colima"), `#!/bin/sh\nprintf called > ${JSON.stringify(aliasInvoked)}\n${fs.readFileSync(shim, "utf8")}`); fs.chmodSync(alias, 0o755);
   assert.equal(spawnSync("/bin/sh", [self, "list"], { env: { PATH: "/usr/bin:/bin", ...base, CLEAN_DEV_COLIMA: alias }, encoding: "utf8" }).status, 127, "another copy of the shim is never the real binary");
+  assert.equal(fs.existsSync(aliasInvoked), false, "the case-varied shim header is recognised before execution");
 });
 
 test("limaDiskNames reads block lists in any field order and refuses every form it cannot fully read", () => {

@@ -99,7 +99,7 @@ export function doctor(env = process.env, { gui = true, internalWarnBytes = 1024
   results.push({ name: "retained runtimes", ok: true, detail: [others.length ? `retained (never automatically removed): ${others.join(" ")}` : "", lstatOrNull(legacyDir) ? `legacy bytes retained: ${legacyDir}; references checked separately` : ""].filter(Boolean).join("; ") || "none" });
   const receiptRoot = path.join(stateDir(env), "installations");
   const receipts = children(receiptRoot).map((d) => readJsonOrNull(path.join(receiptRoot, d.name, "receipt.json"))).filter(Boolean);
-  const pending = receipts.filter((r) => !["committed", "rolled-back"].includes(r.status));
+  const pending = receipts.filter((r) => !["committed", "rolled-back", "recovered-preserving-conflicts"].includes(r.status));
   const latest = receipts.filter((r) => r.status === "committed" && r.version === VERSION && r.runtime === rt).sort((a, b) => String(b.completedAt).localeCompare(String(a.completedAt)))[0];
   let parity = null;
   if (latest) { try { parity = latest.digestAlgorithm === DIGEST_ALGORITHM && treeDigest(rt) === latest.digest; } catch { parity = false; } }

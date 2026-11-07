@@ -18,7 +18,7 @@ for c in $candidates; do
   [ "$c" -ef "$0" ] && continue
   d=$(CDPATH= cd -- "$(dirname -- "$c")" 2>/dev/null && pwd -P)
   [ "$d" = "$self" ] && continue
-  head -c 512 "$c" 2>/dev/null | grep -q 'optional clean-development colima shim' && continue
+  head -c 512 "$c" 2>/dev/null | grep -Eiq 'optional clean[- ]development colima shim' && continue
   real=$c
   break
 done

@@ -109,7 +109,7 @@ function privateSidecars(src, env) {
       if (!targetStat.isFile() && !targetStat.isSymbolicLink()) throw new Error(`unsafe private sidecar target: ${target}`);
       continue; // Existing host-local extensions and registries are user-managed.
     }
-    files.push({ path: target, data, mode: relative.endsWith("/colima") ? 0o755 : 0o600, createOnly: true });
+    files.push({ path: target, data, mode: relative.endsWith("/colima") ? 0o755 : 0o600, createOnly: true, source });
   }
   return files;
 }
@@ -180,7 +180,8 @@ export function installPackage(src, env, { config = false, replaceConfig = false
   }
   for (const dir of ["lib", "bin"]) for (const f of fs.readdirSync(path.join(runtime, dir)).filter((f) => f.endsWith(".mjs"))) check(process.execPath, ["--check", path.join(runtime, dir, f)], env);
   for (const f of ["cd-hook", "clean-development"]) check("/bin/sh", ["-n", path.join(runtime, "bin", f)], env);
-  if (config && files.some((f) => f.path === ownedFiles(env)[4])) check("/bin/sh", ["-n", path.join(src, "machine", "colima")], env);
+  const colimaSidecar = files.find((f) => f.path === ownedFiles(env)[4]);
+  if (config && colimaSidecar) check("/bin/sh", ["-n", colimaSidecar.source], env);
   if (config) for (const shell of ["/bin/zsh", "/bin/bash"]) check(shell, ["-f", "-n", path.join(src, "machine", "env.zsh")], env);
   const candidates = [conf.internalRoot];
   if (detect(conf, env, { probe: false, create: false }).mode === "external") candidates.push(conf.externalCache);

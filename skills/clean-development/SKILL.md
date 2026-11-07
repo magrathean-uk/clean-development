@@ -21,7 +21,7 @@ Check `echo $CLEAN_DEV_MODE $DEVCACHE` for the active mode and cache. If the int
 | --- | --- |
 | Temporary files and session previews | `$TMPDIR` |
 | Throwaway build output | `$CLEAN_DEV_BUILDS` |
-| Dependency caches | `$DEVCACHE/deps/<tool>` through each tool's configured variable |
+| Dependency caches | `$DEVCACHE/deps/<tool>` through each tool's configured variable; Cargo toolchain homes stay host-managed unless `CLEAN_DEV_CARGO_CACHE_HOME` explicitly opts in their registry/Git caches |
 | Git worktrees, jobs and bundles | `$CLEAN_DEV_WORK/<kind>/<repo>/<task>` |
 | VM homes | Below the configured `LAB_ROOT` |
 | Models and datasets | Below the configured `MODELS_ROOT` or the project's configured data path |
