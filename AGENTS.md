@@ -23,7 +23,7 @@ Release identity is recorded in `runtime/VERSION`, `runtime/lib/conf.mjs`, `mach
 
 ```sh
 npm run check
-CLEAN_DEV_TEST_DIR="$TMPDIR/cd-test-$$" npm test
+CLEAN_DEV_TEST_DIR="$(mktemp -d /tmp/clean-development.XXXXXX)" npm test
 ```
 
-The tests provide simulated homes and a simulated `Volumes/External`.
+The tests provide simulated homes and a simulated `Volumes/External`. Keep fixtures on an internal path: `test/env-modes.sh` refuses a fixture directory below `/Volumes/External`.

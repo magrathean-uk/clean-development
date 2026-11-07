@@ -18,7 +18,9 @@ Run the source checks and isolated suite with a fresh test directory:
 
 ```sh
 npm run check
-CLEAN_DEV_TEST_DIR="$(mktemp -d "$TMPDIR/clean-development.XXXXXX")" npm test
+CLEAN_DEV_TEST_DIR="$(mktemp -d /tmp/clean-development.XXXXXX)" npm test
 ```
+
+Use an internal fixture path; `test/env-modes.sh` refuses paths on the mounted `External` volume.
 
 Pull requests should describe the behaviour changed, the fixture or check that covers it, and any host-specific acceptance that remains unverified. A passing fixture suite does not establish live host deployment behaviour.
