@@ -3,11 +3,12 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { sim, mk } from "./helpers.mjs";
-import { loadConf, stateDir } from "../runtime/lib/conf.mjs";
+import { loadConf, ownersDir, stateDir } from "../runtime/lib/conf.mjs";
 import { canonicalPath, withLock } from "../runtime/lib/fsutil.mjs";
 import { createLease } from "../runtime/lib/leases.mjs";
 import { lifecycleLock, writePin } from "../runtime/lib/sessions.mjs";
 import { OWNER_FILE, OWNER_CONFLICT_FILE, ownerRecord, readOwner, writeOwner, markOwnerConflict, pruneProject } from "../runtime/lib/owners.mjs";
+import { stop } from "../runtime/lib/hook.mjs";
 
 const keyA = "x-aaaaaaaaaaaa", keyB = "c-bbbbbbbbbbbb";
 const info = (repo, key = keyA) => ({ repo, cwd: repo, harness: "codex", key, created: "2026-11-05T12:00:00.000Z" });
@@ -30,13 +31,41 @@ function snapshot(p) {
       : st.isSymbolicLink() ? fs.readlinkSync(p) : fs.readFileSync(p).toString("base64") };
 }
 
-test("owner records validate their paths, key, harness and ISO creation time", () => {
+test("owner records validate their paths, key, harness, ISO creation time and storage history", () => {
   const record = ownerRecord(info("/repo"));
   assert.deepEqual(record, { schemaVersion: 1, ...info("/repo") });
   assert.equal(Object.getPrototypeOf(record), Object.prototype);
   assert.deepEqual(ownerRecord({ harness: "shell" }).key, null);
-  for (const bad of [{ repo: "relative" }, { cwd: "relative" }, { key: "x-short" }, { key: 12 }, { harness: "other" }, { created: "yesterday" }])
+  for (const bad of [{ repo: "relative" }, { cwd: "relative" }, { key: "x-short" }, { key: 12 }, { harness: "other" }, { created: "yesterday" }, { externalUsed: "yes" }])
     assert.throws(() => ownerRecord({ ...info("/repo"), ...bad }));
+});
+
+test("owner storage history promotes to external and never downgrades legacy unknown history", () => {
+  const { s, a } = fixture(), known = path.join(ownersDir(s.env), keyA), legacy = path.join(ownersDir(s.env), keyB);
+  assert.equal(writeOwner(known, { ...info(a), externalUsed: false }).written, true);
+  assert.deepEqual(writeOwner(known, { ...info(a), externalUsed: true }), { written: true, updated: true });
+  assert.equal(readOwner(known).externalUsed, true);
+  fs.mkdirSync(legacy, { recursive: true });
+  fs.writeFileSync(path.join(legacy, OWNER_FILE), JSON.stringify(ownerRecord(info(a, keyB))) + "\n");
+  assert.deepEqual(writeOwner(legacy, { ...info(a, keyB), externalUsed: false }), { written: false });
+  assert.equal(readOwner(legacy).externalUsed, undefined);
+});
+
+test("internal-only owner index entries age out while external storage is unavailable", () => {
+  const { s, a } = fixture(), internalOnly = path.join(ownersDir(s.env), keyA), external = path.join(ownersDir(s.env), keyB);
+  const legacyKey = "x-cccccccccccc", legacy = path.join(ownersDir(s.env), legacyKey), created = "2026-11-05T12:00:00.000Z";
+  writeOwner(internalOnly, { ...info(a), created, externalUsed: false });
+  writeOwner(external, { ...info(a, keyB), created, externalUsed: true });
+  fs.mkdirSync(legacy, { recursive: true });
+  fs.writeFileSync(path.join(legacy, OWNER_FILE), JSON.stringify(ownerRecord({ ...info(a, legacyKey), created })) + "\n");
+  const old = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  for (const dir of [internalOnly, external, legacy]) fs.utimesSync(path.join(dir, OWNER_FILE), old, old);
+  s.env.DEV_STORAGE_VOLUME_TEST = "absent";
+  const result = stop({}, "codex", s.env, { force: true, budgetMs: 2000 });
+  assert.equal(result.locked, false);
+  assert.equal(fs.existsSync(internalOnly), false, "internal-only metadata is no longer needed after its build root is clear");
+  assert.equal(fs.existsSync(external), true, "external-linked ownership waits until that root can be inspected");
+  assert.equal(fs.existsSync(legacy), true, "legacy records with unknown storage history are retained conservatively");
 });
 
 test("owner writes are private, atomic, idempotent and never replace another key", () => {

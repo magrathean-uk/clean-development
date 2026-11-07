@@ -232,7 +232,7 @@ __cd_route() {
 CLEAN_DEV_MODE="$__cd_mode"; CLEAN_DEV_STAMP="$__cd_stamp"
 # Work root (worktrees, jobs, bundles): the configured external development tree when its cache is mounted and writable.
 CLEAN_DEV_WORK="$DEVMACHINE"
-if [ "$__cd_mode" = external ] && [ -d "${LAB_ROOT%/*}" ] && [ -w "${LAB_ROOT%/*}" ] && [ -x "${LAB_ROOT%/*}" ]; then CLEAN_DEV_WORK="${LAB_ROOT%/*}"; fi
+if [ "$__cd_mode" = external ] && [ -d "$EXTERNAL_ROOT" ] && [ -w "$EXTERNAL_ROOT" ] && [ -x "$EXTERNAL_ROOT" ]; then CLEAN_DEV_WORK="$EXTERNAL_ROOT"; fi
 export CLEAN_DEV_MODE CLEAN_DEV_STAMP CLEAN_DEV_WORK
 __cd_route DEVCACHE "$__cd_root"
 

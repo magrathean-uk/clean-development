@@ -185,11 +185,11 @@ ok U.strictsession "$(get TMPDIR CLAUDE_CODE_SESSION_ID=$SID DEV_STORAGE_VOLUME_
 ok U.strictbash "$(z DEV_STORAGE_VOLUME_TEST=strict /bin/bash -c '. "$HOME/dev/machine/env.zsh"; printf %s "$CLEAN_DEV_MODE"' 2>/dev/null)" external
 ok U.fixture "$(get CLEAN_DEV_MODE)" external
 
-# T 0.6.2: CLEAN_DEV_WORK is the external dev tree when the volume is in use and that tree is writable, else ~/dev/machine
+# T 0.6.2: CLEAN_DEV_WORK follows EXTERNAL_ROOT, independently of the configured VM lab path.
 cp "$H/dev/machine/storage.conf" "$sim/storage.conf.worktree.bak"
 sed "s#^LAB_ROOT=.*#LAB_ROOT=$V/not-created/lab#" "$H/dev/machine/storage.conf" > "$sim/storage.conf.worktree"
 cp "$sim/storage.conf.worktree" "$H/dev/machine/storage.conf"
-ok T.nodevtree "$(get CLEAN_DEV_WORK)" "$H/dev/machine"
+ok T.customlab "$(get CLEAN_DEV_WORK)" "$V/dev"
 cp "$sim/storage.conf.worktree.bak" "$H/dev/machine/storage.conf"
 mkdir -p "$V/dev"
 ok T.external "$(get CLEAN_DEV_WORK)" "$V/dev"

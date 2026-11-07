@@ -654,6 +654,33 @@ test("colima-rehome rollback reconciles planned moves by filesystem truth after 
   assert.throws(() => colimaRehomeRollback(s.conf, s.env, moved.manifest), /both locations exist/);
 });
 
+test("profile-scoped and whole-home rehomes refuse disks shared by Colima profiles", (t) => {
+  const s = colimaLab(t), other = path.join(s.lima, "colima-other-profile");
+  mk(path.join(other, "lima.yaml"), "additionalDisks:\n  - name: colima-sample-vm\n");
+  setLimaReaderForTests((name) => name === "colima-sample-vm"
+    ? { status: "Stopped", disks: ["colima-sample-vm"] }
+    : { status: "Stopped", disks: ["colima-sample-vm"] });
+  for (const options of [{ profile: "sample-vm" }, {}]) {
+    const r = colimaRehome(s.conf, s.env, { ...options, apply: true });
+    assert.equal(r.status, "nothing to move");
+    assert.equal(r.instances.length, 0);
+    assert.match(r.refused.map((item) => item.refused).join("; "), /colima-sample-vm.*colima-other-profile/);
+    assert.ok(fs.existsSync(path.join(s.lima, "_disks", "colima-sample-vm", "datadisk")));
+    assert.ok(fs.existsSync(path.join(s.inst, "lima.yaml")));
+  }
+});
+
+test("colima-rehome preview leaves a missing home absent and apply creates it before fencing", (t) => {
+  const s = colimaLab(t);
+  fs.rmSync(s.colima, { recursive: true });
+  const preview = colimaRehome(s.conf, s.env);
+  assert.equal(preview.status, "preview");
+  assert.equal(fs.existsSync(s.colima), false, "preview does not create the destination home");
+  const moved = colimaRehome(s.conf, s.env, { apply: true });
+  assert.equal(moved.status, "moved");
+  assert.ok(fs.existsSync(path.join(s.colima, "_lima", "colima-sample-vm", "lima.yaml")));
+});
+
 test("colima-rehome refuses running, locked, occupied or unparseable instances and moves nothing", async (t) => {
   const job = spawn("/bin/sleep", ["60"], { stdio: "ignore" });
   t.after(() => job.kill("SIGKILL"));
@@ -681,7 +708,7 @@ test("colima-rehome refuses when external storage is unavailable", (t) => {
   assert.throws(() => colimaRehome(s.conf, { ...s.env, DEV_STORAGE_VOLUME_TEST: "absent" }), /not mounted/);
 });
 
-test("doctor reports Colima migration issues only when the host extension enables its shim", (t) => {
+test("doctor reports Colima migration issues only when the optional shim is installed", (t) => {
   const s = colimaLab(t);
   const row = (r, name) => r.results.find((x) => x.name === name);
   let r = doctor(s.env, { gui: false });
@@ -689,9 +716,11 @@ test("doctor reports Colima migration issues only when the host extension enable
   assert.equal(row(r, "colima instances in lima-home"), undefined);
   mk(path.join(s.home, "dev", "machine", "env.private.zsh"), "# host extension\n");
   r = doctor(s.env, { gui: false });
-  assert.ok(row(r, "colima shim").warn);
-  assert.match(row(r, "colima instances in lima-home").detail, /^colima-sample-vm: run/);
+  assert.equal(row(r, "colima shim"), undefined, "a general private extension does not opt into Colima");
+  assert.equal(row(r, "colima instances in lima-home"), undefined);
   mk(path.join(s.home, "dev", "machine", "bin", "colima"), "#!/bin/sh\n");
+  r = doctor(s.env, { gui: false });
+  assert.match(row(r, "colima instances in lima-home").detail, /^colima-sample-vm: run/);
   colimaRehome(s.conf, s.env, { apply: true });
   r = doctor(s.env, { gui: false });
   assert.equal(row(r, "colima shim"), undefined); assert.equal(row(r, "colima instances in lima-home"), undefined);

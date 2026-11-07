@@ -70,10 +70,10 @@ export function externalAvailable(conf, env = process.env) {
 }
 
 export function rootFor(conf, mode) { return mode === "external" ? conf.externalCache : conf.internalRoot; }
-// Work root for worktrees, jobs and bundles (env.zsh exports it as CLEAN_DEV_WORK): the configured external dev tree
-// beside the lab when the external volume is in use and that tree is writable, else ~/dev/machine.
+// Work root for worktrees, jobs and bundles (env.zsh exports it as CLEAN_DEV_WORK): configured EXTERNAL_ROOT when
+// the external volume is in use and that root is writable, else ~/dev/machine.
 export function workRoot(conf, mode, env = process.env) {
-  const ext = path.dirname(conf.labRoot);
+  const ext = conf.externalRoot;
   if (mode === "external") { try { if (fs.statSync(ext).isDirectory()) { fs.accessSync(ext, fs.constants.W_OK | fs.constants.X_OK); return ext; } } catch { /* falls through */ } }
   return path.join(homeDir(env), "dev", "machine");
 }

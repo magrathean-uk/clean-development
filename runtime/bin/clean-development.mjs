@@ -2,7 +2,7 @@
 // clean-development CLI. Read-only unless a command says --apply, --write or sizes --refresh.
 //   status [--json] [--sizes]        mode, roots, free space, sessions, dot-folders, unavailable external links
 //   sizes [--refresh] [--json]       cached measurements; refresh explicitly writes state
-//   doctor [--json] [--no-gui]       installation health; exit 1 on any failure
+//   doctor [--json] [--gui] [--no-gui] installation health; GUI checks opt in with --gui
 //   housekeeping [--apply] [--json]  what the Stop hook does (forced, all throttles ignored); preview by default
 //   reap [--apply] [--json]          finished-session cleanup only; preview by default
 //   codex-trust [--hooks F] [--apply [--config F]]  print, or write into ~/.codex/config.toml, trusted_hash tables
@@ -176,7 +176,7 @@ async function main() {
     case "version": console.log(VERSION); return 0;
     case "status": status(); return 0;
     case "doctor": {
-      const r = doctor(process.env, { gui: !flag("--no-gui") });
+      const r = doctor(process.env, { gui: flag("--gui") && !flag("--no-gui") });
       print(r, r.results.map((x) => `${x.warn ? "WARN" : x.ok ? "ok  " : "FAIL"} ${x.name}: ${x.detail}`).join("\n"));
       return r.ok ? 0 : 1;
     }

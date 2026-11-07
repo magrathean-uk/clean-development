@@ -28,9 +28,9 @@ export const RELEASE_DIR = /^\d+\.\d+\.\d+$/;
 const shq = (s) => `'${s.replaceAll("'", "'\\''")}'`;
 export function hookShimText(env = process.env, version = VERSION) {
   if (!RELEASE_DIR.test(version)) throw new Error("invalid release version");
-  return `#!/bin/sh\n# clean-development hook shim: stable harness command; the managed CLI launcher selects Node.\n`
+  return `#!/bin/sh\n# clean-development hook shim: lifecycle hooks must never fail the host when Node is unavailable.\n`
     + `rt=${shq(path.join(runtimeRoot(env), version))}\n[ -x "$rt/bin/cd-hook" ] || exit 0\n`
-    + `cli=${shq(path.join(machineDir(env), "bin", "clean-development"))}\n[ -x "$cli" ] || exit 0\nexec "$cli" hook "$@"\n`;
+    + `cli=${shq(path.join(machineDir(env), "bin", "clean-development"))}\n[ -x "$cli" ] || exit 0\n"$cli" hook "$@" || :\nexit 0\n`;
 }
 // The release a shim names, or null when the text is not a shim this runtime wrote.
 export function shimRelease(text, env = process.env) {

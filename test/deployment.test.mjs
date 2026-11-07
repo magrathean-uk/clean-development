@@ -5,6 +5,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { applyTrust, managedTrustEntries, tomlPython, verifyTrustEdit } from "../runtime/lib/codex-trust.mjs";
+import { hookShimPath, hookShimText, runtimeRoot, VERSION } from "../runtime/lib/conf.mjs";
 import { installPackage, treeDigest } from "../installer.mjs";
 import { cli, sim, mk, plugin, privateSourceEnabled } from "./helpers.mjs";
 
@@ -190,6 +191,40 @@ test("both installer previews and unknown flags leave a fabricated HOME byte-ide
   }
 });
 
+test("installer skips an unsupported local Node and rejects an invalid explicit override", () => {
+  const s = sim({ mounted: false }), oldNode = path.join(s.home, ".local/bin/node"), fakeBin = path.join(s.root, "bin");
+  const realNode = process.execPath;
+  fs.mkdirSync(path.dirname(oldNode), { recursive: true });
+  mk(oldNode, '#!/bin/sh\nif [ "$1" = "-e" ]; then exit 1; fi\nexec "$REAL_NODE" "$@"\n');
+  fs.chmodSync(oldNode, 0o755);
+  const supported = mk(path.join(fakeBin, "node"), '#!/bin/sh\nexec "$REAL_NODE" "$@"\n');
+  fs.chmodSync(supported, 0o755);
+  const env = { ...s.env, PATH: `${fakeBin}:/usr/bin:/bin`, REAL_NODE: realNode }; delete env.CLEAN_DEV_NODE;
+  const selected = spawnSync("/bin/sh", [path.join(plugin, "install.sh"), "--dry-run"], { cwd: s.root, env, encoding: "utf8", timeout: 15000 });
+  assert.equal(selected.status, 0, selected.stderr);
+  const invalid = spawnSync("/bin/sh", [path.join(plugin, "install.sh"), "--dry-run"], {
+    cwd: s.root, env: { ...env, CLEAN_DEV_NODE: path.join(s.root, "missing-node") }, encoding: "utf8", timeout: 15000
+  });
+  assert.equal(invalid.status, 1);
+  assert.match(invalid.stderr, /CLEAN_DEV_NODE is not executable/);
+  const unsupported = spawnSync("/bin/sh", [path.join(plugin, "install.sh"), "--dry-run"], {
+    cwd: s.root, env: { ...env, CLEAN_DEV_NODE: oldNode }, encoding: "utf8", timeout: 15000
+  });
+  assert.equal(unsupported.status, 1);
+  assert.match(unsupported.stderr, /CLEAN_DEV_NODE must be Node\.js 20\.12 or later/);
+});
+
+test("stable hook shim exits successfully when its Node-backed launcher fails", () => {
+  const s = sim({ mounted: false }), shim = hookShimPath(s.env), versionDir = path.join(runtimeRoot(s.env), VERSION);
+  mk(path.join(versionDir, "bin/cd-hook"), "#!/bin/sh\nexit 0\n"); fs.chmodSync(path.join(versionDir, "bin/cd-hook"), 0o755);
+  mk(path.join(s.home, "dev/machine/bin/clean-development"), "#!/bin/sh\necho unavailable >&2\nexit 127\n");
+  fs.chmodSync(path.join(s.home, "dev/machine/bin/clean-development"), 0o755);
+  mk(shim, hookShimText(s.env)); fs.chmodSync(shim, 0o755);
+  const r = spawnSync("/bin/sh", [shim, "session-start", "claude"], { cwd: s.root, env: s.env, encoding: "utf8" });
+  assert.equal(r.status, 0);
+  assert.match(r.stderr, /unavailable/);
+});
+
 test("installer discovers Node in the conventional user-local location", () => {
   const s = sim({ mounted: false }), localNode = path.join(s.home, ".local/bin/node");
   fs.mkdirSync(path.dirname(localNode), { recursive: true }); fs.symlinkSync(process.execPath, localNode);
@@ -349,6 +384,20 @@ test("legacy removal checks every configured Codex home and Claude settings file
   assert.equal(r.status, 1);
   for (const file of [codexHooks, claudeSettings, claudeProfile]) assert.ok(r.stderr.includes(file), `missing reference report for ${file}`);
   assert.ok(fs.existsSync(old), "a referenced legacy runtime is preserved");
+});
+
+test("legacy removal retains historical Claude shared-account reference checks", () => {
+  const s = sim({ mounted: false }), old = path.join(s.home, "Library/Application Support/clean-development");
+  mk(path.join(old, "runtime/keep.txt"), "fixture only\n");
+  const sharedFiles = [
+    path.join(s.home, "dev/machine/state/claude-work/shared/settings.json"),
+    path.join(s.home, "dev/state/claude-work/shared/settings.json")
+  ];
+  for (const file of sharedFiles) mk(file, '{"command":"Application Support/clean-development/runtime/bin/cd-hook"}\n');
+  const r = spawnSync("/bin/sh", [path.join(plugin, "remove-legacy.sh"), "--apply"], { env: s.env, encoding: "utf8" });
+  assert.equal(r.status, 1);
+  for (const file of sharedFiles) assert.ok(r.stderr.includes(file), `missing historical reference report for ${file}`);
+  assert.ok(fs.existsSync(path.join(old, "runtime/keep.txt")), "referenced runtime is preserved");
 });
 
 test("legacy removal refuses when a required configured settings file cannot be checked", () => {

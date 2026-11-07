@@ -10,7 +10,7 @@ import { installPackage } from "../installer.mjs";
 import { managedTrustEntries } from "../runtime/lib/codex-trust.mjs";
 import { flushDeletes, LOG_KEEP, LOG_ROTATE_BYTES, rotate } from "../runtime/lib/fsutil.mjs";
 import { HOUR, sweepTrash } from "../runtime/lib/prune.mjs";
-import { layout } from "../runtime/lib/storage.mjs";
+import { layout, workRoot } from "../runtime/lib/storage.mjs";
 import { classify } from "../runtime/lib/sessions.mjs";
 import { pidFileJobs, resetProcessTable } from "../runtime/lib/activity.mjs";
 import { createLease } from "../runtime/lib/leases.mjs";
@@ -261,13 +261,17 @@ test("R4: placeholder and short session ids are rejected with a warning; existin
   for (const k of ["c--to-be-unset", "x-KEY1"]) assert.equal(live(s, k).done, true);
 });
 
-test("R5: an external root unwritable once but writable 5 s later probes external; the reason is stored in the pin", () => {
+test("R5: an external root unwritable once but writable later probes external outside the lifecycle lock", async () => {
   const s = sim();
   fs.chmodSync(s.ext, 0o500);
   const fixer = spawn("/bin/sh", ["-c", `sleep 0.5; chmod 700 '${s.ext}'`], { stdio: "ignore" });
+  const lockFile = path.join(s.home, "dev/machine/state/clean-development/lifecycle.lock"), observation = path.join(s.root, "lock-observation");
+  const observer = spawn("/bin/sh", ["-c", 'sleep 0.1; if [ -e "$1" ]; then printf locked > "$2"; else printf clear > "$2"; fi', "watch-lock", lockFile, observation], { stdio: "ignore" });
   try {
     const r = hook(env(s, { CLEAN_DEV_PROBE_RETRY_MS: "2500" }), "session-start", "claude", { session_id: "dddddddd-0000-4000-8000-0000000000a7", cwd: s.root });
+    await new Promise((resolve) => observer.once("close", resolve));
     assert.equal(r.status, 0);
+    assert.equal(fs.readFileSync(observation, "utf8"), "clear", "the retry wait does not hold the cross-session lifecycle lock");
     const meta = JSON.parse(fs.readFileSync(path.join(s.sessions, "c-0000000000a7.json"), "utf8"));
     assert.equal(meta.mode, "external"); assert.equal(meta.probeAttempts, 2); assert.match(meta.modeReason, /mounted and writable/);
   } finally { fixer.kill(); fs.chmodSync(s.ext, 0o700); }
@@ -300,6 +304,15 @@ test("storage follows the drive: no stale state; Stop records the root in use an
   assert.match(cli(env(s, { CLAUDE_CODE_SESSION_ID: id }), ["status"]).stdout, new RegExp(`^work root CLEAN_DEV_WORK=${s.vol}/dev`, "m"));
   assert.doesNotMatch(cli(s, ["status"]).stdout, /stale/);
   assert.match(JSON.parse(hook(s, "session-start", "claude", { session_id: id, source: "resume" }).stdout).hookSpecificOutput.additionalContext, /mode=external/);
+});
+
+test("work root follows EXTERNAL_ROOT when the VM lab path is customised", () => {
+  const s = sim();
+  const original = fs.readFileSync(s.config, "utf8");
+  fs.writeFileSync(s.config, original.replace(/^LAB_ROOT=.*$/m, `LAB_ROOT=${s.home}/lab`));
+  const conf = loadConf(s.env);
+  assert.equal(conf.valid, true, conf.errors.join("; "));
+  assert.equal(workRoot(conf, "external", s.env), path.join(s.vol, "dev"));
 });
 
 test("storage follows the drive: a session that used both roots is cleaned on both; while external storage is away its pin waits", async () => {

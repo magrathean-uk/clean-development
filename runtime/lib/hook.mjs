@@ -13,7 +13,7 @@ import { appendLog, lstatOrNull, safeDirectory, stampDue, stampTouch, timeLeft }
 import { withLifecycleLock } from "./locks.mjs";
 import { assertOwner, classify, markEnded, projectIdentity, readPin, reapAll, reapSession, recordRoot, sessionIdProblem, sessionKey, touchPin, writePin } from "./sessions.mjs";
 import { harnessProcess } from "./activity.mjs";
-import { OWNER_CONFLICT_FILE, OWNER_FILE, hasOwnerConflict, markOwnerConflict, writeOwner } from "./owners.mjs";
+import { OWNER_CONFLICT_FILE, OWNER_FILE, hasOwnerConflict, markOwnerConflict, readOwner, writeOwner } from "./owners.mjs";
 import { spawnSizeRefresh } from "./sizes.mjs";
 import { agePruneBuilds, capPrune, DAY, HOUR, pruneRepos, sweepTrash, wipeInternalBuilds } from "./prune.mjs";
 import { dotReport } from "./dots.mjs";
@@ -27,26 +27,34 @@ const cargoCacheHome = (env) => env.CLEAN_DEV_CARGO_CACHE_HOME && path.isAbsolut
 // Storage follows the configured external volume: every shell probes it for each session start and resume. The
 // pin's first line only says what the session used before; `lost` marks a session that used the external volume and
 // now finds it gone (its external scratch waits for the drive).
-export function decideMode(conf, env, key) {
+export function decideMode(conf, env, key, preflight = null) {
   const pin = key ? readPin(env, key) : { mode: null };
-  const strict = detect(conf, env);
+  const strict = preflight || detect(conf, env);
+  // The two-write probe can wait five seconds, so sessionStart performs it before taking the shared lifecycle lock.
+  // Recheck mount, directory topology and access under the lock; external routing requires both checks to pass.
+  const current = detect(conf, env, { probe: false, create: false });
+  const observed = strict.mode === "external" && current.mode === "external"
+    ? { ...current, attempts: strict.attempts }
+    : strict.mode === "external" ? current : strict;
+  const mode = strict.mode === "external" && current.mode === "external" ? "external" : "internal";
   const usedExternal = pin.mode === "external" || (pin.meta?.ownedRoots || []).includes(conf.externalCache);
-  return { mode: strict.mode, pinned: !!pin.mode, lost: strict.mode === "internal" && usedExternal, reason: strict.reason, detect: strict };
+  return { mode, pinned: !!pin.mode, lost: mode === "internal" && usedExternal, reason: observed.reason, detect: observed };
 }
 
 export function sessionStart(input, harness, env = process.env) {
-  const r = withLifecycleLock(env, () => startLocked(input, harness, env));
+  const conf = loadConf(env);
+  const preflight = detect(conf, env);
+  const r = withLifecycleLock(env, () => startLocked(input, harness, env, conf, preflight));
   if (r.locked) throw new Error(`lifecycle lock busy${r.reclaim ? ` (reboot reclaim refused: ${r.reclaim.reason})` : ""}; routing remains active, cleanup skipped; run doctor`);
   return r.result;
 }
 
-function startLocked(input, harness, env) {
-  const conf = loadConf(env);
+function startLocked(input, harness, env, conf, preflight) {
   const home = homeDir(env);
   const key = sessionKey(harness, input?.session_id);
   const pin = key ? readPin(env, key) : null;
   if (pin) assertOwner(pin, input.session_id);
-  const d = decideMode(conf, env, key);
+  const d = decideMode(conf, env, key, preflight);
   const root = rootFor(conf, d.mode);
   const l = ensureLayout(root);
   const cwd = typeof input?.cwd === "string" ? input.cwd : null;
@@ -63,7 +71,10 @@ function startLocked(input, harness, env) {
     }, { reopen: pin.ended });
     // Ownership for prune --project (R8) goes to the durable index, never into builds/<key>: a file there would make
     // $CLEAN_DEV_BUILDS non-empty and break `git clone URL "$CLEAN_DEV_BUILDS"`, and scratch disappears at session end.
-    stampOwner(env, ownersDir(env), path.join(ownersDir(env), key), { repo: projectRoot, cwd, harness, key });
+    const priorRoots = prev?.ownedRoots;
+    const externalUsed = root === conf.externalCache || priorRoots?.includes(conf.externalCache) ? true
+      : Array.isArray(priorRoots) || !pin ? false : null;
+    stampOwner(env, ownersDir(env), path.join(ownersDir(env), key), { repo: projectRoot, cwd, harness, key, externalUsed });
   }
   let reap = { reaped: [], live: [], orphans: [] };
   if (key) try { reap = reapAll(conf, env, { currentKey: key, budgetMs: 400, locked: true, log: (m) => appendLog(logPath(env), m) }); } catch (e) { appendLog(logPath(env), `reap: ${e.message}`); }
@@ -84,18 +95,30 @@ function stampOwner(env, anchor, dir, info) {
   } else if (w.conflict || w.error) appendLog(logPath(env), `owner stamp ${dir}: ${w.conflict ? "another key owns it" : w.error}`);
 }
 
-// Index entries hold .owner.json and, after a project switch, an optional .owner-conflict marker. One is removed only
-// when its pin is gone, no root holds builds/<key> (skipped entirely while the external root is unavailable) and it is
-// older than EXTERNAL_BUILD_DAYS.
-function pruneOwnerIndex(env, conf, { roots, complete, deadline, log }) {
+function noteOwnerExternal(env, key) {
+  const dir = path.join(ownersDir(env), key), owner = readOwner(dir);
+  if (owner && owner.externalUsed !== true) {
+    const r = writeOwner(dir, { ...owner, externalUsed: true });
+    if (r.error) appendLog(logPath(env), `owner stamp ${dir}: ${r.error}`);
+  }
+}
+
+// Index entries hold .owner.json and, after a project switch, an optional .owner-conflict marker. Internal-only
+// entries can be removed once their internal build path and pin are gone; external-used or legacy-unknown entries
+// wait until the external root is available and every build path can be checked.
+function pruneOwnerIndex(env, conf, { roots, external, deadline, log }) {
   const dir = ownersDir(env);
-  if (!complete || !safeDirectory(stateDir(env), dir)) return;
+  if (!safeDirectory(stateDir(env), dir)) return;
   for (const d of fs.readdirSync(dir, { withFileTypes: true }).slice(0, 20000)) {
     if (!timeLeft(deadline)) return;
     const p = path.join(dir, d.name), names = d.isDirectory() && !d.isSymbolicLink() ? fs.readdirSync(p) : null;
     if (!/^[cx]-[A-Za-z0-9_-]{12}$/.test(d.name) || !names || names.some((n) => ![OWNER_FILE, OWNER_CONFLICT_FILE].includes(n))) continue;
     const st = lstatOrNull(path.join(p, OWNER_FILE));
     if (!st?.isFile() || Date.now() - st.mtimeMs < conf.EXTERNAL_BUILD_DAYS * DAY) continue;
+    const owner = readOwner(p);
+    // When external storage is away, retire only entries created with explicit internal-only ownership.
+    // Legacy or external-used entries remain until every root can be inspected.
+    if (!external && owner?.externalUsed !== false) continue;
     if (readPin(env, d.name).mode || readPin(env, d.name).meta || roots.some((r) => lstatOrNull(path.join(layout(r).builds, d.name)))) continue;
     try { fs.rmSync(p, { recursive: true, force: true }); } catch (e) { log(`owner index ${p}: ${e.code || e.message}`); }
   }
@@ -148,7 +171,12 @@ export function stop(input, harness, env = process.env, { force = false, dryRun 
     const stage = (name, fn) => { try { fn(); } catch (e) { out.errors.push(`${name}: ${e.code || e.message}`); log(`stop ${name}: ${e.stack || e.message}`); } };
     if (!key && !force) return { ...out, skipped: "missing session identity", reap: { reaped: [], live: [], orphans: [] } };
     if (!conf.valid) return { ...out, skipped: "invalid storage configuration", reap: { reaped: [], live: [], orphans: [] } };
-    if (key && !dryRun) { touchPin(env, key); recordRoot(env, key, rootFor(conf, externalAvailable(conf, env) ? "external" : "internal")); }
+    if (key && !dryRun) {
+      touchPin(env, key);
+      const root = rootFor(conf, externalAvailable(conf, env) ? "external" : "internal");
+      recordRoot(env, key, root);
+      if (root === conf.externalCache) noteOwnerExternal(env, key);
+    }
     const protectedState = protections(env);
     if (protectedState.errors.length) return { ...out, skipped: "uncertain lease registry", leaseErrors: protectedState.errors, reap: { reaped: [], live: [], orphans: [] } };
     const protect = protectedState.protect;
@@ -223,6 +251,7 @@ export function sessionEnd(input, harness, env = process.env) {
     const pin = readPin(env, key);
     if (pin.revision !== observed.revision || (input.generation && input.generation !== pin.meta?.generation)) return { key, skipped: "ownership changed" };
     if (!conf.valid) return { key, skipped: "invalid storage configuration" };
+    if ((observed.meta?.ownedRoots || []).includes(conf.externalCache) || externalAvailable(conf, env)) noteOwnerExternal(env, key);
     if (!markEnded(env, key, { generation: pin.meta?.generation })) return { key, skipped: "invalid or changed ownership state" };
     const s = { key, ...readPin(env, key) };
     const protect = protections(env).protect;

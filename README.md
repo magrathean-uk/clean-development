@@ -2,7 +2,7 @@
 
 Clean Development routes development caches and temporary files to configured storage, and manages cleanup at the end of supported coding sessions. It is designed for macOS workstations using Claude Code or Codex. OpenCode can use the environment routing, but does not have a native lifecycle cleanup integration.
 
-The runtime has no npm dependencies and requires Node.js 20.12 or later. The installer uses `CLEAN_DEV_NODE` when set, then checks common install locations and `PATH`. The Codex hook merge and trust tools need Python 3.11 or later for the standard-library `tomllib` parser. Trust operations search `PATH` and common install locations; set `CLEAN_DEV_PYTHON` to an absolute interpreter path if needed. Clean Development does not publish an npm package; GitHub is the source distribution.
+The runtime has no npm dependencies and requires Node.js 20.12 or later. The installer accepts `CLEAN_DEV_NODE` as an absolute path to a supported Node.js executable; otherwise it checks common install locations and `PATH`, skipping versions that are too old. The Codex hook merge and trust tools need Python 3.11 or later for the standard-library `tomllib` parser. Trust operations search `PATH` and common install locations; set `CLEAN_DEV_PYTHON` to an absolute interpreter path if needed. Clean Development does not publish an npm package; GitHub is the source distribution.
 
 Clone the repository, then run the installer from its directory:
 
@@ -54,14 +54,14 @@ Then merge only the relevant hook fragment into the harness configuration. Previ
 
 ```sh
 python3 fragments/merge-hooks.py fragments/claude-hooks.json "$HOME/.claude/settings.json" --dry-run
-python3.11 fragments/merge-hooks.py fragments/codex-hooks.json "$HOME/.codex/hooks.json" --dry-run
+python3 fragments/merge-hooks.py fragments/codex-hooks.json "$HOME/.codex/hooks.json" --dry-run
 ```
 
 Remove `--dry-run` to apply a reviewed merge. The helper preserves unrelated handlers and saves a recovery copy. The Codex merge needs Python 3.11 or later; the Claude merge can use Python 3. Run `clean-development codex-trust --apply` after installation if required by the Codex configuration. That command also needs Python 3.11 or later; set `CLEAN_DEV_PYTHON` if it is not found automatically. Review Codex trust changes before applying them.
 
 The environment loader can also source `~/dev/machine/env.private.zsh` after standard routing. Treat it as trusted shell code and keep it portable across zsh and Bash. Inspection with `DEV_ENV_INSPECT_ONLY=1` never sources this extension. A standalone clone does not include or create the file. During `--config`, the installer reads only the exact sibling manifest `<source-parent>/.clean-development-private-sidecars.json`; it does not crawl ancestor directories. The manifest may opt in to a fixed set of known sidecars. Only listed files are read, and existing target files and symlinks are preserved. Sidecar sources must be regular files owned by the installer user and not writable by group or other users. For `clean-development run --clean-env`, additional non-secret variable names can be listed one per line in `~/dev/machine/state/clean-development/childenv-allow.list`. Harness identities and secret-like names remain excluded, and variables that require explicit `--keep` still need that option.
 
-For an older installation that placed the runtime under `~/Library/Application Support/clean-development/runtime`, `./remove-legacy.sh` previews the runtime path. After checking that current hooks no longer reference it, `./remove-legacy.sh --apply` removes only that `runtime` subdirectory and preserves other files in the legacy application directory.
+For an older installation that placed the runtime under `~/Library/Application Support/clean-development/runtime`, `./remove-legacy.sh` previews the runtime path. It checks the default Claude/Codex settings, historical Claude shared-account settings and registered additional settings files for old references. After the checks pass, `./remove-legacy.sh --apply` removes only that `runtime` subdirectory and preserves other files in the legacy application directory.
 
 `doctor` checks the default `~/.codex` and `~/.claude/settings.json` only when their configuration files exist. Additional Codex homes, Claude settings files and Claude profile settings files can be listed in `codex-homes.list`, `claude-settings.list` and `claude-profiles.list` under `~/dev/machine/state/clean-development/`. Codex entries are home directories; the other entries are settings files. Use one absolute or `~/`-relative path per line. Entries are required by default; prefix a path with `?` when it is intentionally optional. Symlinks to regular settings files are followed for read-only checks.
 
@@ -69,10 +69,10 @@ Plugin installation makes the guidance skill available; it does not install the 
 
 ```sh
 clean-development version
-clean-development doctor --no-gui
+clean-development doctor
 ```
 
-Use `doctor --no-gui` unless launchd and Xcode cache locations have been configured separately; this package does not install a GUI environment helper. The doctor checks the startup files for the shell in `$SHELL` (zsh or Bash). Registry entries only enable read-only checks; they do not change authentication or settings.
+GUI launchd and Xcode cache checks are opt-in with `doctor --gui`; this package does not install a GUI environment helper. The default `doctor` checks the startup files for the shell in `$SHELL` (zsh or Bash) and works for standalone installs. Registry entries only enable read-only checks; they do not change authentication or settings.
 
 ## Storage and cleanup
 

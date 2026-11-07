@@ -48,6 +48,18 @@ test("doctor treats conflict-preserving installer recovery as a completed receip
   assert.match(check.detail, /^0 unfinished recovery transaction/);
 });
 
+test("plain doctor skips host GUI settings and --gui enables those checks", () => {
+  const s = configure(sim());
+  const plain = cli(s, ["doctor", "--json"]);
+  const gui = cli(s, ["doctor", "--gui", "--json"]);
+  const plainNames = JSON.parse(plain.stdout).results.map((x) => x.name);
+  const guiNames = JSON.parse(gui.stdout).results.map((x) => x.name);
+  assert.ok(!plainNames.includes("GUI launchd env"));
+  assert.ok(!plainNames.includes("Xcode DerivedData"));
+  assert.ok(guiNames.includes("GUI launchd env"));
+  assert.ok(guiNames.includes("Xcode DerivedData"));
+});
+
 function snapshot(root) {
   const rows = [];
   function walk(p) {

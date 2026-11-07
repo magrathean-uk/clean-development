@@ -57,7 +57,8 @@ scan_file() {
   fi
 }
 
-for file in "$HOME/.claude/settings.json" "$HOME/.codex/hooks.json" "$HOME/.codex/config.toml"; do
+for file in "$HOME/.claude/settings.json" "$HOME/.codex/hooks.json" "$HOME/.codex/config.toml" \
+  "$HOME/dev/machine/state/claude-work/shared/settings.json" "$HOME/dev/state/claude-work/shared/settings.json"; do
   if [ -f "$file" ] || [ -L "$file" ]; then scan_file "$file"; fi
 done
 

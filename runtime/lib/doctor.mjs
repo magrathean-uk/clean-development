@@ -54,7 +54,7 @@ function checkHooks(name, file, harness, env, results) {
 
 const sh = (cmd, args) => spawnSync(cmd, args, { encoding: "utf8", timeout: 10000 });
 
-export function doctor(env = process.env, { gui = true, internalWarnBytes = 1024 ** 3 } = {}) {
+export function doctor(env = process.env, { gui = false, internalWarnBytes = 1024 ** 3 } = {}) {
   const home = homeDir(env);
   const results = [];
   const conf = loadConf(env);
@@ -237,12 +237,11 @@ export function doctor(env = process.env, { gui = true, internalWarnBytes = 1024
   const worktrees = worktreeInventory(conf, env);
   for (const wt of worktrees.worktrees) warn("worktree outside root", `${wt.path} (repo ${wt.repo}); expected ${worktreeRoot}${path.sep}`);
   if (worktrees.incomplete) warn("worktree scan", "scan incomplete: git inspection failed or time bound reached");
-  // Colima support is optional. Only a private host extension enables the shim and its related migration checks.
-  const privateEnv = lstatOrNull(path.join(home, "dev", "machine", "env.private.zsh"));
-  const privateExtension = env.CLEAN_DEV_PRIVATE_EXTENSION === "1" || privateEnv?.isFile() === true && !privateEnv.isSymbolicLink();
-  if (privateExtension) {
-    const colimaShim = path.join(home, "dev", "machine", "bin", "colima");
-    if (!lstatOrNull(colimaShim)?.isFile()) warn("colima shim", `${colimaShim} missing: install the optional shim only from a trusted source that explicitly lists it`);
+  // Colima support is optional. A general private environment extension does not opt into Colima; its installed
+  // shim is the concrete marker that this host chose the optional integration.
+  const colimaShim = path.join(home, "dev", "machine", "bin", "colima");
+  const colimaShimStat = lstatOrNull(colimaShim);
+  if (colimaShimStat?.isFile() && !colimaShimStat.isSymbolicLink()) {
     let strayColima = [];
     try { strayColima = children(path.join(conf.labRoot, "VM", "lima-home")).filter((e) => e.isDirectory() && /^colima(-.+)?$/.test(e.name)).map((e) => e.name); } catch { /* external lab unavailable or unreadable */ }
     if (strayColima.length) warn("colima instances in lima-home", `${strayColima.join(" ")}: run clean-development vm colima-rehome to preview moving stopped instances`);

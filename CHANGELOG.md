@@ -3,15 +3,21 @@
 ## 0.6.8 (7 November 2026)
 
 - Makes the Node launcher work with common user installations and PATH, records the installer-selected runtime for GUI-launched hooks, and reports missing Node clearly.
+- Skips unsupported Node installations during auto-detection, rejects invalid explicit `CLEAN_DEV_NODE` paths, and keeps lifecycle hook exit status successful if Node is unavailable.
 - Doctor now supports zsh and Bash startup files, skips unconfigured Claude/Codex homes, treats the guidance plugin as optional, and follows symlinks to regular settings files during read-only registry checks.
 - Explicit registry entries are required unless prefixed with ?, so absent optional profiles stay visible without failing health checks.
 - Blocks a new install while an earlier activation receipt still needs recovery, preventing stale rollback from undoing a later installation.
 - Keeps toolchain homes, VM and Docker settings, histories, telemetry switches and host-specific PATH filtering in the private environment extension. Standalone installs preserve existing host configuration and do not install the optional Colima shim.
 - Makes private sidecar installation opt-in through a validated source manifest, keeps inspection mode from executing the private extension, and preserves existing HF credential locations while routing only model caches.
 - Bounds synchronous Stop hooks to five seconds, matches doctor and release fragments, uses the configured worktree root, and adds conflict-aware installer recovery with `--accept-current`.
-- Narrows legacy removal to the retired `runtime` subdirectory and preserves sibling configuration and receipt files.
+- Narrows legacy removal to the retired `runtime` subdirectory, preserves sibling configuration and receipt files, and retains checks for historical Claude shared-account settings.
+- Refuses Colima rehomes that would move a disk still referenced by another profile; creates a validated missing Colima home before the apply fence.
+- Clarifies that new shells follow the mounted-volume state even when an earlier session pin owns paths on another root.
 - Keeps host-managed Cargo toolchain caches outside automatic pruning unless `CLEAN_DEV_CARGO_CACHE_HOME` explicitly opts them in.
 - Treats conflict-preserving installer recovery as complete in `doctor`, recognises copied Colima shim headers, and syntax-checks the exact manifest-listed sidecar source.
+- Runs the storage write retry before taking the shared lifecycle lock, then rechecks external storage under the lock.
+- Makes GUI launchd/Xcode checks opt-in with `doctor --gui`, and routes `CLEAN_DEV_WORK` from `EXTERNAL_ROOT` independently of the VM lab location.
+- Retires stale internal-only ownership-index entries while external storage is away; external-used and legacy-unknown entries wait until their roots can be checked.
 - Documents the Python 3.11 requirement for Codex TOML operations and limits tests that read parent-source scripts to explicit private-source opt-in.
 
 ## 0.6.7 (7 November 2026)

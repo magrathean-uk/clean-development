@@ -12,12 +12,13 @@ export const OWNER_FILE = ".owner.json";
 export const OWNER_CONFLICT_FILE = ".owner-conflict";
 const absoluteOrNull = (p) => p === null || (typeof p === "string" && path.isAbsolute(p) && !p.includes("\0"));
 
-export function ownerRecord({ repo = null, cwd = null, harness, key = null, created = new Date().toISOString() }) {
+export function ownerRecord({ repo = null, cwd = null, harness, key = null, created = new Date().toISOString(), externalUsed = null }) {
   if (!absoluteOrNull(repo) || !absoluteOrNull(cwd)) throw new Error("owner repo and cwd must be absolute paths or null");
   if (!["claude", "codex", "shell"].includes(harness)) throw new Error("invalid owner harness");
   if (key !== null && (typeof key !== "string" || !/^[cx]-[A-Za-z0-9_-]{12}$/.test(key))) throw new Error("invalid owner key");
   if (typeof created !== "string" || !Number.isFinite(Date.parse(created)) || new Date(created).toISOString() !== created) throw new Error("owner created must be an ISO timestamp");
-  return { schemaVersion: 1, repo, cwd, harness, key, created };
+  if (externalUsed !== null && typeof externalUsed !== "boolean") throw new Error("externalUsed must be true, false or null");
+  return { schemaVersion: 1, repo, cwd, harness, key, created, ...(externalUsed === null ? {} : { externalUsed }) };
 }
 
 export function readOwner(dir) {
@@ -31,7 +32,7 @@ export function readOwner(dir) {
     const raw = readJsonOrNull(file);
     if (!raw || Array.isArray(raw) || raw.schemaVersion !== 1
       || !["repo", "cwd", "harness", "key", "created"].every((k) => Object.hasOwn(raw, k))) return null;
-    return ownerRecord(raw);
+    return ownerRecord({ ...raw, externalUsed: Object.hasOwn(raw, "externalUsed") ? raw.externalUsed : null });
   } catch { return null; }
 }
 
@@ -50,6 +51,12 @@ export function writeOwner(dir, info) {
       if (!owner) return { written: false, error: "unreadable or invalid owner file" };
       if (owner.key !== record.key) return { written: false, conflict: true };
       if (owner.repo !== record.repo) return { written: false, conflict: true, projectChanged: true };
+      // Once a session has used external storage, preserve that fact so owner-index cleanup can wait for that root.
+      // A legacy record with unknown history is not downgraded to internal-only by a later internal resume.
+      if (record.externalUsed === true && owner.externalUsed !== true) {
+        writeFileAtomic(file, JSON.stringify({ ...owner, externalUsed: true }) + "\n", 0o600, { durable: true });
+        return { written: true, updated: true };
+      }
       return { written: false };
     };
     if (lstatOrNull(file)) return existing();

@@ -473,6 +473,43 @@ function inspectInstance(conf, name, from, to, env) {
   if (ours !== theirs) return refuse(`lima.yaml reads as disks [${ours}] but limactl reports [${theirs}]`);
   return { instance: name, profile: COLIMA_INSTANCE.exec(name)[1] || "default", moves };
 }
+// A Lima additional disk is shared by pathname, not copied into an instance directory. Each migration plan moves
+// one profile's disks without consolidating duplicate paths, so inspect every Colima profile and refuse shared disks.
+function diskReferences(from) {
+  const references = new Map(), problems = [];
+  let names;
+  try { names = fs.readdirSync(from).filter((name) => COLIMA_INSTANCE.test(name)).sort(); }
+  catch (e) { return { references, problems: [e.code || e.message] }; }
+  for (const name of names) {
+    const instance = path.join(from, name), instanceStat = stat(instance);
+    if (!instanceStat?.isDirectory() || instanceStat.isSymbolicLink()) { problems.push(`${name}: not a real directory`); continue; }
+    const yamlFile = path.join(instance, "lima.yaml"), yamlStat = stat(yamlFile);
+    if (!yamlStat?.isFile() || yamlStat.isSymbolicLink()) { problems.push(`${name}: lima.yaml unavailable or linked`); continue; }
+    let yaml;
+    try { yaml = fs.readFileSync(yamlFile, "utf8"); } catch (e) { problems.push(`${name}: lima.yaml unreadable (${e.code || e.message})`); continue; }
+    const disks = limaDiskNames(yaml);
+    if (disks === null) { problems.push(`${name}: additionalDisks not understood`); continue; }
+    for (const disk of disks) {
+      if (!references.has(disk)) references.set(disk, new Set());
+      references.get(disk).add(name);
+    }
+  }
+  return { references, problems };
+}
+function excludeUnsafeDiskMoves(plan, from) {
+  const { references, problems } = diskReferences(from), safe = [];
+  for (const instance of plan.instances) {
+    const disks = instance.moves.slice(0, -1).map((move) => path.basename(move.from));
+    let reason = disks.length && problems.length ? `cannot verify shared disk references (${problems[0]})` : "";
+    if (!reason) for (const disk of disks) {
+      const otherUsers = [...(references.get(disk) || [])].filter((name) => name !== instance.instance);
+      if (otherUsers.length) { reason = `additional disk ${disk} is also referenced by ${otherUsers.join(", ")}`; break; }
+    }
+    if (reason) plan.refused.push({ instance: instance.instance, refused: reason });
+    else safe.push(instance);
+  }
+  plan.instances = safe;
+}
 // Two-flag mutual exclusion with the colima shim: take the fence, then look for live shim runs
 // ($COLIMA_HOME/.cd-colima-run.<pid>, written before the shim checks the fence and kept for the whole colima command).
 function liveColimaRuns(colimaHome) {
@@ -537,12 +574,17 @@ export function colimaRehome(conf, env, { profile = null, apply = false, now = n
       const r = inspectInstance(conf, name, from, to, env);
       (r.refused ? plan.refused : plan.instances).push(r);
     }
+    excludeUnsafeDiskMoves(plan, from);
     plan.next = plan.instances.map((i) => { const p = i.profile === "default" ? "" : ` -p ${i.profile}`; return `colima start${p} && colima ssh${p} -- true`; });
     if (keys.from !== keys.to) plan.keyNote = "the homes have different _config/user keys: the first start under the new home authorises its key (Lima regenerates cloud-init with a new instance id every boot); the old key stays authorised in the guest";
     return plan;
   };
   const preview = survey();
   if (!apply || !preview.instances.length) return { ...preview, status: preview.instances.length ? "preview" : "nothing to move" };
+  if (!stat(colima)) {
+    fs.mkdirSync(colima, { mode: 0o700 });
+    syncDirectory(path.dirname(colima));
+  }
   return withFence(colima, env, () => {
     // Re-inspect under the fence: only what is still stopped, unlocked and unchanged moves.
     const plan = survey();
