@@ -1,4 +1,4 @@
-// clean-development 0.6.0 runtime tests. Hermetic: every test builds its own HOME and simulated 4TB under
+// clean-development 0.6.0 runtime tests. Hermetic: every test builds its own HOME and simulated external volume under
 // CLEAN_DEV_TEST_DIR (required) and passes them through the environment. Run: CLEAN_DEV_TEST_DIR=/abs/dir node --test test/*.test.mjs
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -6,10 +6,12 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { tomlPython } from "../runtime/lib/codex-trust.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const plugin = path.dirname(here);
 const rt = path.join(plugin, "runtime");
+const python = process.env.CLEAN_DEV_TEST_PYTHON || tomlPython(process.env) || "python3";
 const base = process.env.CLEAN_DEV_TEST_DIR;
 if (!base || !path.isAbsolute(base)) throw new Error("set CLEAN_DEV_TEST_DIR to an absolute scratch directory");
 fs.mkdirSync(base, { recursive: true });
@@ -18,16 +20,17 @@ let n = 0;
 function sim({ mounted = true } = {}) {
   const root = fs.mkdtempSync(path.join(base, `t${++n}-`));
   const home = path.join(root, "home");
-  const vol = path.join(root, "Volumes", "4TB");
+  const vol = path.join(root, "Volumes", "External");
   fs.mkdirSync(path.join(home, "dev", "machine"), { recursive: true });
-  if (mounted) fs.mkdirSync(path.join(vol, "machine", "cache"), { recursive: true });
+  if (mounted) fs.mkdirSync(path.join(vol, "dev", "cache"), { recursive: true });
   const conf = fs.readFileSync(path.join(plugin, "machine", "storage.conf"), "utf8")
-    .replace(/^EXTERNAL_ROOT=.*$/m, `EXTERNAL_ROOT=${vol}/machine`)
+    .replace(/^EXTERNAL_ROOT=.*$/m, `EXTERNAL_ROOT=${vol}/dev`)
     .replace(/^LAB_ROOT=.*$/m, `LAB_ROOT=${vol}/dev/lab`)
     .replace(/^MODELS_ROOT=.*$/m, `MODELS_ROOT=${vol}/models`);
   fs.writeFileSync(path.join(home, "dev", "machine", "storage.conf"), conf);
-  const env = { HOME: home, PATH: "/usr/bin:/bin", DEV_STORAGE_VOLUME_TEST: mounted ? "mounted" : "absent" };
-  return { root, home, vol, env, ext: path.join(vol, "machine", "cache"), int: path.join(home, "dev", "machine", "cache"),
+  // CLEAN_DEV_TEST_HARNESS_PID=0: no harness process is recorded, so the live test runner never counts as a session owner.
+  const env = { HOME: home, PATH: "/usr/bin:/bin", DEV_STORAGE_VOLUME_TEST: mounted ? "mounted" : "absent", CLEAN_DEV_TEST_HARNESS_PID: "0" };
+  return { root, home, vol, env, ext: path.join(vol, "dev", "cache"), int: path.join(home, "dev", "machine", "cache"),
     sessions: path.join(home, "dev", "machine", "state", "clean-development", "sessions") };
 }
 function hook(s, event, harness, input, extraEnv = {}) {
@@ -51,7 +54,9 @@ const { removeManaged } = await import(path.join(rt, "lib", "fsutil.mjs"));
 test("session key matches env.zsh derivation", () => {
   assert.equal(sessionKey("claude", "aaaaaaaa-bbbb-4ccc-8ddd-0123456789ab"), "c-0123456789ab");
   assert.equal(sessionKey("codex", "019a2b3c-4d5e-7f60-8a9b-c0d1e2f3a4b5"), "x-c0d1e2f3a4b5");
-  assert.equal(sessionKey("codex", "thr_123"), "x-thr_123");
+  assert.equal(sessionKey("codex", "thr_123"), null); // 0.6.2: ids under 12 characters are refused
+  assert.equal(sessionKey("codex", "thr_12345678"), "x-thr_12345678");
+  assert.equal(sessionKey("claude", "aaaaaaaa-to-be-unset"), null);
   assert.equal(sessionKey("claude", "bad id with spaces!!"), null);
   assert.equal(sessionKey("other", "abc"), null);
 });
@@ -72,36 +77,40 @@ test("session-start external: pin, scratch, context", () => {
   assert.ok(fs.statSync(path.join(s.ext, "scratch", "c-0123456789ab", "tmp")).isDirectory());
 });
 
-test("session-start internal: 5 GB rule, dead 4TB links tolerated, dot-folders reported", () => {
+test("session-start internal: all development allowed, 5 GB download rule, dead external links tolerated, dot-folders reported", () => {
   const s = sim({ mounted: false });
   fs.mkdirSync(path.join(s.home, "dev", "source"), { recursive: true });
-  fs.symlinkSync(path.join(s.vol, "dev", "SpecieX"), path.join(s.home, "dev", "source", "SpecieX"));
-  for (const d of [".claude", ".aws", ".insightface", ".opencode", ".cursor"]) fs.mkdirSync(path.join(s.home, d));
-  const agyState = path.join(s.home, "dev", "machine", "state", "antigravity");
-  fs.mkdirSync(agyState, { recursive: true });
-  fs.symlinkSync(agyState, path.join(s.home, ".gemini"));
+  fs.symlinkSync(path.join(s.vol, "dev", "external-project"), path.join(s.home, "dev", "source", "external-project"));
+  for (const d of [".claude", ".aws", ".opencode", ".cursor"]) fs.mkdirSync(path.join(s.home, d));
+  const sharedToolData = path.join(s.home, "dev", "machine", "state", "shared-tool-data");
+  fs.mkdirSync(sharedToolData, { recursive: true });
+  fs.symlinkSync(sharedToolData, path.join(s.home, ".local"));
   fs.writeFileSync(path.join(s.home, ".zshrc"), "");
   fs.mkdirSync(path.join(s.home, "dev", ".hidden"));
   const r = hook(s, "session-start", "codex", { session_id: "019a2b3c-4d5e-7f60-8a9b-c0d1e2f3a4b5", cwd: s.home });
   assert.equal(r.status, 0);
   const text = ctx(r);
   assert.match(text, /mode=internal/);
-  assert.match(text, /over 5 GB: stop, tell G/);
-  assert.match(text, /~\/dev\/source\/SpecieX/);
-  assert.match(text, /~\/\.opencode/); assert.match(text, /~\/\.cursor/); assert.match(text, /~\/dev\/\.hidden/);
-  for (const ok of [".claude", ".aws", ".insightface", ".gemini"]) assert.doesNotMatch(text, new RegExp(`~/\\${ok}[ ,.]`), `${ok} is allowlisted`);
+  assert.match(text, /All development runs on the internal disk/);
+  assert.match(text, /Before any download over 5 GB/);
+  assert.match(text, /~\/dev\/source\/external-project/);
+  assert.doesNotMatch(text, /~\/\.opencode/); assert.match(text, /~\/\.cursor/); assert.match(text, /~\/dev\/\.hidden/);
+  for (const ok of [".claude", ".aws", ".local", ".opencode"]) assert.doesNotMatch(text, new RegExp(`~/\\${ok}[ ,.]`), `${ok} is allowlisted`);
   assert.equal(fs.readFileSync(path.join(s.sessions, "x-c0d1e2f3a4b5.mode"), "utf8"), "internal\n");
 });
 
-test("decided once: an internal pin survives reconnection; a lost external pin reports internal", () => {
+test("storage follows the drive: a session started internal resumes external; one that used the external volume and lost it says its scratch waits", () => {
   const s = sim({ mounted: false });
   hook(s, "session-start", "claude", { session_id: "11111111-1111-4111-8111-111111111111" });
+  fs.mkdirSync(s.ext, { recursive: true });
   const again = hook(s, "session-start", "claude", { session_id: "11111111-1111-4111-8111-111111111111", source: "resume" }, { DEV_STORAGE_VOLUME_TEST: "mounted" });
-  assert.match(ctx(again), /mode=internal/);
+  assert.match(ctx(again), /mode=external/);
   const t = sim();
   hook(t, "session-start", "claude", { session_id: "22222222-2222-4222-8222-222222222222" });
   const lost = hook(t, "session-start", "claude", { session_id: "22222222-2222-4222-8222-222222222222", source: "resume" }, { DEV_STORAGE_VOLUME_TEST: "absent" });
-  assert.match(ctx(lost), /disappeared after this session pinned it/);
+  assert.match(ctx(lost), /mode=internal \(the External volume is not available now; this session's External scratch and builds wait for it\)/);
+  assert.match(ctx(lost), /All development runs on the internal disk/);
+  assert.doesNotMatch(ctx(lost), /suggest waiting|source edits only|ask the user to restart/);
 });
 
 test("session-end removes this session's scratch and internal builds, keeps others", async () => {
@@ -198,22 +207,23 @@ test("removeManaged refuses paths outside managed roots", () => {
   assert.equal(r.removed, false); assert.ok(fs.existsSync(path.join(outside, "f")));
 });
 
-test("Codex trust hashes reproduce the values Codex 0.163 stored on 19 Oct 2026", () => {
-  const notify = "/Users/bolyki/dev/bin/claude-notify";
-  const backup = "(/bin/bash /Users/bolyki/dev/bin/backup-claude-chats >/dev/null 2>&1 &)";
-  const cd = "'/Users/bolyki/dev/toolchains/node/v26.10.0/bin/node' '/Users/bolyki/Library/Application Support/clean-development/runtime/0.4.0/bin/clean-development.js' hook session-start --owner '745b222f-faee-486d-8138-2437da975a96'";
+test("Codex trust hashes are derived from the configured hook commands", () => {
+  const home = "/tmp/clean-development-fixture";
+  const notify = `${home}/dev/bin/claude-notify`;
+  const backup = `(/bin/bash ${home}/dev/bin/backup-claude-chats >/dev/null 2>&1 &)`;
+  const cd = `'${home}/dev/toolchains/node/v26.10.0/bin/node' '${home}/Library/Application Support/clean-development/runtime/0.4.0/bin/clean-development.js' hook session-start --owner 'session-fixture-1234567890'`;
   const m = "startup|resume|clear|compact|fork";
   const doc = { hooks: {
     PermissionRequest: [{ hooks: [{ type: "command", command: notify }] }],
     SessionStart: [{ matcher: m, hooks: [{ type: "command", command: backup }] }, { matcher: m, hooks: [{ type: "command", command: cd }] }],
     Stop: [{ hooks: [{ type: "command", command: backup }] }, { hooks: [{ type: "command", command: notify }] }]
   } };
-  const got = Object.fromEntries(trustEntries("/Users/bolyki/.codex/hooks.json", doc).map((e) => [e.key.split(":").slice(1).join(":"), e.hash]));
-  assert.equal(got["permission_request:0:0"], "sha256:8b5e943c385228caea6ee4af322a8ed2e4bb3c4157083253c419dafbf39b7537");
-  assert.equal(got["session_start:0:0"], "sha256:7e79c130abbdf82cd5af606929966d3a554abdf1be6d43e8f182997246738f37");
-  assert.equal(got["session_start:1:0"], "sha256:70e81496660e44ba86fb2b0bcdc09595a5328ab21a39b9b314fc01c60d7bef67");
-  assert.equal(got["stop:0:0"], "sha256:9ac5b1e37cd1ef62b1bd5e17fe9c15a74526b6f50c07977b2701fc9ff0665d93");
-  assert.equal(got["stop:1:0"], "sha256:259bc6b7e4f4d0adc6c9f6e85024979936fc7b59a565754a087affa9ed6fbf33");
+  const got = Object.fromEntries(trustEntries(`${home}/.codex/hooks.json`, doc).map((e) => [e.key.split(":").slice(1).join(":"), e.hash]));
+  assert.equal(got["permission_request:0:0"], "sha256:97a6191c0d13d9f922d950f7566ad71fd295f914d8855ab3ddca73a0eb80061f");
+  assert.equal(got["session_start:0:0"], "sha256:d7886569964c55dbdcc0a6a3218ec70f674b58a6451fce1b5075665d099857ec");
+  assert.equal(got["session_start:1:0"], "sha256:9756a2cc0b9b7249e6b3f06546dc06979e79ceee052974bf71620faf5decb408");
+  assert.equal(got["stop:0:0"], "sha256:f4264831ce1663ffd7fc076df858a31a3ce0414600c5124d0f2ab6a7258c87e4");
+  assert.equal(got["stop:1:0"], "sha256:aa71302ea01a6cc302ddcd84524c899ba517ae5aa02115fde3b4d9d02093260a");
   assert.equal(normaliseHandler("SessionEnd", { type: "command", command: "x", timeout: 20 }).timeout, 3);
   assert.match(hookHash("Stop", undefined, normaliseHandler("Stop", { type: "command", command: "x", async: true })), /^sha256:[0-9a-f]{64}$/);
 });
@@ -252,7 +262,7 @@ test("codex-trust --apply rewrites only this hooks.json's trust tables and keeps
   const after = applyTrust(before, "/h/.codex/hooks.json", [{ key: "/h/.codex/hooks.json:stop:0:0", hash: "sha256:new" }]);
   assert.ok(!after.includes("sha256:old")); assert.ok(after.includes("sha256:keep")); assert.ok(after.includes("sha256:new"));
   assert.ok(after.includes("[analytics]\nenabled = false"));
-  const py = spawnSync("python3", ["-I", "-c", "import tomllib,sys;tomllib.loads(sys.stdin.read())"], { input: after, encoding: "utf8" });
+  const py = spawnSync(python, ["-I", "-c", "import tomllib,sys;tomllib.loads(sys.stdin.read())"], { input: after, encoding: "utf8" });
   assert.equal(py.status, 0, py.stderr);
 });
 
@@ -292,14 +302,14 @@ test("internal DerivedData survives the last-out wipe and the 24 h idle prune; i
 
 test("doctor and status report unmanaged top-level entries of a cache root", () => {
   const s = sim();
-  mk(path.join(s.ext, "porn-gpr-dng", "a.dng"), 2048);
+  mk(path.join(s.ext, "unmanaged-media", "a.bin"), 2048);
   mk(path.join(s.ext, "npm", "blob"), 10);
   fs.mkdirSync(path.join(s.ext, "deps"), { recursive: true });
   const d = cli(s, ["doctor", "--no-gui", "--json"]);
   const row = JSON.parse(d.stdout).results.find((x) => x.name === "cache root extras");
-  assert.match(row.detail, /external:porn-gpr-dng/); assert.match(row.detail, /external:npm/); assert.doesNotMatch(row.detail, /deps/);
+  assert.match(row.detail, /external:unmanaged-media/); assert.match(row.detail, /external:npm/); assert.doesNotMatch(row.detail, /deps/);
   const st = JSON.parse(cli(s, ["status", "--json"]).stdout);
-  assert.deepEqual(st.rootExtras.map((x) => x.name).sort(), ["npm", "porn-gpr-dng"]);
+  assert.deepEqual(st.rootExtras.map((x) => x.name).sort(), ["npm", "unmanaged-media"]);
 });
 
 test("run shim ignores --session and executes the command after --", () => {

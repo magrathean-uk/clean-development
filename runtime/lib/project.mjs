@@ -5,7 +5,7 @@ import { spawnSync } from "node:child_process";
 import { canonicalPath, lastUsedMs, lstatOrNull, children, timeLeft } from "./fsutil.mjs";
 
 export const CONFIG = ".clean-development.json";
-export const SCHEMA_URL = "https://raw.githubusercontent.com/magrathean-uk/bolyki-dev/main/clean-development/schemas/project-config.schema.json";
+export const SCHEMA_URL = "https://raw.githubusercontent.com/magrathean-uk/clean-development/main/schemas/project-config.schema.json";
 const V1_KEYS = new Set(["$schema", "schemaVersion", "enabled", "root", "cacheRoot", "buildRoot", "scratchRoot", "swiftpmWorkspaceRoot", "retention", "tools"]);
 const V2_KEYS = new Set(["$schema", "schemaVersion", "enabled", "heavy", "buildDirs", "depDirs", "notes"]);
 
@@ -123,7 +123,7 @@ export function projectAgedDirs(root, maxAgeMs, now = Date.now(), options = {}) 
   return existingIgnored(root, [...(pc.config.buildDirs || []), ...(pc.config.depDirs || [])], options);
 }
 
-// Top-level repositories in ~/dev/source (tolerates dead symlinks such as SpecieX while the 4TB is away).
+// Top-level repositories in ~/dev/source (tolerates dead symlinks while external storage is unavailable).
 export function sourceRepos(home) {
   const src = path.join(home, "dev", "source");
   const repos = [];
@@ -134,7 +134,7 @@ export function sourceRepos(home) {
       let target = "";
       try { target = fs.readlinkSync(p); } catch { /* unreadable */ }
       try { fs.statSync(p); } catch { dead.push({ name: d.name, target }); continue; }
-      continue; // live symlinks (4TB projects) are not scanned for pruning
+      continue; // live symlinks to external projects are not scanned for pruning
     }
     if (d.isDirectory()) repos.push(p);
   }

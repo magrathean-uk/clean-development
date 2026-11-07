@@ -3,10 +3,10 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { plugin, sim, mk } from "./helpers.mjs";
+import { plugin, sim, mk, privateSourceEnabled } from "./helpers.mjs";
 
 const wrapper = path.join(path.dirname(plugin), "bin", "opencode2");
-test("OpenCode client launcher filters foreign session identity without calling the real service", { skip: !fs.existsSync(wrapper) }, () => {
+test("OpenCode client launcher filters foreign session identity without calling the real service", { skip: !privateSourceEnabled || !fs.existsSync(wrapper) }, () => {
   const s = sim({ mounted: false });
   mk(path.join(s.home, "dev", "machine", "env.zsh"), fs.readFileSync(path.join(plugin, "machine", "env.zsh")));
   const parentScratch = path.join(s.int, "scratch", "c-parent000000"); fs.mkdirSync(path.join(parentScratch, "tmp"), { recursive: true });

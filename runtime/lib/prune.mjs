@@ -1,9 +1,10 @@
-// clean-development 0.6.0: housekeeping rules (Q30). Only paths inside the managed cache roots, the cargo registry
+// clean-development 0.6.2: housekeeping rules (Q30). Only paths inside the managed cache roots, the cargo registry
 // caches and git-ignored declared repo directories are ever removed.
 import path from "node:path";
 import { canonicalPath, children, lastUsedMs, lstatOrNull, removeManaged, safeDirectory, sizeBytes, timeLeft } from "./fsutil.mjs";
 import { GB, layout } from "./storage.mjs";
 import { projectAgedDirs, sourceRepos } from "./project.mjs";
+import { pidFileJobs, UNOBSERVED_DAYS } from "./activity.mjs";
 
 const HOUR = 3600 * 1000;
 const DAY = 24 * HOUR;
@@ -105,19 +106,33 @@ export function wipeInternalBuilds(conf, { liveKeys = new Set(), dryRun = false,
   return removed;
 }
 
-// Trash entries whose background delete did not finish are queued for bounded-worker retry after an hour.
-export function sweepTrash(root, { dryRun = false, now = Date.now(), eventsFile = null, protect = () => false, deadline = Infinity } = {}) {
+// Trash entries whose background delete did not finish are queued for bounded-worker retry after an hour (a failed
+// worker refreshes the entry's ctime, so a stuck entry is retried hourly, not every turn). Each entry is isolated:
+// one unreadable or unremovable entry never stops the rest of the sweep or the caller. An entry that still hosts a running
+// job (a *.pid file naming a live process, as 0.6.0 left in tmp/m204c-fix2) is retained and logged, not deleted.
+export function sweepTrash(root, { dryRun = false, now = Date.now(), eventsFile = null, protect = () => false, deadline = Infinity, log = () => {} } = {}) {
   const l = layout(root);
-  if (!safeDirectory(root, l.trash)) return [];
   const swept = [];
-  for (const d of children(l.trash)) {
+  let entries;
+  try { if (!safeDirectory(root, l.trash)) return []; entries = children(l.trash); } catch (e) { log(`trash sweep ${l.trash}: ${e.code || e.message}`); return []; }
+  for (const d of entries) {
     if (!timeLeft(deadline)) break;
     const p = path.join(l.trash, d.name);
-    const st = lstatOrNull(p);
-    if (st && now - st.ctimeMs > HOUR) {
-      const r = removeManaged(p, { anchor: root, allowedRoots: [l.trash], dryRun, eventsFile, protect });
-      if (r.queued || r.wouldRemove) swept.push(p);
-    }
+    try {
+      const st = lstatOrNull(p);
+      if (st && now - st.ctimeMs > HOUR) {
+        // A running job always retains the entry; an incomplete inspection or an unverifiable pid (ps unreadable) retains
+        // it for at most UNOBSERVED_DAYS (evicted
+        // dependency trees are often too large to inspect, and must not make trash permanent).
+        // An unreadable subtree (the mode-000 fixtures that wedged 0.6.0) cannot host a pid file we could act on; the
+        // delete restores permissions first, so it does not hold the entry back.
+        const jobs = st.isDirectory() ? pidFileJobs(p, { deadline }) : { jobs: [], complete: true };
+        const job = jobs.jobs[0], unobserved = job?.unknown || (!jobs.complete && !/^unreadable/.test(jobs.reason));
+        if ((job && !job.unknown) || (unobserved && now - st.ctimeMs < UNOBSERVED_DAYS * DAY)) { log(`trash sweep ${p}: retained, ${job ? `job pid ${job.pid} ${job.unknown ? "unverifiable" : "still runs"}` : `not fully inspected (${jobs.reason})`}`); continue; }
+        const r = removeManaged(p, { anchor: root, allowedRoots: [l.trash], dryRun, eventsFile, protect });
+        if (r.queued || r.wouldRemove) swept.push(p);
+      }
+    } catch (e) { log(`trash sweep ${p}: ${e.code || e.message}`); }
   }
   return swept;
 }

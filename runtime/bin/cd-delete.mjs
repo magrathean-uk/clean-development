@@ -14,7 +14,11 @@ for (const { id, path: p, source } of jobs) {
   try {
     if (!safeDirectory(anchor, path.dirname(p)) || !strictlyBelow(path.join(anchor, "trash"), p)) throw new Error("unsafe deletion boundary");
     deleteNow(p);
-  } catch (e) { status = "failed"; failed = true; error = e.code || e.message; }
+  } catch (e) {
+    status = "failed"; failed = true; error = e.code || e.message;
+    // Each entry is isolated; a failed one is retried by a later sweep (ctime refreshed here: one-hour backoff).
+    try { const now = new Date(); fs.utimesSync(p, now, now); } catch { /* gone or unreachable */ }
+  }
   if (eventsFile) appendJsonl(eventsFile, { ts: new Date().toISOString(), event: "delete", id, status, source, path: p, ...(error ? { error } : {}) });
 }
 if (!failed && safeDirectory(anchor, path.dirname(queue)) && strictlyBelow(path.join(anchor, "trash"), queue)) {

@@ -6,22 +6,26 @@ import { fileURLToPath } from "node:url";
 
 export const plugin = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 export const runtime = path.join(plugin, "runtime");
+const privateMarker = path.join(path.dirname(plugin), "machine", "env.private.zsh");
+export const privateSourceEnabled = process.env.CLEAN_DEV_TEST_PRIVATE_SOURCE === "1" && (() => {
+  try { const stat = fs.lstatSync(privateMarker); return stat.isFile() && !stat.isSymbolicLink(); } catch { return false; }
+})();
 export function sim({ mounted = true } = {}) {
   const base = process.env.CLEAN_DEV_TEST_DIR;
   if (!base || !path.isAbsolute(base)) throw new Error("CLEAN_DEV_TEST_DIR must be absolute scratch");
   fs.mkdirSync(base, { recursive: true });
   const root = fs.mkdtempSync(path.join(base, "safety-"));
   const home = path.join(root, "home");
-  const vol = path.join(root, "Volumes", "4TB");
+  const vol = path.join(root, "Volumes", "External");
   fs.mkdirSync(path.join(home, "dev", "machine"), { recursive: true });
-  if (mounted) fs.mkdirSync(path.join(vol, "machine", "cache"), { recursive: true });
+  if (mounted) fs.mkdirSync(path.join(vol, "dev", "cache"), { recursive: true });
   const config = path.join(home, "dev", "machine", "storage.conf");
   fs.writeFileSync(config, fs.readFileSync(path.join(plugin, "machine", "storage.conf"), "utf8")
-    .replace(/^EXTERNAL_ROOT=.*$/m, `EXTERNAL_ROOT=${vol}/machine`)
+    .replace(/^EXTERNAL_ROOT=.*$/m, `EXTERNAL_ROOT=${vol}/dev`)
     .replace(/^LAB_ROOT=.*$/m, `LAB_ROOT=${vol}/dev/lab`)
     .replace(/^MODELS_ROOT=.*$/m, `MODELS_ROOT=${vol}/models`));
-  return { root, home, vol, config, env: { HOME: home, PATH: "/usr/bin:/bin", DEV_STORAGE_VOLUME_TEST: mounted ? "mounted" : "absent" },
-    ext: path.join(vol, "machine", "cache"), int: path.join(home, "dev", "machine", "cache"),
+  return { root, home, vol, config, env: { HOME: home, PATH: "/usr/bin:/bin", DEV_STORAGE_VOLUME_TEST: mounted ? "mounted" : "absent", CLEAN_DEV_TEST_HARNESS_PID: "0" },
+    ext: path.join(vol, "dev", "cache"), int: path.join(home, "dev", "machine", "cache"),
     sessions: path.join(home, "dev", "machine", "state", "clean-development", "sessions") };
 }
 export function hook(s, event, harness, input = {}) {

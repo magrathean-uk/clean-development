@@ -16,6 +16,11 @@ import sys
 import tempfile
 import uuid
 
+try:
+    import tomllib
+except ImportError:  # Python < 3.11 (macOS /usr/bin/python3 is 3.9): positional checks then refuse
+    tomllib = None
+
 OLD = re.compile(r"Application Support/clean-development|/runtime/clean-development/|/clean-development/runtime/")
 
 
@@ -59,33 +64,48 @@ def merge_document(original, fragment):
     return doc, count
 
 
+def _hook_file(key):
+    """The hooks.json a Codex state key names. Codex trims keys (codex-rs/hooks/src/config_rules.rs); newer releases
+    may prefix file:. The rest is <path>:<event>:<group>:<handler>."""
+    key = key.strip()
+    if key.startswith("file:"):
+        key = key[len("file:"):]
+    parts = key.rsplit(":", 3)
+    return parts[0] if len(parts) == 4 else None
+
+
+def _same_file(spelling, target):
+    """Codex does not expand relative or ~ keys, so only absolute spellings can name TARGET; .. and symlinked
+    ancestors are aliases of the same file."""
+    if not spelling or not os.path.isabs(spelling):
+        return False
+    return (os.path.normpath(spelling) == os.path.normpath(str(target.absolute()))
+            or os.path.realpath(spelling) == os.path.realpath(target))
+
+
 def positional_preferences(config, target):
-    """Conservative inspection, not a general TOML parser; never execute configuration."""
+    """Exact TOML read (tomllib); never execute configuration. True: Codex holds positional preferences for TARGET
+    (a hooks.state entry for it with fields other than trusted_hash, two keys Codex merges into one identity, or
+    state that cannot be read), so hooks.json must not change without review. Any TOML spelling reads the same."""
     if not config.exists():
         return False
-    prefix = str(target.absolute()) + ":"
-    current = False
-    root_state = root_hooks = False
-    for line in config.read_text().splitlines():
-        header = re.match(r'^\s*\[hooks\.state\.("(?:[^"\\]|\\.)*")\]\s*(?:#.*)?$', line)
-        if header:
-            root_state = root_hooks = False
-            try:
-                current = json.loads(header[1]).startswith(prefix)
-            except ValueError:
-                return True
-        elif re.match(r'^\s*\[', line):
-            current = False
-            compact = re.sub(r'''["'\s]''', '', line).split('#')[0]
-            if compact.startswith('[hooks.state.'):
-                return True  # unsupported identity spelling needs the host's TOML-aware review
-            root_state = compact == '[hooks.state]'
-            root_hooks = compact == '[hooks]'
-        elif ((root_state and line.strip() and not line.lstrip().startswith('#'))
-              or (root_hooks and re.match(r'^\s*state\s*=', line)) or re.match(r'^\s*hooks\s*=', line)):
+    if tomllib is None:
+        raise ValueError("reading Codex config.toml exactly needs Python 3.11 or later (tomllib); rerun with a supported Python interpreter")
+    try:
+        data = tomllib.loads(config.read_text())
+    except (tomllib.TOMLDecodeError, UnicodeDecodeError):
+        return True
+    hooks = data.get("hooks", {})
+    state = hooks.get("state", {}) if isinstance(hooks, dict) else None
+    if not isinstance(state, dict):
+        return True
+    seen = set()
+    for key, value in state.items():
+        if not _same_file(_hook_file(key), target):
+            continue
+        if key.strip() in seen or not isinstance(value, dict) or set(value) - {"trusted_hash"}:
             return True
-        elif current and line.strip() and not line.lstrip().startswith("#") and not re.match(r'^\s*trusted_hash\s*=', line):
-            return True
+        seen.add(key.strip())
     return False
 
 

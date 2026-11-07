@@ -6,7 +6,7 @@ import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { homeDir, loadConf, stateDir } from "./runtime/lib/conf.mjs";
+import { homeDir, hookShimPath, hookShimText, loadConf, stateDir } from "./runtime/lib/conf.mjs";
 import { lstatOrNull, readJsonOrNull, safeDirectory, syncDirectory, withLock, writeFileAtomic } from "./runtime/lib/fsutil.mjs";
 import { detect, ensureLayout, layout } from "./runtime/lib/storage.mjs";
 import { DIGEST_ALGORITHM, treeDigest } from "./runtime/lib/release.mjs";
@@ -26,6 +26,24 @@ function syncTree(dir) {
   }
   syncDirectory(dir);
 }
+function writeFileAtomicCreateOnly(file, data, mode = 0o600, { durable = false } = {}) {
+  const dir = path.dirname(file);
+  fs.mkdirSync(dir, { recursive: true });
+  const tmp = `${file}.${randomUUID()}.tmp`;
+  try {
+    fs.writeFileSync(tmp, data, { mode, flag: "wx" });
+    fs.chmodSync(tmp, mode);
+    if (durable) {
+      const fd = fs.openSync(tmp, "r"); try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+    }
+    // A same-directory hard link publishes the complete file atomically and fails with EEXIST
+    // instead of replacing a host-local file created after preflight.
+    fs.linkSync(tmp, file);
+    if (durable) syncDirectory(dir);
+    fs.unlinkSync(tmp);
+    if (durable) syncDirectory(dir);
+  } finally { try { fs.unlinkSync(tmp); } catch { /* promoted or never created */ } }
+}
 function options(args) {
   const o = { config: false, replaceConfig: false, dryRun: false };
   for (let i = 0; i < args.length; i++) {
@@ -42,9 +60,49 @@ function options(args) {
   if (o.recover && (o.config || o.replaceConfig || o.dryRun)) throw new Error("--recover cannot be combined with install options");
   return o;
 }
+// The CLI launcher and the version-less hook shim (0.6.2) switch releases; env.zsh, policy and the colima shim (0.6.2,
+// pins Colima's LIMA_HOME) only with --config.
 function ownedFiles(env) {
   const machine = path.join(homeDir(env), "dev", "machine");
-  return [path.join(machine, "bin", "clean-development"), path.join(machine, "env.zsh"), path.join(machine, "storage.conf")];
+  return [path.join(machine, "bin", "clean-development"), path.join(machine, "env.zsh"), path.join(machine, "storage.conf"), hookShimPath(env),
+    path.join(machine, "bin", "colima"), path.join(machine, "env.private.zsh"),
+    ...["childenv-allow.list", "codex-homes.list", "claude-settings.list", "claude-profiles.list"].map((name) => path.join(stateDir(env), name))];
+}
+function privateSidecars(src, env) {
+  const parent = path.resolve(src, "..");
+  if (!lstatOrNull(path.join(parent, "machine", "env.private.zsh"))) return [];
+  const machine = path.join(homeDir(env), "dev", "machine"), state = stateDir(env);
+  const sources = [
+    ["machine/env.private.zsh", path.join(machine, "env.private.zsh")],
+    ["machine/clean-env-allow.list", path.join(state, "childenv-allow.list")],
+    ["machine/clean-development/codex-homes.list", path.join(state, "codex-homes.list")],
+    ["machine/clean-development/claude-settings.list", path.join(state, "claude-settings.list")],
+    ["machine/clean-development/claude-profiles.list", path.join(state, "claude-profiles.list")]
+  ];
+  const files = [];
+  for (const [relative, target] of sources) {
+    const source = path.join(parent, relative), sourceStat = lstatOrNull(source);
+    if (!sourceStat) continue;
+    let fd;
+    let data;
+    try {
+      fd = fs.openSync(source, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0));
+      const opened = fs.fstatSync(fd), uid = typeof process.getuid === "function" ? process.getuid() : null;
+      if (!opened.isFile() || (uid !== null && opened.uid !== uid) || (opened.mode & 0o022))
+        throw new Error(`unsafe private sidecar source: ${source}`);
+      data = fs.readFileSync(fd);
+    } catch (e) {
+      if (e.message?.startsWith(`unsafe private sidecar source:`)) throw e;
+      throw new Error(`cannot read private sidecar source: ${source}: ${e.code || e.message}`);
+    } finally { if (fd !== undefined) fs.closeSync(fd); }
+    const targetStat = lstatOrNull(target);
+    if (targetStat) {
+      if (!targetStat.isFile() && !targetStat.isSymbolicLink()) throw new Error(`unsafe private sidecar target: ${target}`);
+      continue; // Existing host-local extensions and registries are user-managed.
+    }
+    files.push({ path: target, data, mode: 0o600, createOnly: true });
+  }
+  return files;
 }
 function activationState(home, file) {
   if (!safeDirectory(home, path.dirname(file))) throw new Error(`unsafe activation target: ${file}`);
@@ -95,9 +153,13 @@ export function installPackage(src, env, { config = false, replaceConfig = false
   if (!conf.valid) throw new Error(`storage.conf invalid: ${conf.errors.join("; ")}`);
   if (!safeDirectory(home, machine)) throw new Error("unsafe machine directory topology");
   if (lstatOrNull(dest) && treeDigest(dest) !== digest) throw new Error(`immutable release differs: ${dest}; bump the version, never replace active bytes`);
-  const files = [{ path: ownedFiles(env)[0], data: `#!/bin/sh\nexec ${quote(path.join(dest, "bin", "clean-development"))} "$@"\n`, mode: 0o755 }];
+  const node = quote(process.execPath), cli = quote(path.join(dest, "bin", "clean-development.mjs"));
+  const files = [{ path: ownedFiles(env)[0], data: `#!/bin/sh\nnode=${node}\nif [ -x "$node" ]; then exec "$node" ${cli} "$@"; fi\nexec ${quote(path.join(dest, "bin", "clean-development"))} "$@"\n`, mode: 0o755 },
+    { path: ownedFiles(env)[3], data: hookShimText(env, version), mode: 0o755 }];
   if (config) {
+    files.push(...privateSidecars(src, env));
     files.push({ path: ownedFiles(env)[1], data: fs.readFileSync(path.join(src, "machine", "env.zsh")), mode: 0o644 });
+    files.push({ path: ownedFiles(env)[4], data: fs.readFileSync(path.join(src, "machine", "colima")), mode: 0o755 });
     if (useSourcePolicy) files.push({ path: policyFile, data: fs.readFileSync(path.join(src, "machine", "storage.conf")), mode: 0o644 });
   }
   for (const file of files) {
@@ -106,6 +168,7 @@ export function installPackage(src, env, { config = false, replaceConfig = false
   }
   for (const dir of ["lib", "bin"]) for (const f of fs.readdirSync(path.join(runtime, dir)).filter((f) => f.endsWith(".mjs"))) check(process.execPath, ["--check", path.join(runtime, dir, f)], env);
   for (const f of ["cd-hook", "clean-development"]) check("/bin/sh", ["-n", path.join(runtime, "bin", f)], env);
+  if (config) check("/bin/sh", ["-n", path.join(src, "machine", "colima")], env);
   if (config) for (const shell of ["/bin/zsh", "/bin/bash"]) check(shell, ["-f", "-n", path.join(src, "machine", "env.zsh")], env);
   const candidates = [conf.internalRoot];
   if (detect(conf, env, { probe: false, create: false }).mode === "external") candidates.push(conf.externalCache);
@@ -119,6 +182,17 @@ export function installPackage(src, env, { config = false, replaceConfig = false
   // Validate all paths before creating a journal/lock or publishing a release.
   if (!safeDirectory(home, stateDir(env)) || !safeDirectory(home, path.dirname(dest))) throw new Error("unsafe install state/runtime topology");
   const r = withLock(path.join(stateDir(env), "install.lock"), () => {
+    const receiptRoot = path.join(stateDir(env), "installations"), receiptRootStat = lstatOrNull(receiptRoot);
+    if (receiptRootStat && (!receiptRootStat.isDirectory() || receiptRootStat.isSymbolicLink())) throw new Error(`unsafe install receipts directory: ${receiptRoot}`);
+    const pending = receiptRootStat ? fs.readdirSync(receiptRoot).flatMap((entry) => {
+      const dir = path.join(receiptRoot, entry), receiptFile = path.join(dir, "receipt.json");
+      if (!lstatOrNull(dir)?.isDirectory() || lstatOrNull(dir)?.isSymbolicLink()) return [];
+      const receiptStat = lstatOrNull(receiptFile);
+      if (!receiptStat?.isFile() || receiptStat.isSymbolicLink()) return [];
+      const receipt = readJsonOrNull(receiptFile);
+      return receipt && !["committed", "rolled-back"].includes(receipt.status) ? [{ id: receipt.id, file: receiptFile, status: receipt.status }] : [];
+    }) : [];
+    if (pending.length) throw new Error(`unfinished install transaction ${pending[0].id || "(unknown)"} (${pending[0].status}) needs recovery before another install; inspect ${pending[0].file} and run install.sh --recover ID`);
     const id = `${new Date().toISOString().replace(/[:.]/g, "-")}-${randomUUID()}`;
     const dir = path.join(stateDir(env), "installations", id);
     fs.mkdirSync(path.join(dir, "files"), { recursive: true, mode: 0o700 });
@@ -128,7 +202,7 @@ export function installPackage(src, env, { config = false, replaceConfig = false
       for (const [index, file] of files.entries()) {
         const { bytes, mode } = activationState(home, file.path);
         if (bytes) writeFileAtomic(path.join(dir, "files", String(index)), bytes, 0o600, { durable: true });
-        journal.files.push({ index, path: file.path, beforeHash: bytes === null ? null : hash(bytes), beforeMode: mode,
+        journal.files.push({ index, path: file.path, createOnly: file.createOnly === true, beforeHash: bytes === null ? null : hash(bytes), beforeMode: mode,
           afterHash: hash(file.data), afterMode: file.mode, intent: false });
       }
       saveJournal(receipt, journal);
@@ -146,12 +220,24 @@ export function installPackage(src, env, { config = false, replaceConfig = false
       journal.status = "activating"; saveJournal(receipt, journal); onPhase("runtime-published");
       for (const [index, file] of files.entries()) {
         const current = activationState(home, file.path), expected = journal.files[index];
+        if (file.createOnly && (expected.beforeHash !== null || current.bytes !== null)) {
+          onPhase(`file-preserved-${index}`);
+          continue;
+        }
         if ((current.bytes === null ? null : hash(current.bytes)) !== expected.beforeHash || current.mode !== expected.beforeMode)
           throw new Error(`activation conflict: ${file.path}`);
         // Refused pre-activation edits are not ours to restore, even when they happen to
         // match the planned output. Journal write intent only after validating the backup.
         expected.intent = true; saveJournal(receipt, journal);
-        writeFileAtomic(file.path, file.data, file.mode, { durable: true });
+        try {
+          if (file.createOnly) writeFileAtomicCreateOnly(file.path, file.data, file.mode, { durable: true });
+          else writeFileAtomic(file.path, file.data, file.mode, { durable: true });
+        } catch (e) {
+          if (!file.createOnly || e.code !== "EEXIST") throw e;
+          expected.intent = false; saveJournal(receipt, journal);
+          onPhase(`file-preserved-${index}`);
+          continue;
+        }
         onPhase(`file-${index}`);
       }
       ensureLayout(conf.internalRoot);
@@ -174,7 +260,7 @@ function recover(id, env) {
   if (!/^[A-Za-z0-9-]+$/.test(id)) throw new Error("invalid transaction ID");
   const dir = path.join(stateDir(env), "installations", id), file = path.join(dir, "receipt.json");
   const journal = readJsonOrNull(file);
-  if (!journal || journal.id !== id || journal.status === "committed") throw new Error("no unfinished transaction with that ID");
+  if (!journal || journal.id !== id || ["committed", "rolled-back"].includes(journal.status)) throw new Error("no unfinished transaction with that ID");
   const result = withLock(path.join(stateDir(env), "install-recovery.lock"), () => {
     const lock = path.join(stateDir(env), "install.lock"), owner = readJsonOrNull(lock);
     if (lstatOrNull(lock)) {

@@ -41,7 +41,7 @@ for (const shell of ["/bin/zsh", "/bin/bash"]) {
     fs.appendFileSync(s.config, `LAB_ROOT="${travel}"\nINTERNAL_ROOT="${s.int}/"\n`);
     assert.equal(loadConf(s.env).valid, true);
     assert.equal(shellMode(s, shell), `external|${s.ext}`);
-    fs.writeFileSync(s.config, `EXTERNAL_VOLUME=4TB\nEXTERNAL_ROOT=${s.vol}/machine\nINTERNAL_ROOT=$HOME/dev/machine/cache\n`);
+    fs.writeFileSync(s.config, `EXTERNAL_VOLUME=External\nEXTERNAL_ROOT=${s.vol}/dev\nINTERNAL_ROOT=$HOME/dev/machine/cache\n`);
     assert.equal(loadConf(s.env).valid, true);
     assert.equal(shellMode(s, shell), `external|${s.ext}`, "omitted dependent keys use the same defaults");
     assert.equal(fs.existsSync(travel), false);

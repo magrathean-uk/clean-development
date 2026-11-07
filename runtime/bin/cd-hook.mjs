@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// clean-development 0.6.0 hook entry: cd-hook.mjs <session-start|stop|session-end> <claude|codex>
+// clean-development 0.6.2 hook entry: cd-hook.mjs <session-start|stop|session-end> <claude|codex>
 // Reads the hook JSON from stdin. Always exits 0; SessionStart prints hookSpecificOutput JSON (Claude and Codex accept the
-// same shape); Stop and SessionEnd print nothing (Codex treats empty output with exit 0 as success).
+// same shape); SessionEnd and Stop print nothing (Codex treats empty output with exit 0 as success).
 import { contextText, sessionEnd, sessionStart, stop } from "../lib/hook.mjs";
 import { appendJsonl, appendLog, flushDeletes } from "../lib/fsutil.mjs";
 import { VERSION, eventsPath, logPath } from "../lib/conf.mjs";
@@ -31,9 +31,12 @@ let out = "";
 const began = Date.now();
 let sid = null;
 let generation = null;
+// Rows carry outcome (alias of status: completed|deferred|blocked|failed), durationMs and, on failure, error.
 const receipt = (mode, status, result = {}) => {
   try { appendJsonl(eventsPath(), { ts: new Date().toISOString(), harness, event, session_id: sid,
-    mode, version: VERSION, generation, status, durationMs: Date.now() - began, ...(result.skipped ? { reason: result.skipped } : {}), ...(result.deferred || result.timedOut ? { deferred: true } : {}),
+    mode, version: VERSION, generation, status, outcome: status, durationMs: Date.now() - began, ...(result.skipped ? { reason: result.skipped } : {}),
+    ...(result.retained ? { reason: `retained: ${result.retained}` } : {}), ...(result.error ? { error: result.error } : {}),
+    ...(result.errors?.length ? { errors: result.errors.slice(0, 8) } : {}), ...(result.deferred || result.timedOut ? { deferred: true } : {}),
     ...(result.repoBlocked?.length ? { repoBlockedCount: result.repoBlocked.length, repoBlocked: result.repoBlocked.slice(0, 8) } : {}) }); } catch { /* invalid HOME must not fail the host */ }
 };
 try {
@@ -62,10 +65,10 @@ try {
   }
 } catch (e) {
   try { appendLog(logPath(), `${event} ${harness}: ${e.stack || e.message}`); } catch { /* invalid HOME */ }
-  receipt(null, "failed", { skipped: e.message });
+  receipt(null, "failed", { error: e.message });
   if (event === "session-start") {
     out = JSON.stringify({ hookSpecificOutput: { hookEventName: "SessionStart",
-      additionalContext: `clean-development ${VERSION}: lifecycle registration/cleanup failed; routing from ~/dev/machine/env.zsh still applies. Do not assume project ownership is registered. Run \`clean-development doctor\` and tell G.` } });
+      additionalContext: `clean-development ${VERSION}: lifecycle registration/cleanup failed; routing from ~/dev/machine/env.zsh still applies. Do not assume project ownership is registered. Run \`clean-development doctor\` and tell the user.` } });
   }
 }
 // Flush stdout (pipes are asynchronous on macOS), then exit 0 even if a handle is still open.

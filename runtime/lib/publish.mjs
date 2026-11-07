@@ -5,8 +5,9 @@ import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { homeDir, stateDir } from "./conf.mjs";
 import { canonicalLocation, createLease, updateLease } from "./leases.mjs";
-import { canonicalPath, lstatOrNull, safeDirectory, strictlyBelow, syncDirectory, withLock, writeFileAtomic } from "./fsutil.mjs";
+import { canonicalPath, lstatOrNull, safeDirectory, strictlyBelow, syncDirectory, writeFileAtomic } from "./fsutil.mjs";
 import { findProjectRoot, loadProjectConfig } from "./project.mjs";
+import { withLifecycleLock } from "./locks.mjs";
 
 const digest = (p) => {
   const h = createHash("sha256"), buf = Buffer.alloc(1024 * 1024), fd = fs.openSync(p, "r");
@@ -32,8 +33,7 @@ export function publishFile(conf, env, source, destination, { kind = "evidence",
   }
   const plan = { schemaVersion: 1, id: randomUUID(), kind, source, destination, bytes: st.size, mode: st.mode & 0o777 };
   if (!apply) return { ...plan, sourceDigest: digest(source), status: "preview" };
-  const lock = path.join(stateDir(env), "lifecycle.lock");
-  const acquired = withLock(lock, () => createLease(conf, env, [source], { owner: `publication ${plan.id}`, publicationId: plan.id }));
+  const acquired = withLifecycleLock(env, () => createLease(conf, env, [source], { owner: `publication ${plan.id}`, publicationId: plan.id }));
   if (acquired.locked) throw new Error("lifecycle locked; source lease was not acquired, publication not started");
   let record, receipt, succeeded = false;
   try {
@@ -73,6 +73,6 @@ export function publishFile(conf, env, source, destination, { kind = "evidence",
   } finally {
     // Pending/failed publication is unique unfinished work, not an expiring consumer job. Even
     // parent death or a multi-hour copy cannot expose its sole source to retention cleanup.
-    if (succeeded) try { withLock(lock, () => updateLease(env, acquired.result.id, { release: true, recoveryConfirmed: true })); } catch { /* durable hold remains; inspect sourceLease */ }
+    if (succeeded) try { withLifecycleLock(env, () => updateLease(env, acquired.result.id, { release: true, recoveryConfirmed: true })); } catch { /* durable hold remains; inspect sourceLease */ }
   }
 }

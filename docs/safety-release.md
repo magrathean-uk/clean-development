@@ -1,6 +1,6 @@
 # Safety release scope and acceptance
 
-This is the source implementation following the cross-harness review of 16-24 October 2026. It is **not a production deployment receipt**. Development is isolated on `feat/clean-development-safety`; the original checkout, installed runtime, harness settings, accounts and running services are not changed by source validation.
+This document describes the current Clean Development source, version 0.6.8. It is **not a deployment receipt**: publishing source does not install the runtime or configure Claude Code or Codex hooks. The 0.6.1 work was integrated into the main source line; later changes and review notes are recorded in [CHANGELOG.md](../CHANGELOG.md). Validate the exact version and host configuration before relying on runtime behaviour.
 
 ## Delivered contracts
 
@@ -8,14 +8,14 @@ This is the source implementation following the cross-harness review of 16-24 Oc
 |---|---|---|
 | F1 fallback/resume loss | All live keys veto every build selector, on either root. JSON ownership is authoritative for new records; resume advances an ended generation, clears the compatibility end marker and preserves root history. Stale revisions/tagged end events cannot reap a new owner. | `test/safety.test.mjs`: Claude/Codex fallback, absent/reconnected resume, stale snapshots and tagged end/idempotent starts |
 | F2 admission/paths | Invalid policy has no cleanup authority; shell parses data, never executes it. Unsafe anchors/managed parents/trash links are refused. Candidate leaf links are not followed. Failed rename retains the source. Invalid legacy config has no inferred delete authority; invalid v2 cannot be silently migrated. | `test/policy.test.mjs`, `test/safety.test.mjs`; ordinary link and external/internal controls retained |
-| F3 reprovision rollback | Only successfully moved originals, or known absent-before-install entries, can be replaced during rollback. An untouched original is never removed. Failed replacements and backups are retained; failed restore is reported, not called success. | `test/deployment.test.mjs`: shell-level extracted production rollback across five partial-move boundaries |
+| F3 installer rollback | Activation files are restored only when they still match this install's recorded output. User edits and linked targets remain conflicts; failed recovery bytes stay available. A pending receipt blocks later installs until recovery is resolved. | `test/deployment.test.mjs`: injected activation failures, concurrent edits, mode-only rollback, abrupt process exit and explicit recovery |
 | F4 deployment/trust | Strict truthful previews; immutable runtime and permission/content identity; durable backup/activation intent and conflict-aware rollback. Target topology/bytes/mode are revalidated before write intent; pre-activation user edits are not rollback targets. Dead-installer recovery is explicit. Hook settings have recovery copies; Codex preference changes require review; refresh/rebuild preserve disablement and unknown state. | Deployment fixtures inject stage/publication/file/layout failures, abrupt child exit, concurrent edit, mode-only rollback, pre-activation mode/link changes, previews and trust/merge guards |
 | F5 activity/ownership | Canonical per-checkout owner veto; explicit bounded leases for long/quiet jobs and cache consumers. Unknown activity/measurement does not mean zero. Corrupt protection blocks cleanup. | Lifetime/cache-alias/lease expiry/registry tests; positive owner controls |
 | F6 deadlines/completion | Shared ownership lock; cooperative start/end/Stop deadlines and bounded Git/du probes; defer incomplete work rather than silently drop ownership. Hook outcomes carry release/generation/duration; deletion workers have distinct correlated completion events. One batch worker per anchor/invocation, with queue manifests instead of huge argument lists. | Open-stdin and stalled-Git tests; batching/receipt and lock replacement/recovery tests |
-| F7 OpenCode | Honest environment-only support; source `bin/opencode2` filters foreign session identity and resets routing for a new client launch. No native deletion adapter or service restart is introduced. | Launcher fixture replaces the executable with a local stub; real service untouched |
+| F7 OpenCode boundary | OpenCode can use the sourced environment routing. This package does not ship a client launcher, server manager or native session-cleanup adapter. | `README.md` support table and `test/env-modes.sh` routing fixtures; no OpenCode service is invoked |
 | F8 unique work/jobs | Explicit path protection; single-file destination-side verified no-clobber publication, non-expiring source hold and durable receipt. Important output is not certified merely because a model finishes. | Publication conflict/source-mutation/receipt-failure/retry and failed-copy parent-end/recovery-confirmation tests |
 
-The core remains dependency-free Node. Adjacent Python helpers retain their existing interpreter requirements. Tests of host trust/config logic are pure fixtures, not actual app-server calls. Numbered-profile regressions use fake CLIs, fake login records and mocked VPS responses, with a fabricated parent HOME so nested shells cannot load real startup hooks.
+The runtime has no npm dependencies and requires Node 20.12 or later. Codex TOML merge and trust operations require Python 3.11 or later for `tomllib`; other helper paths use their documented Python interpreter. Tests use fabricated homes and volumes. Parent-monorepo scripts run only when the test suite receives an explicit private-source opt-in.
 
 ## Deliberate compatibility choices
 
@@ -39,19 +39,19 @@ Hook completion does not mean all bytes were reclaimed. `events.jsonl` reports t
 
 ## Test and rollout gates
 
-Source checks passed on current Node 26.12.1, current LTS 24.22.1 and minimum-supported 20.12.0: 97 Node tests and 52 shell assertions per version. The [current validation record](validation-2026-10-25-current.md) records bounded Git deferral/retry, publication-hold and installer-conflict regressions, aliased fixture coverage, fingerprints and limited native-host probes. The [earlier record](validation-2026-10-25.md) retains intermediate failures and older evidence. These checks do not satisfy all native-host, hardware or deployment gates below.
+The 0.6.1 source checks are summarised in [the release record](release-0.6.1.md). Those historical results do not establish full 0.6.8 validation or satisfy the native-host, hardware and deployment gates below. Version-specific changes and checks are listed in [CHANGELOG.md](../CHANGELOG.md).
 
 1. Run `npm run check` and `npm test` with a unique explicit `CLEAN_DEV_TEST_DIR` on available Node versions. All sentinels and destructive targets stay in that directory. Tests must not invoke actual account/model/network/storage operations.
 2. Run the original positive controls as well as the added negative tests; do not call a fixture-confirmed fix production acceptance. Verify read-only inspection and retained rollback bytes.
 3. Review policy overlay preservation, source pins, effective hook graph and explicit disabled Codex entries. Hook merges/config rebuilds deliberately refuse changed positional preferences; resolve intent before applying, never reset state to make installation pass.
-4. **Separate approval required:** back up touched configuration privately, retain runnable 0.6.0 references and stop conflicting old/new cleanup writers before a canary. Install only one disposable launch path/project, then add concurrent owners. Updating a plugin/skill alone is not runtime or hook deployment.
-5. Exercise actual supported harness startup/resume/Stop/end, sandbox writes, completion receipts and generation semantics; test five seats individually with existing native authentication, without moving account paths or copying credentials.
+4. Before a canary, back up touched configuration, retain a runnable previous runtime and stop conflicting old/new cleanup writers. Install only one disposable launch path/project, then add concurrent owners. Updating a plugin/skill alone is not runtime or hook deployment.
+5. Exercise actual supported harness startup/resume/Stop/end, sandbox writes, completion receipts and generation semantics. If multiple profiles are configured, validate each profile with its own existing authentication; do not move account paths or copy credentials.
 6. Exercise real removable/read-only/reconnected storage only with disposable media and ordinary workflows stopped. No live-yank, service restart, reboot or paid/model call is part of this source test suite.
 7. Verify rollback before expanding; stop destructive canary work if live/foreign sentinels disappear, unfinished/recovery bytes are lost, disablement changes, roots are misadopted or completion cannot be verified. Preserve evidence, not broad cleanup.
 
 ## Still outside this patch
 
-- A native OpenCode V2 session/location/tool-environment adapter and reused-server acceptance; the other installed `opencode` launcher/skill bridge needs its own reviewed deployment/provenance reconciliation.
+- A native OpenCode session/location/tool-environment adapter and reused-server acceptance. Third-party launcher integrations require separate validation.
 - Fully generated restore kits, automatic skill-export retirement and a machine-wide deployment manifest covering every historical distribution. Historical payloads were not rewritten as if they were current.
 - A general workload file/CPU/disk envelope, OS supervision, reboot-resume protocol or arbitrary directory/publication transaction framework. The new lease/publication primitives are an explicit small foundation for those consumers.
 - Root-marker adoption/mount replacement policy, full-ID routing migration, native descriptor-relative race protection and actual long-lived read-only consumer acceptance.

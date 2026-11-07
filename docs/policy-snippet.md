@@ -1,4 +1,4 @@
-<!-- clean-development-policy:v5 (clean-development 0.6.1; canonical: bolyki-dev/clean-development/docs/policy-snippet.md) -->
+<!-- clean-development-policy:v5 (clean-development 0.6.8; public source: magrathean-uk/clean-development/docs/policy-snippet.md) -->
 ## Storage reference
 
 `~/dev/machine/env.zsh` configures tool homes and caches. `$CLEAN_DEV_MODE` identifies the session's external or internal storage mode. `$TMPDIR` identifies session scratch and `$CLEAN_DEV_BUILDS` identifies build output; cache paths are exposed through the tool-specific environment variables.

@@ -1,10 +1,10 @@
-// clean-development 0.6.0: storage.conf reader and machine paths. No dependencies.
+// clean-development 0.6.2: storage.conf reader and machine paths. No dependencies.
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { strictlyBelow } from "./fsutil.mjs";
 
-export const VERSION = "0.6.1";
+export const VERSION = "0.6.8";
 
 export function homeDir(env = process.env) {
   const h = env.HOME && path.isAbsolute(env.HOME) ? env.HOME : os.homedir();
@@ -18,7 +18,26 @@ export const stampsDir = (env = process.env) => path.join(stateDir(env), "stamps
 export const logPath = (env = process.env) => path.join(stateDir(env), "hook.log");
 export const eventsPath = (env = process.env) => path.join(stateDir(env), "events.jsonl");
 export const deletionsPath = (env = process.env) => path.join(stateDir(env), "deletions.jsonl");
+// Durable ownership index for prune --project: owners/<key>/.owner.json, outside every cache root (0.6.2).
+export const ownersDir = (env = process.env) => path.join(stateDir(env), "owners");
 export const runtimeRoot = (env = process.env) => path.join(machineDir(env), "runtime", "clean-development");
+// Version-less hook entry written by install.sh. Hook command text (and so Codex trust hashes) survives upgrades;
+// the shim names the active immutable release. Release directories are the X.Y.Z siblings of active/.
+export const hookShimPath = (env = process.env) => path.join(runtimeRoot(env), "active", "bin", "cd-hook");
+export const RELEASE_DIR = /^\d+\.\d+\.\d+$/;
+const shq = (s) => `'${s.replaceAll("'", "'\\''")}'`;
+export function hookShimText(env = process.env, version = VERSION) {
+  if (!RELEASE_DIR.test(version)) throw new Error("invalid release version");
+  return `#!/bin/sh\n# clean-development hook shim: stable harness command; the managed CLI launcher selects Node.\n`
+    + `rt=${shq(path.join(runtimeRoot(env), version))}\n[ -x "$rt/bin/cd-hook" ] || exit 0\n`
+    + `cli=${shq(path.join(machineDir(env), "bin", "clean-development"))}\n[ -x "$cli" ] || exit 0\nexec "$cli" hook "$@"\n`;
+}
+// The release a shim names, or null when the text is not a shim this runtime wrote.
+export function shimRelease(text, env = process.env) {
+  const m = String(text).match(/^rt='([^']+)'$/m);
+  if (!m || path.dirname(m[1]) !== runtimeRoot(env) || !RELEASE_DIR.test(path.basename(m[1]))) return null;
+  return text === hookShimText(env, path.basename(m[1])) ? path.basename(m[1]) : null;
+}
 export const confPath = (env = process.env) => path.join(machineDir(env), "storage.conf");
 
 const NUMERIC = {
@@ -26,7 +45,8 @@ const NUMERIC = {
   INTERNAL_BUILD_IDLE_HOURS: 24, SESSION_STALE_HOURS: 24, BIG_DOWNLOAD_GB: 5, INTERNAL_MIN_FREE_GB: 40
 };
 const LISTS = {
-  HOME_DOT_ALLOW: ".agents .aws .cache .claude .codex .config .cups .gnupg .insightface .local .opencode .ssh .thumbnails .Trash .warp .zsh_sessions",
+  DEV_TOP_ALLOW: "machine source",
+  HOME_DOT_ALLOW: ".agents .aws .cache .claude .codex .config .cups .gnupg .local .opencode .ssh .thumbnails .Trash .warp .zsh_sessions",
   HOME_DOTFILE_ALLOW: ".CFUserTextEncoding .DS_Store .claude.json .claude.json.backup .gitconfig .zcompdump .zprofile .zsh_history .zshenv .zshrc",
   DEV_DOT_ALLOW: ".DS_Store"
 };
@@ -81,8 +101,8 @@ export function loadConf(env = process.env, { text: suppliedText } = {}) {
   const v = parsed.values;
   const keys = new Set(["STORAGE_CONF_VERSION", "EXTERNAL_VOLUME", "EXTERNAL_ROOT", "EXTERNAL_CACHE", "INTERNAL_ROOT", "LAB_ROOT", "MODELS_ROOT", "SD_VOLUME", ...Object.keys(NUMERIC), ...Object.keys(LISTS)]);
   for (const key of Object.keys(v)) if (!keys.has(key)) errors.push(`unknown policy key ${key}`);
-  const externalVolume = v.EXTERNAL_VOLUME ?? "4TB";
-  const externalRoot = v.EXTERNAL_ROOT ?? `/Volumes/${externalVolume}/machine`;
+  const externalVolume = v.EXTERNAL_VOLUME ?? "External";
+  const externalRoot = v.EXTERNAL_ROOT ?? `/Volumes/${externalVolume}/dev`;
   const conf = {
     file,
     version: VERSION,
