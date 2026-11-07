@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { homeDir, stateDir } from "./conf.mjs";
-import { detect, rootExtras } from "./storage.mjs";
+import { detect, rootExtras, workRoot } from "./storage.mjs";
 import { lstatOrNull, readJsonOrNull, safeDirectory } from "./fsutil.mjs";
 
 const realDir = (p) => lstatOrNull(p)?.isDirectory() === true;
@@ -169,7 +169,8 @@ export function policyInventory(conf, env = process.env) {
 
 export function worktreeInventory(conf, env = process.env, { deadline = Date.now() + 5000 } = {}) {
   deadline = Math.min(deadline, Date.now() + 5000);
-  const root = `/Volumes/${conf.externalVolume}/dev/worktrees`, worktrees = [], seen = new Set();
+  const mode = detect(conf, env, { probe: false, create: false }).mode;
+  const root = path.join(workRoot(conf, mode, env), "worktrees"), worktrees = [], seen = new Set();
   let incomplete = false;
   for (const repo of sourceDirs(homeDir(env))) {
     if (!lstatOrNull(path.join(repo, ".git"))) continue;

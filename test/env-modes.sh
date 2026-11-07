@@ -28,10 +28,20 @@ ok A.mode "$(get CLEAN_DEV_MODE)" external
 ok A.root "$(get DEVCACHE)" "$EXT"
 ok A.npm "$(get npm_config_cache)" "$EXT/deps/npm"
 ok A.pnpm "$(get pnpm_config_store_dir)" "$EXT/deps/pnpm-store"
-ok A.hf "$(get HF_HOME)" "$EXT/deps/huggingface"
+ok A.hf "$(get HF_HUB_CACHE)" "$EXT/deps/huggingface/hub"
+ok A.hfhome "$(get HF_HOME)" UNSET
+ok A.hfpreserve "$(get HF_HOME HF_HOME=/private/huggingface)" /private/huggingface
+ok A.yarnglobal "$(get YARN_GLOBAL_FOLDER)" UNSET
+ok A.telemetry "$(get GH_TELEMETRY)" UNSET
 ok A.xdg "$(get XDG_CACHE_HOME)" "$EXT/deps/xdg"
-ok A.cargo "$(get CARGO_HOME)" "$H/dev/machine/toolchains/rust/cargo"
-ok A.ollama "$(get OLLAMA_MODELS)" "$V/models/ollama"
+ok A.cargo "$(get CARGO_HOME)" UNSET
+ok A.hosttool "$(get CARGO_HOME CARGO_HOME=/custom/cargo)" /custom/cargo
+ok A.xdgconfig "$(get XDG_CONFIG_HOME XDG_CONFIG_HOME=/custom/config)" /custom/config
+ok A.xdgdata "$(get XDG_DATA_HOME XDG_DATA_HOME=/custom/data)" /custom/data
+ok A.docker "$(get DOCKER_CONFIG DOCKER_CONFIG=/custom/docker)" /custom/docker
+ok A.locale "$(get LANG LANG=fr_FR.UTF-8)" fr_FR.UTF-8
+ok A.ollama "$(get OLLAMA_MODELS)" UNSET
+ok A.ollamapreserve "$(get OLLAMA_MODELS OLLAMA_MODELS=/custom/models)" /custom/models
 ok A.dd "$(get XCODE_DERIVED_DATA_PATH)" "$EXT/builds/DerivedData"
 ok A.tmp "$(get TMPDIR)" UNSET
 ok A.session "$(get CLEAN_DEV_SESSION)" UNSET
@@ -42,8 +52,8 @@ ok A.stdout "$(z /bin/zsh -c ':' 2>/dev/null)" ""
 ok B.mode "$(get CLEAN_DEV_MODE DEV_STORAGE_VOLUME_TEST=absent)" internal
 ok B.root "$(get DEVCACHE DEV_STORAGE_VOLUME_TEST=absent)" "$INT"
 ok B.uv "$(get UV_CACHE_DIR DEV_STORAGE_VOLUME_TEST=absent)" "$INT/deps/uv"
-ok B.ollama "$(get OLLAMA_MODELS DEV_STORAGE_VOLUME_TEST=absent)" "$INT/deps/ollama"
-ok B.tart "$(get TART_HOME DEV_STORAGE_VOLUME_TEST=absent)" "$V/dev/lab/VM/tart-home"
+ok B.ollama "$(get OLLAMA_MODELS DEV_STORAGE_VOLUME_TEST=absent)" UNSET
+ok B.tart "$(get TART_HOME DEV_STORAGE_VOLUME_TEST=absent)" UNSET
 
 # C Claude session, external: scratch and pin
 SID=aaaaaaaa-bbbb-4ccc-8ddd-0123456789ab; KEY=c-0123456789ab  # gitleaks:allow
@@ -93,7 +103,7 @@ ok H.nodir "$( [[ -e $EXT/scratch/c-feedfacecafe ]] && print made || print none)
 a="$(z /bin/zsh -c 'env | sort' 2>/dev/null)"; b="$(z /bin/zsh -c '. "$HOME/dev/machine/env.zsh"; env | sort' 2>/dev/null)"
 ok I.idem "$( [[ "$a" == "$b" ]] && print same || print differs)" same
 
-# J PATH: machine bin first, retired shim removed, user-managed ~/dev/bin retained
+# J PATH: machine command first, retired shim removed, user-managed paths retained
 p="$(z PATH="$H/Library/Application Support/clean-development/bin:$H/dev/bin:/usr/bin:/bin" /bin/zsh -c 'print -r -- $PATH' 2>/dev/null)"
 ok J.first "${p%%:*}" "$H/dev/machine/bin"
 ok J.noshim "$( [[ ":$p:" == *"clean-development/bin"* ]] && print present || print gone)" gone
@@ -162,9 +172,9 @@ if [[ -x /usr/bin/python3 ]] && /usr/bin/python3 -c 1 2>/dev/null; then
 fi
 
 # S 0.6.2 (R11): VM homes use external lab paths in both modes; env.zsh never creates them
-ok S.colima "$(get COLIMA_HOME)" "$V/dev/lab/VM/colima-home"
-ok S.colimaint "$(get COLIMA_HOME DEV_STORAGE_VOLUME_TEST=absent)" "$V/dev/lab/VM/colima-home"
-ok S.lima "$(get LIMA_HOME DEV_STORAGE_VOLUME_TEST=absent)" "$V/dev/lab/VM/lima-home"
+ok S.colima "$(get COLIMA_HOME)" UNSET
+ok S.colimaint "$(get COLIMA_HOME DEV_STORAGE_VOLUME_TEST=absent)" UNSET
+ok S.lima "$(get LIMA_HOME DEV_STORAGE_VOLUME_TEST=absent)" UNSET
 ok S.nocreate "$( [[ -e $V/dev/lab/VM/colima-home ]] && print made || print none)" none
 
 # U 0.6.2: zsh checks mount identity (zstat, no fork): a cache directory on the same device as /Volumes is not the

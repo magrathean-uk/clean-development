@@ -209,9 +209,9 @@ test("removeManaged refuses paths outside managed roots", () => {
 
 test("Codex trust hashes are derived from the configured hook commands", () => {
   const home = "/tmp/clean-development-fixture";
-  const notify = `${home}/dev/bin/claude-notify`;
-  const backup = `(/bin/bash ${home}/dev/bin/backup-claude-chats >/dev/null 2>&1 &)`;
-  const cd = `'${home}/dev/toolchains/node/v26.10.0/bin/node' '${home}/Library/Application Support/clean-development/runtime/0.4.0/bin/clean-development.js' hook session-start --owner 'session-fixture-1234567890'`;
+  const notify = `${home}/dev/bin/user-notification`;
+  const backup = `(/bin/bash ${home}/dev/bin/session-archive >/dev/null 2>&1 &)`;
+  const cd = `node ${home}/.local/share/clean-development/runtime/bin/cd-hook.mjs session-start --owner session-fixture-1234567890`;
   const m = "startup|resume|clear|compact|fork";
   const doc = { hooks: {
     PermissionRequest: [{ hooks: [{ type: "command", command: notify }] }],
@@ -219,11 +219,11 @@ test("Codex trust hashes are derived from the configured hook commands", () => {
     Stop: [{ hooks: [{ type: "command", command: backup }] }, { hooks: [{ type: "command", command: notify }] }]
   } };
   const got = Object.fromEntries(trustEntries(`${home}/.codex/hooks.json`, doc).map((e) => [e.key.split(":").slice(1).join(":"), e.hash]));
-  assert.equal(got["permission_request:0:0"], "sha256:97a6191c0d13d9f922d950f7566ad71fd295f914d8855ab3ddca73a0eb80061f");
-  assert.equal(got["session_start:0:0"], "sha256:d7886569964c55dbdcc0a6a3218ec70f674b58a6451fce1b5075665d099857ec");
-  assert.equal(got["session_start:1:0"], "sha256:9756a2cc0b9b7249e6b3f06546dc06979e79ceee052974bf71620faf5decb408");
-  assert.equal(got["stop:0:0"], "sha256:f4264831ce1663ffd7fc076df858a31a3ce0414600c5124d0f2ab6a7258c87e4");
-  assert.equal(got["stop:1:0"], "sha256:aa71302ea01a6cc302ddcd84524c899ba517ae5aa02115fde3b4d9d02093260a");
+  assert.equal(got["permission_request:0:0"], "sha256:c197e80a597a9041add3d870b4f4f3335cd2cbd74e45e148573d00371915f504");
+  assert.equal(got["session_start:0:0"], "sha256:9ec453f9e0e4a99709fe8725f2ce87ee2b1d46651bd1640ca2267e85e469178e");
+  assert.equal(got["session_start:1:0"], "sha256:c736efb581c76493d7a37f0b4016c40b8e34849020b3fe1080d43d13fecc3db9");
+  assert.equal(got["stop:0:0"], "sha256:451eb71e2736cfbcb4a7f5c53877a2b7a1f7eb74f1d302138e165cdedfe648f1");
+  assert.equal(got["stop:1:0"], "sha256:28f05d5e4637c263acedf7e4fd12246afa539b2013965502b5b27fe98d13f3ba");
   assert.equal(normaliseHandler("SessionEnd", { type: "command", command: "x", timeout: 20 }).timeout, 3);
   assert.match(hookHash("Stop", undefined, normaliseHandler("Stop", { type: "command", command: "x", async: true })), /^sha256:[0-9a-f]{64}$/);
 });

@@ -31,15 +31,14 @@
 #
 # Precedence: CLEAN_DEV_STAMP="<mode>|<root>|<key>" is exported. When an inherited stamp equals the one computed here,
 #   the shell sits in a tree this file already routed, so a routing variable that arrives non-empty is KEPT (a script's
-#   deliberate override survives nested zsh -c). Otherwise every routing variable is reset to the value below (a sloppy
-#   parent is corrected; a mode change re-routes everything). Always forced: LANG, DEV, DEVMACHINE, CLEAN_DEV_*, TMPDIR in
-#   sessions, telemetry and history switches, PATH order.
+#   deliberate override survives nested zsh -c). Otherwise Clean Development routing variables are reset to the values
+#   below (a sloppy parent is corrected; a mode change re-routes everything). Locale, toolchain homes, application
+#   settings and other machine preferences are left to the host.
 # Test only: DEV_STORAGE_VOLUME_TEST=absent treats the external volume as absent; =present (alias =mounted, the runtime's
 #   name) is the normal probe: the external cache directory must exist and be writable (it never fakes a mount); =strict
 #   applies the zsh device check to fixture volumes too (it can only make routing stricter).
 #   DEV_ENV_INSPECT_ONLY=1 never writes (no mkdir, no pin) so inspection tools can source this file safely.
 
-export LANG=en_US.UTF-8
 export DEV="$HOME/dev"
 export DEVMACHINE="$DEV/machine"
 export CLEAN_DEV_VERSION=0.6.8
@@ -281,85 +280,30 @@ __cd_route XCODE_DERIVED_DATA_PATH "$__cd_root/builds/DerivedData"
 __cd_route SWIFTPM_SHARED_CACHE "$__cd_root/deps/swiftpm"
 __cd_route CLANG_MODULE_CACHE_PATH "$__cd_root/deps/clang-modules"
 
-# ---- Homebrew (fixed prefix on Apple silicon; shellenv forks brew, so only when the shell lacks it) ------------------
-if [ "${DEV_ENV_INSPECT_ONLY:-}" != 1 ] && [ -z "${HOMEBREW_PREFIX:-}" ] && [ -x /opt/homebrew/bin/brew ]; then
-  eval "$(/opt/homebrew/bin/brew shellenv)"
-fi
+# ---- application cache roots that Clean Development manages (follow the selected mode) ----------------------------
 __cd_route HOMEBREW_CACHE "$__cd_root/deps/homebrew"
-export HOMEBREW_NO_ANALYTICS=1
-
-# ---- XDG: config stays in ~/.config (allow-listed); cache follows the mode; data and state are internal -------------
-__cd_route XDG_CONFIG_HOME "$HOME/.config"
 __cd_route XDG_CACHE_HOME "$__cd_root/deps/xdg"
-__cd_route XDG_DATA_HOME "$DEVMACHINE/state/share"
-__cd_route XDG_STATE_HOME "$DEVMACHINE/state/state"
-# Tools write here without creating the parent (zsh cdr: $XDG_DATA_HOME/zsh/chpwd-recent-dirs), so make sure it exists.
-if [ "${DEV_ENV_INSPECT_ONLY:-}" != 1 ] && [ ! -d "$XDG_DATA_HOME/zsh" ]; then
-  mkdir -p "$XDG_DATA_HOME/zsh" "$XDG_STATE_HOME" 2>/dev/null
-fi
-# Not routable: Blender hardcodes ~/.thumbnails (allow-listed in storage.conf).
-
-# ---- toolchains (internal, never on removable media) and dependency caches (follow the mode) -----------------------
-__cd_route CARGO_HOME "$DEVMACHINE/toolchains/rust/cargo"
-__cd_route RUSTUP_HOME "$DEVMACHINE/toolchains/rust/rustup"
-__cd_route GOPATH "$DEVMACHINE/toolchains/go/path"
 __cd_route GOCACHE "$__cd_root/deps/go-build"
 __cd_route GOMODCACHE "$__cd_root/deps/go-mod"
-__cd_route BUN_INSTALL "$DEVMACHINE/toolchains/bun"
 __cd_route BUN_INSTALL_CACHE_DIR "$__cd_root/deps/bun"
-__cd_route PNPM_HOME "$DEVMACHINE/toolchains/pnpm"
-# pnpm 12 reads pnpm_config_store_dir (verified: `pnpm store path`); npm_config_store_dir is ignored. Without it the
-# store defaults to $PNPM_HOME/store, inside the toolchain.
+# pnpm 12 reads pnpm_config_store_dir (`pnpm store path`); npm_config_store_dir is ignored. Keep the store separate
+# from the user's existing PNPM_HOME.
 __cd_route pnpm_config_store_dir "$__cd_root/deps/pnpm-store"
 __cd_route npm_config_cache "$__cd_root/deps/npm"
-# Yarn Classic reads YARN_CACHE_FOLDER; Berry keeps its default global cache in globalFolder.
+# Yarn Classic reads YARN_CACHE_FOLDER. Berry's globalFolder is a host tool home and remains unchanged.
 __cd_route YARN_CACHE_FOLDER "$__cd_root/deps/yarn"
-__cd_route YARN_GLOBAL_FOLDER "$__cd_root/deps/yarn-berry"
 __cd_route UV_CACHE_DIR "$__cd_root/deps/uv"
-__cd_route UV_PYTHON_INSTALL_DIR "$DEVMACHINE/toolchains/python"
-__cd_route UV_TOOL_DIR "$DEVMACHINE/toolchains/uv-tools"
-__cd_route UV_TOOL_BIN_DIR "$DEVMACHINE/toolchains/uv-tools/bin"
 __cd_route PIP_CACHE_DIR "$__cd_root/deps/pip"
-__cd_route HF_HOME "$__cd_root/deps/huggingface"
+# HF_HOME may contain an access token, so leave it unchanged and route only cache directories.
+__cd_route HF_HUB_CACHE "$__cd_root/deps/huggingface/hub"
+__cd_route HF_ASSETS_CACHE "$__cd_root/deps/huggingface/assets"
 __cd_route TORCH_HOME "$__cd_root/deps/torch"
-if [ "$__cd_mode" = external ]; then __cd_route OLLAMA_MODELS "$MODELS_ROOT/ollama"; else __cd_route OLLAMA_MODELS "$__cd_root/deps/ollama"; fi
-__cd_route GRADLE_USER_HOME "$__cd_root/deps/gradle"
 __cd_route NUGET_PACKAGES "$__cd_root/deps/nuget"
-__cd_route DOTNET_CLI_HOME "$DEVMACHINE/state/dotnet"
-export DOTNET_CLI_TELEMETRY_OPTOUT=1
-__cd_route BUNDLE_USER_HOME "$DEVMACHINE/state/bundle"
-__cd_route GEM_HOME "$DEVMACHINE/state/gem"
-__cd_route GEM_SPEC_CACHE "$DEVMACHINE/state/gem/specs"
-__cd_route MPLCONFIGDIR "$__cd_root/deps/matplotlib"
 # Python bytecode goes to the cache, not __pycache__ in repos (bytecode in a tree changes its content identity).
 __cd_route PYTHONPYCACHEPREFIX "$__cd_root/deps/pycache"
 __cd_route PLAYWRIGHT_BROWSERS_PATH "$__cd_root/deps/playwright"
 
-# ---- VM homes use the configured external lab root; Docker client settings stay internal. --------------------------
-__cd_route TART_HOME "$LAB_ROOT/VM/tart-home"
-__cd_route LIMA_HOME "$LAB_ROOT/VM/lima-home"
-__cd_route COLIMA_HOME "$LAB_ROOT/VM/colima-home"
-__cd_route DOCKER_CONFIG "$DEVMACHINE/cloud/docker"
-# Claude (~/.claude, ~/.claude.json) and Codex (~/.codex) keep their normal configuration homes.
-
-# ---- history and REPL files out of ~ (zsh keeps ~/.zsh_history) -------------------------------------------------------
-export LESSHISTFILE=/dev/null
-export NODE_REPL_HISTORY=""
-__cd_route PYTHON_HISTORY "$DEVMACHINE/state/python_history"
-__cd_route SQLITE_HISTORY "$DEVMACHINE/state/sqlite_history"
-
-# ---- telemetry and phone-home switches (plain exports, forced) --------------------------------------------------------
-# Deliberately NOT set: DO_NOT_TRACK, DISABLE_TELEMETRY, CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC (Claude Code would stop
-# feature-flag fetching). Claude's own switches live in the env block of ~/.claude/settings.json; Codex's in config.toml.
-export GH_TELEMETRY=false
-export NEXT_TELEMETRY_DISABLED=1
-export HF_HUB_DISABLE_TELEMETRY=1
-export WRANGLER_SEND_METRICS=false
-export PIP_DISABLE_PIP_VERSION_CHECK=1
-export npm_config_update_notifier=false
-
-# ---- PATH: own scripts, toolchains, ~/.local/bin (claude launcher), Homebrew. Listed directories move to the front, each
-# appears once, empty entries go, and the retired clean-development 0.5.0 shim directory is dropped. -------------------
+# ---- PATH: expose the installed Clean Development command; preserve host toolchain and application paths. -----------
 __cd_path_front() {
   __np=""
   for __e in "$@"; do
@@ -376,13 +320,11 @@ __cd_path_front() {
   PATH="$__np"
   unset __np __old __e
 }
-__cd_path_front "$DEVMACHINE/bin" "$DEVMACHINE/toolchains/node/current/bin" "$CARGO_HOME/bin" \
-  "$BUN_INSTALL/bin" "$PNPM_HOME" "$GOPATH/bin" "$HOME/.local/bin" \
-  "${HOMEBREW_PREFIX:+$HOMEBREW_PREFIX/bin}" "${HOMEBREW_PREFIX:+$HOMEBREW_PREFIX/sbin}"
+__cd_path_front "$DEVMACHINE/bin"
 export PATH
 
-# Optional per-machine integrations are kept outside this portable package.
-if [ -r "$DEVMACHINE/env.private.zsh" ]; then . "$DEVMACHINE/env.private.zsh"; fi
+# Optional host-specific settings are trusted shell code. Inspection mode must remain read-only and side-effect free.
+if [ "${DEV_ENV_INSPECT_ONLY:-}" != 1 ] && [ -r "$DEVMACHINE/env.private.zsh" ]; then . "$DEVMACHINE/env.private.zsh"; fi
 
 unset -f __cd_route __cd_ext_ok __cd_path_front
 unset __cd_conf_ok __cd_p __cd_state __cd_id __cd_idbad __cd_why __cd_h __cd_key __cd_pre __cd_tail __cd_pin __cd_pinned __cd_mode __cd_lost __cd_root __cd_mp __cd_dm __cd_dp __cd_dc \

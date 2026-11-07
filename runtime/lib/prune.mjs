@@ -10,8 +10,8 @@ const HOUR = 3600 * 1000;
 const DAY = 24 * HOUR;
 
 // Units of the shared dependency caches for one root. Hugging Face is split per model/dataset so one large pull does not
-// evict everything; its token files are never units. The cargo registry (CARGO_HOME is an internal toolchain home)
-// counts toward the internal root's cap.
+// evict everything; token files are never units. A cargo registry stored under the internal root counts toward that
+// root's cap; an external/default cargo home is not managed here.
 export function depsUnits(root, { cargoHome = null } = {}) {
   const l = layout(root);
   const units = [];

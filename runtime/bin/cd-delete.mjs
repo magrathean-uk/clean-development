@@ -11,13 +11,17 @@ if (eventsFile) appendJsonl(eventsFile, { ts: new Date().toISOString(), event: "
 let failed = false;
 for (const { id, path: p, source } of jobs) {
   let status = "completed", error;
+  let boundaryValidated = false;
   try {
     if (!safeDirectory(anchor, path.dirname(p)) || !strictlyBelow(path.join(anchor, "trash"), p)) throw new Error("unsafe deletion boundary");
+    boundaryValidated = true;
     deleteNow(p);
   } catch (e) {
     status = "failed"; failed = true; error = e.code || e.message;
-    // Each entry is isolated; a failed one is retried by a later sweep (ctime refreshed here: one-hour backoff).
-    try { const now = new Date(); fs.utimesSync(p, now, now); } catch { /* gone or unreachable */ }
+    // Back off only within validated trash, and never follow a leaf symlink to touch its target.
+    if (boundaryValidated && typeof fs.lutimesSync === "function") {
+      try { const now = new Date(); fs.lutimesSync(p, now, now); } catch { /* gone or unreachable */ }
+    }
   }
   if (eventsFile) appendJsonl(eventsFile, { ts: new Date().toISOString(), event: "delete", id, status, source, path: p, ...(error ? { error } : {}) });
 }

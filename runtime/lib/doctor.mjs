@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { sessionsDir, VERSION, RELEASE_DIR, homeDir, hookShimPath, hookShimText, shimRelease, loadConf, runtimeRoot, stateDir } from "./conf.mjs";
-import { detect, fmtGB, GB, internalFreeBytes, layout } from "./storage.mjs";
+import { detect, fmtGB, GB, internalFreeBytes, layout, workRoot } from "./storage.mjs";
 import { children, lstatOrNull, readJsonOrNull, safeDirectory } from "./fsutil.mjs";
 import { managedTrustEntries, readHookStates, trustEntries } from "./codex-trust.mjs";
 import { claudeProfiles, claudeSettings, codexHomes, inventoryExtras, policyInventory, scanLiteralCachePaths, worktreeInventory } from "./inventory.mjs";
@@ -43,7 +43,7 @@ function checkHooks(name, file, harness, env, results) {
     // Both harnesses must await managed hooks. A one-shot exit can kill an
     // asynchronous Stop while its lifecycle lock is held.
     if (h.async) problems.push(`${ev} async differs`);
-    const timeout = ev === "Stop" ? 300 : ev === "SessionStart" ? 30 : harness === "codex" ? 3 : 15;
+    const timeout = ev === "Stop" ? 5 : ev === "SessionStart" ? 30 : harness === "codex" ? 3 : 15;
     if (h.timeout !== timeout) problems.push(`${ev} timeout differs`);
   }
   const legacy = owned.filter((c) => !Object.keys(EVENTS).some((ev) => c.event === ev && c.command === hookCommand(env, ev, harness)));
@@ -233,15 +233,19 @@ export function doctor(env = process.env, { gui = true, internalWarnBytes = 1024
     const names = lacking(file);
     if (names.length) warn(`repos without ${file}`, `${names.length}: ${names.join(" ")}; ${why}`);
   }
+  const configuredWorkRoot = workRoot(conf, d.mode, env), worktreeRoot = path.join(configuredWorkRoot, "worktrees");
   const worktrees = worktreeInventory(conf, env);
-  for (const wt of worktrees.worktrees) warn("worktree outside root", `${wt.path} (repo ${wt.repo}); expected /Volumes/${conf.externalVolume}/dev/worktrees/`);
+  for (const wt of worktrees.worktrees) warn("worktree outside root", `${wt.path} (repo ${wt.repo}); expected ${worktreeRoot}${path.sep}`);
   if (worktrees.incomplete) warn("worktree scan", "scan incomplete: git inspection failed or time bound reached");
-  // 0.6.2 Colima: the shim pins LIMA_HOME=$COLIMA_HOME/_lima. Without it Colima follows env.zsh's LIMA_HOME into lima-home;
-  // instances already created there are invisible through the shim until moved.
-  const colimaShim = path.join(home, "dev", "machine", "bin", "colima");
-  if (!lstatOrNull(colimaShim)?.isFile()) warn("colima shim", `${colimaShim} missing: colima follows LIMA_HOME and creates VMs in lima-home; install.sh --config installs it`);
-  let strayColima = [];
-  try { strayColima = children(path.join(conf.labRoot, "VM", "lima-home")).filter((e) => e.isDirectory() && /^colima(-.+)?$/.test(e.name)).map((e) => e.name); } catch { /* external lab unavailable or unreadable */ }
-  if (strayColima.length) warn("colima instances in lima-home", `${strayColima.join(" ")}: invisible to colima through the shim; \`clean-development vm colima-rehome\` previews the move (stopped VMs, same-volume rename)`);
+  // Colima support is optional. Only a private host extension enables the shim and its related migration checks.
+  const privateEnv = lstatOrNull(path.join(home, "dev", "machine", "env.private.zsh"));
+  const privateExtension = env.CLEAN_DEV_PRIVATE_EXTENSION === "1" || privateEnv?.isFile() === true && !privateEnv.isSymbolicLink();
+  if (privateExtension) {
+    const colimaShim = path.join(home, "dev", "machine", "bin", "colima");
+    if (!lstatOrNull(colimaShim)?.isFile()) warn("colima shim", `${colimaShim} missing: install the optional shim only from a trusted source that explicitly lists it`);
+    let strayColima = [];
+    try { strayColima = children(path.join(conf.labRoot, "VM", "lima-home")).filter((e) => e.isDirectory() && /^colima(-.+)?$/.test(e.name)).map((e) => e.name); } catch { /* external lab unavailable or unreadable */ }
+    if (strayColima.length) warn("colima instances in lima-home", `${strayColima.join(" ")}: run clean-development vm colima-rehome to preview moving stopped instances`);
+  }
   return { version: VERSION, ok: results.every((r) => r.ok), results };
 }

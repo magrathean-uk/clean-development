@@ -2,7 +2,7 @@
 
 Clean Development routes development caches and temporary files to configured storage, and manages cleanup at the end of supported coding sessions. It is designed for macOS workstations using Claude Code or Codex. OpenCode can use the environment routing, but does not have a native lifecycle cleanup integration.
 
-The runtime has no npm dependencies and requires Node.js 20.12 or later. The installer uses `CLEAN_DEV_NODE` when set, then checks the configured toolchain, common install locations and `PATH`. The Codex hook merge and trust tools need Python 3.11 or later for the standard-library `tomllib` parser. Trust operations search `PATH` and common install locations; set `CLEAN_DEV_PYTHON` to an absolute interpreter path if needed. Clean Development does not publish an npm package; GitHub is the source distribution.
+The runtime has no npm dependencies and requires Node.js 20.12 or later. The installer uses `CLEAN_DEV_NODE` when set, then checks common install locations and `PATH`. The Codex hook merge and trust tools need Python 3.11 or later for the standard-library `tomllib` parser. Trust operations search `PATH` and common install locations; set `CLEAN_DEV_PYTHON` to an absolute interpreter path if needed. Clean Development does not publish an npm package; GitHub is the source distribution.
 
 Clone the repository, then run the installer from its directory:
 
@@ -36,7 +36,9 @@ After reviewing the preview, install the runtime and environment files:
 ./install.sh --config
 ```
 
-The installer writes under `~/dev/machine/`. It does not edit Claude Code or Codex settings. Source `~/dev/machine/env.zsh` from the startup file used by your shell. For zsh, use `~/.zshenv`; for Bash, use the startup file your development tools load, such as `~/.bash_profile` or `~/.bashrc`:
+The installer writes under `~/dev/machine/`. It does not edit Claude Code or Codex settings. The portable environment file routes Clean Development cache, build and session scratch variables. It leaves your locale, existing XDG config/data/state locations, installed toolchain homes, model stores, VM homes, Docker config and telemetry preferences unchanged. `HF_HOME` also stays with the host because it may hold credentials; only `HF_HUB_CACHE` and `HF_ASSETS_CACHE` are routed to cache storage. Standalone installs do not set Colima's home or place a shim ahead of your existing Colima command.
+
+Source `~/dev/machine/env.zsh` from the startup file used by your shell. For zsh, use `~/.zshenv`; for Bash, use the startup file your development tools load, such as `~/.bash_profile` or `~/.bashrc`:
 
 ```sh
 # zsh, in ~/.zshenv
@@ -55,7 +57,7 @@ python3.11 fragments/merge-hooks.py fragments/codex-hooks.json "$HOME/.codex/hoo
 
 Remove `--dry-run` to apply a reviewed merge. The helper preserves unrelated handlers and saves a recovery copy. The Codex merge needs Python 3.11 or later; the Claude merge can use Python 3. Run `clean-development codex-trust --apply` after installation if required by the Codex configuration. That command also needs Python 3.11 or later; set `CLEAN_DEV_PYTHON` if it is not found automatically. Review Codex trust changes before applying them.
 
-The environment loader optionally sources `~/dev/machine/env.private.zsh` after standard routing. Treat it as trusted shell code and keep it portable across zsh and Bash. A standalone checkout does not include or create this file. When installed from a parent source tree with `machine/env.private.zsh`, the installer copies missing private sidecars before activating `env.zsh`; existing files and symlinks are preserved. Sidecar source files must be regular files owned by the installer user and not writable by group or other users. For `clean-development run --clean-env`, additional non-secret variable names can be listed one per line in `~/dev/machine/state/clean-development/childenv-allow.list`. Harness identities and secret-like names remain excluded, and variables that require explicit `--keep` still need that option.
+The environment loader can also source `~/dev/machine/env.private.zsh` after standard routing. Treat it as trusted shell code and keep it portable across zsh and Bash. Inspection with `DEV_ENV_INSPECT_ONLY=1` never sources this extension. A standalone clone does not include or create the file, and its installer does not search parent directories. A source tree can explicitly opt in to a fixed set of known sidecars with `.clean-development-private-sidecars.json`; only listed files are read, and existing target files and symlinks are preserved. Sidecar sources must be regular files owned by the installer user and not writable by group or other users. For `clean-development run --clean-env`, additional non-secret variable names can be listed one per line in `~/dev/machine/state/clean-development/childenv-allow.list`. Harness identities and secret-like names remain excluded, and variables that require explicit `--keep` still need that option.
 
 `doctor` checks the default `~/.codex` and `~/.claude/settings.json` only when their configuration files exist. Additional Codex homes, Claude settings files and Claude profile settings files can be listed in `codex-homes.list`, `claude-settings.list` and `claude-profiles.list` under `~/dev/machine/state/clean-development/`. Codex entries are home directories; the other entries are settings files. Use one absolute or `~/`-relative path per line. Entries are required by default; prefix a path with `?` when it is intentionally optional. Symlinks to regular settings files are followed for read-only checks.
 
@@ -74,7 +76,7 @@ The active `storage.conf` controls the external volume, internal fallback, cache
 
 Use `clean-development housekeeping` or `clean-development reap` to inspect cleanup plans. These commands preview by default; use `--apply` only after reviewing the listed paths. Never use cache or scratch as the sole copy of unfinished work, rollback data or evidence. Publish important files into durable project storage and retain the completed receipt.
 
-For leases and verified publication, see [the 0.6.1+ command reference](skills/clean-development/references/0.6.1.md). For implementation boundaries and remaining host acceptance, see [the safety and acceptance guide](docs/safety-release.md).
+For installer recovery, `install.sh --recover ID` retries a failed rollback. If a user edit is the only remaining conflict, inspect it first and use `install.sh --recover ID --accept-current` to leave that current content untouched and finish recovery. For leases and verified publication, see [the 0.6.1+ command reference](skills/clean-development/references/0.6.1.md). For implementation boundaries and remaining host acceptance, see [the safety and acceptance guide](docs/safety-release.md).
 
 ## Development
 

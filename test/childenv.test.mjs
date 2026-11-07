@@ -6,12 +6,12 @@ import { spawnSync } from "node:child_process";
 import { plugin, sim } from "./helpers.mjs";
 import { ROUTING_NAMES, childEnv, formatEnv } from "../runtime/lib/childenv.mjs";
 
-test("ROUTING_NAMES covers every env.zsh route and exported storage name", () => {
+test("ROUTING_NAMES covers every public env.zsh route and exported storage name", () => {
   const source = fs.readFileSync(path.join(plugin, "machine/env.zsh"), "utf8").split("\n").filter((line) => !line.trimStart().startsWith("#")).join("\n");
   const routed = [...source.matchAll(/(?:^|;|\bthen|\belse)[ \t]*__cd_route[ \t]+([A-Za-z_][A-Za-z0-9_]*)\b/gm)].map((m) => m[1]);
   const exported = [...source.matchAll(/\bexport\s+([^;\n]+)/g)].flatMap((m) => m[1].split(/\s+/).map((t) => t.split("=")[0]))
     .filter((name) => /^(?:CLEAN_DEV_|CLEAN_DEVELOPMENT_|DEVCACHE$|TMPDIR$)/.test(name));
-  assert.ok(routed.length > 50);
+  assert.ok(routed.length >= 25, "public environment should expose the core cache and compatibility routes");
   for (const name of [...routed, ...exported]) assert.ok(ROUTING_NAMES.includes(name), `missing storage routing name: ${name}`);
   assert.equal(ROUTING_NAMES.length, new Set(ROUTING_NAMES).size);
 });

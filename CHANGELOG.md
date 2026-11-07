@@ -6,7 +6,9 @@
 - Doctor now supports zsh and Bash startup files, skips unconfigured Claude/Codex homes, treats the guidance plugin as optional, and follows symlinks to regular settings files during read-only registry checks.
 - Explicit registry entries are required unless prefixed with ?, so absent optional profiles stay visible without failing health checks.
 - Blocks a new install while an earlier activation receipt still needs recovery, preventing stale rollback from undoing a later installation.
-- Keeps per-host telemetry switches and the host-specific PATH filter in the private environment extension; the public storage sample and VM source protections use configurable roots.
+- Keeps toolchain homes, VM and Docker settings, histories, telemetry switches and host-specific PATH filtering in the private environment extension. Standalone installs preserve existing host configuration and do not install the optional Colima shim.
+- Makes private sidecar installation opt-in through a validated source manifest, keeps inspection mode from executing the private extension, and preserves existing HF credential locations while routing only model caches.
+- Bounds synchronous Stop hooks to five seconds, matches doctor and release fragments, uses the configured worktree root, and adds conflict-aware installer recovery with `--accept-current`.
 - Narrows the legacy remover to the retired runtime directory. It no longer names or removes private plugin marketplaces, skills or app paths.
 - Documents the Python 3.11 requirement for Codex TOML operations and limits tests that read parent-source scripts to explicit private-source opt-in.
 
@@ -14,7 +16,7 @@
 
 - Completes the portable public release: runtime, installer, metadata, policies, examples and current documentation share the 0.6.7 identity.
 - Supports home-relative paths in optional doctor registries for additional Codex homes, Claude settings and Claude profiles. Machine-specific profile inventories remain in the private monorepo extension.
-- The monorepo installer installs missing private sidecar files before activating the generic environment. Sidecars are created atomically and remain host-owned if they appear during installation.
+- A source-tree manifest can install allow-listed private sidecars before activating the generic environment. Sidecars are created atomically and remain host-owned if they appear during installation.
 - Repairs migrated routing and doctor fixtures, and retains the private Codex/Claude profile checks through explicit registries.
 
 ## 0.6.6 (7 November 2026)

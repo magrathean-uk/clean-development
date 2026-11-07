@@ -312,12 +312,11 @@ export function vmMove(conf, env, tool, { from, apply = false, experimental = fa
   }
 }
 
-// ---- Colima home (0.6.2). Colima 0.10 follows an inherited LIMA_HOME, and env.zsh exports LIMA_HOME=lima-home for plain
-// limactl: Colima VMs created that way sit in lima-home/colima[-<profile>] (data disks in lima-home/_disks/<name>), while
-// Colima's own layout, which the colima shim now pins, is $COLIMA_HOME/_lima. colimaRehome moves those instances there:
+// ---- Colima home (0.6.2). Colima may inherit LIMA_HOME, while its own layout uses $COLIMA_HOME/_lima. The optional
+// clean-development shim pins that relationship; colimaRehome moves instances previously created under lima-home there:
 // stopped instances only, same-volume renames (no copy, no data rewrite), refusing anything uncertain. A fence file that
-// the shim honours ($COLIMA_HOME/.cd-rehome.lock) stops shim-launched starts while it runs (limactl invoked directly is
-// not fenced); liveness is re-inspected under the fence just before the renames. A durable manifest in
+// the optional shim honours ($COLIMA_HOME/.cd-rehome.lock) stops shim-launched starts while it runs (limactl invoked
+// directly is not fenced); liveness is re-inspected under the fence just before the renames. A durable manifest in
 // ~/dev/machine/records/clean-development records each completed rename, so an interrupted move or rollback resumes.
 // Keys: each Lima home has its own _config/user; Lima writes cloud-init with a new instance id on every boot, so the first
 // start under the new home authorises that home's key (the old key stays authorised in the guest). Generated files that

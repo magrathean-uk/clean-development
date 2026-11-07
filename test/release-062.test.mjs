@@ -466,6 +466,28 @@ test("R8: prune --project finds a reaped session's external builds through the o
   assert.ok(fs.existsSync(path.join(s.ext, "builds", b.key, "obj")));
 });
 
+test("R8: resuming one session in another project makes its build ownership ambiguous", () => {
+  const s = sim(), repoA = path.join(s.home, "dev", "source", "alpha"), repoB = path.join(s.home, "dev", "source", "beta");
+  for (const r of [repoA, repoB]) { fs.mkdirSync(r, { recursive: true }); spawnSync("/usr/bin/git", ["init", "-q", r]); }
+  const id = "aeaeaeae-0000-4000-8000-0000000000ac", key = "c-0000000000ac";
+  const first = hook(s, "session-start", "claude", { session_id: id, cwd: repoA });
+  assert.equal(first.status, 0, first.stderr);
+  const resumed = hook(s, "session-start", "claude", { session_id: id, cwd: repoB, source: "resume" });
+  assert.equal(resumed.status, 0, resumed.stderr);
+  const ownerIndex = path.join(stateFile(s, "owners"), key);
+  assert.equal(fs.existsSync(path.join(ownerIndex, ".owner-conflict")), true);
+  const build = path.join(s.ext, "builds", key);
+  mk(path.join(build, "obj"), "output from both projects");
+  const ended = hook(s, "session-end", "claude", { session_id: id });
+  assert.equal(ended.status, 0, ended.stderr);
+  for (const repo of [repoA, repoB]) {
+    const plan = JSON.parse(cli(s, ["prune", "--project", repo, "--json"]).stdout);
+    assert.deepEqual(plan.candidates, []);
+    assert.ok(plan.skipped.some((entry) => entry.path === build && entry.reason === "ambiguous project ownership"));
+  }
+  assert.equal(fs.readFileSync(path.join(build, "obj"), "utf8"), "output from both projects");
+});
+
 test("review round 2: >2000 direct children is weak evidence, a deep builder write keeps a session, a linked pin is not inherited", () => {
   const s = sim();
   const id = "afafafaf-0000-4000-8000-0000000000c1", key = "c-0000000000c1";

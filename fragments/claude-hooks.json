@@ -20,7 +20,7 @@
             "type": "command",
             "command": "\"$HOME/dev/machine/runtime/clean-development/active/bin/cd-hook\" stop claude",
             "async": false,
-            "timeout": 300
+            "timeout": 5
           }
         ]
       }

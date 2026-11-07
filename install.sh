@@ -5,7 +5,7 @@ src=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
 node="${CLEAN_DEV_NODE:-}"
 if [ -z "$node" ] || [ ! -x "$node" ]; then
   node=""
-  for n in "$HOME/dev/machine/toolchains/node/current/bin/node" "$HOME/.local/bin/node" /opt/homebrew/bin/node /usr/local/bin/node; do
+  for n in "$HOME/.local/bin/node" /opt/homebrew/bin/node /usr/local/bin/node; do
     if [ -x "$n" ]; then node="$n"; break; fi
   done
 fi

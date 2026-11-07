@@ -14,7 +14,7 @@ import { readSizeCache, refreshSizes, spawnSizeRefresh, trashPaths } from "../ru
 
 const hooks = (env, harness) => ({ hooks: Object.fromEntries(["SessionStart", "Stop", "SessionEnd"].map((event) => [event, [{
   ...(event === "SessionStart" ? { matcher: "startup|resume|clear|compact|fork" } : {}),
-  hooks: [{ type: "command", command: hookCommand(env, event, harness), timeout: event === "Stop" ? 300 : event === "SessionStart" ? 30 : harness === "codex" ? 3 : 15,
+  hooks: [{ type: "command", command: hookCommand(env, event, harness), timeout: event === "Stop" ? 5 : event === "SessionStart" ? 30 : harness === "codex" ? 3 : 15,
     ...(event === "Stop" ? { async: false } : {}) }]
 }]])) });
 const json = (p, value) => mk(p, JSON.stringify(value));
@@ -73,7 +73,7 @@ test("Claude settings registry supports additional configured profiles", () => {
 });
 
 test("Claude profile registry keeps stale and async per-profile handlers visible and skips absent profiles", () => {
-  const s = configure(sim()), base = path.join(s.home, "dev/machine/state/claude-work/profiles");
+  const s = configure(sim()), base = path.join(s.home, "dev/machine/state/agent-profiles/profiles");
   const profile = path.join(base, "1/settings.json"), asyncProfile = path.join(base, "3/settings.json");
   const stale = hooks(s.env, "claude");
   stale.hooks.Stop[0].hooks[0].command = "'/old/runtime/clean-development/0.6.6/bin/cd-hook' stop claude";
@@ -81,9 +81,9 @@ test("Claude profile registry keeps stale and async per-profile handlers visible
   const asynchronous = hooks(s.env, "claude"); asynchronous.hooks.Stop[0].hooks[0].async = true;
   json(asyncProfile, asynchronous);
   mk(path.join(stateDir(s.env), "claude-profiles.list"), [
-    "?~/dev/machine/state/claude-work/profiles/1/settings.json",
-    "?~/dev/machine/state/claude-work/profiles/2/settings.json",
-    "?~/dev/machine/state/claude-work/profiles/3/settings.json"
+    "?~/dev/machine/state/agent-profiles/profiles/1/settings.json",
+    "?~/dev/machine/state/agent-profiles/profiles/2/settings.json",
+    "?~/dev/machine/state/agent-profiles/profiles/3/settings.json"
   ].join("\n") + "\n");
   const registry = claudeProfiles(s.env), r = result(s);
   assert.deepEqual(registry.files, [profile, asyncProfile]);
@@ -282,9 +282,14 @@ test("R14 reports a real linked worktree outside the external worktree root", ()
   mk(path.join(p, ".git/HEAD"), "ref: refs/heads/fixture\n"); mk(path.join(p, ".git/refs/heads/fixture"), commit + "\n");
   const added = spawnSync("/usr/bin/git", ["-C", p, "-c", "core.hooksPath=/dev/null", "worktree", "add", "--detach", target, "HEAD"], { env: { ...s.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_SYSTEM: "/dev/null" }, encoding: "utf8" });
   assert.equal(added.status, 0, added.stderr);
+  const allowed = path.join(vol, "dev", "worktrees", "repo");
+  fs.mkdirSync(path.dirname(allowed), { recursive: true });
+  const allowedAdded = spawnSync("/usr/bin/git", ["-C", p, "-c", "core.hooksPath=/dev/null", "worktree", "add", "--detach", allowed, "HEAD"], { env: { ...s.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_SYSTEM: "/dev/null" }, encoding: "utf8" });
+  assert.equal(allowedAdded.status, 0, allowedAdded.stderr);
   const scan = worktreeInventory(loadConf(s.env), s.env);
   assert.equal(scan.incomplete, false); assert.deepEqual(scan.worktrees, [{ repo: p, path: target }]);
   assert.ok(result(s).results.some((x) => x.warn && x.name === "worktree outside root" && x.detail.includes(target)));
+  assert.ok(!result(s).results.some((x) => x.warn && x.name === "worktree outside root" && x.detail.includes(allowed)));
   assert.equal(worktreeInventory(loadConf(s.env), s.env, { deadline: 0 }).incomplete, true);
 });
 

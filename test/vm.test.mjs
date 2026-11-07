@@ -511,7 +511,7 @@ test("colima shim pins LIMA_HOME to $COLIMA_HOME/_lima and fails fast when exter
   assert.equal(fs.readFileSync(out, "utf8"), `${colimaHome}/_lima|start -p sample-vm\n`);
   assert.equal(run({ ...base, COLIMA_HOME: "" }).status, 78);
   const absent = run({ ...base, COLIMA_HOME: path.join(s.root, "Volumes", "missing", "VM", "colima-home") });
-  assert.equal(absent.status, 78); assert.match(absent.stderr, /configured external storage/);
+  assert.equal(absent.status, 78); assert.match(absent.stderr, /configured VM storage/);
   const self = mk(path.join(s.root, "selfbin", "colima"), fs.readFileSync(shim)); fs.chmodSync(self, 0o755);
   assert.equal(spawnSync("/bin/sh", [self, "list"], { env: { PATH: "/usr/bin:/bin", ...base, CLEAN_DEV_COLIMA: self }, encoding: "utf8" }).status, 127);
   const alias = mk(path.join(s.root, "otherbin", "colima"), fs.readFileSync(shim)); fs.chmodSync(alias, 0o755);
@@ -679,12 +679,16 @@ test("colima-rehome refuses when external storage is unavailable", (t) => {
   assert.throws(() => colimaRehome(s.conf, { ...s.env, DEV_STORAGE_VOLUME_TEST: "absent" }), /not mounted/);
 });
 
-test("doctor warns about a missing colima shim and Colima instances stranded in lima-home", (t) => {
+test("doctor reports Colima migration issues only when the host extension enables its shim", (t) => {
   const s = colimaLab(t);
   const row = (r, name) => r.results.find((x) => x.name === name);
   let r = doctor(s.env, { gui: false });
+  assert.equal(row(r, "colima shim"), undefined);
+  assert.equal(row(r, "colima instances in lima-home"), undefined);
+  mk(path.join(s.home, "dev", "machine", "env.private.zsh"), "# host extension\n");
+  r = doctor(s.env, { gui: false });
   assert.ok(row(r, "colima shim").warn);
-  assert.match(row(r, "colima instances in lima-home").detail, /^colima-sample-vm: invisible/);
+  assert.match(row(r, "colima instances in lima-home").detail, /^colima-sample-vm: run/);
   mk(path.join(s.home, "dev", "machine", "bin", "colima"), "#!/bin/sh\n");
   colimaRehome(s.conf, s.env, { apply: true });
   r = doctor(s.env, { gui: false });

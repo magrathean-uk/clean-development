@@ -13,14 +13,14 @@ import { appendLog, lstatOrNull, safeDirectory, stampDue, stampTouch, timeLeft }
 import { withLifecycleLock } from "./locks.mjs";
 import { assertOwner, classify, markEnded, projectIdentity, readPin, reapAll, reapSession, recordRoot, sessionIdProblem, sessionKey, touchPin, writePin } from "./sessions.mjs";
 import { harnessProcess } from "./activity.mjs";
-import { OWNER_FILE, writeOwner } from "./owners.mjs";
+import { OWNER_CONFLICT_FILE, OWNER_FILE, hasOwnerConflict, markOwnerConflict, writeOwner } from "./owners.mjs";
 import { spawnSizeRefresh } from "./sizes.mjs";
 import { agePruneBuilds, capPrune, DAY, HOUR, pruneRepos, sweepTrash, wipeInternalBuilds } from "./prune.mjs";
 import { dotReport } from "./dots.mjs";
 import { findProjectRoot, loadProjectConfig, sourceRepos } from "./project.mjs";
 import { protections } from "./leases.mjs";
 
-const cargoHome = (env) => path.join(homeDir(env), "dev", "machine", "toolchains", "rust", "cargo");
+const cargoHome = (env) => env.CARGO_HOME && path.isAbsolute(env.CARGO_HOME) ? env.CARGO_HOME : path.join(homeDir(env), ".cargo");
 
 // Storage follows the configured external volume: every shell probes it for each session start and resume. The
 // pin's first line only says what the session used before; `lost` marks a session that used the external volume and
@@ -74,20 +74,24 @@ function startLocked(input, harness, env) {
 }
 
 function stampOwner(env, anchor, dir, info) {
-  if (!safeDirectory(stateDir(env), anchor, { missingAnchor: true }) || !safeDirectory(anchor, dir, { missingAnchor: true }) || lstatOrNull(path.join(dir, OWNER_FILE))) return;
+  if (!safeDirectory(stateDir(env), anchor, { missingAnchor: true }) || !safeDirectory(anchor, dir, { missingAnchor: true }) || hasOwnerConflict(dir)) return;
   const w = writeOwner(dir, { ...info, created: new Date().toISOString() });
-  if (w.conflict || w.error) appendLog(logPath(env), `owner stamp ${dir}: ${w.conflict ? "another key owns it" : w.error}`);
+  if (w.projectChanged) {
+    const marked = markOwnerConflict(dir);
+    appendLog(logPath(env), `owner stamp ${dir}: project changed; pruning disabled${marked.error ? ` (${marked.error})` : ""}`);
+  } else if (w.conflict || w.error) appendLog(logPath(env), `owner stamp ${dir}: ${w.conflict ? "another key owns it" : w.error}`);
 }
 
-// Index entries are tiny state dirs holding only .owner.json. One is removed only when its pin is gone, no root holds
-// builds/<key> (skipped entirely while the external root is unavailable) and it is older than EXTERNAL_BUILD_DAYS.
+// Index entries hold .owner.json and, after a project switch, an optional .owner-conflict marker. One is removed only
+// when its pin is gone, no root holds builds/<key> (skipped entirely while the external root is unavailable) and it is
+// older than EXTERNAL_BUILD_DAYS.
 function pruneOwnerIndex(env, conf, { roots, complete, deadline, log }) {
   const dir = ownersDir(env);
   if (!complete || !safeDirectory(stateDir(env), dir)) return;
   for (const d of fs.readdirSync(dir, { withFileTypes: true }).slice(0, 20000)) {
     if (!timeLeft(deadline)) return;
     const p = path.join(dir, d.name), names = d.isDirectory() && !d.isSymbolicLink() ? fs.readdirSync(p) : null;
-    if (!/^[cx]-[A-Za-z0-9_-]{12}$/.test(d.name) || !names || names.some((n) => n !== OWNER_FILE)) continue;
+    if (!/^[cx]-[A-Za-z0-9_-]{12}$/.test(d.name) || !names || names.some((n) => ![OWNER_FILE, OWNER_CONFLICT_FILE].includes(n))) continue;
     const st = lstatOrNull(path.join(p, OWNER_FILE));
     if (!st?.isFile() || Date.now() - st.mtimeMs < conf.EXTERNAL_BUILD_DAYS * DAY) continue;
     if (readPin(env, d.name).mode || readPin(env, d.name).meta || roots.some((r) => lstatOrNull(path.join(layout(r).builds, d.name)))) continue;
@@ -112,7 +116,7 @@ export function contextText(r) {
   lines.push(`Storage follows the configured external volume per shell: use it when mounted and writable, and the internal disk otherwise. Do not override routing. Before any download over ${c.BIG_DOWNLOAD_GB} GB, make sure the configured external volume is available.`);
   if (r.internalFree !== null && r.internalFree < c.INTERNAL_MIN_FREE_GB * GB) lines.push(`Internal free space ${fmtGB(r.internalFree)} is below the configured ${c.INTERNAL_MIN_FREE_GB} GB warning threshold.`);
   if (r.idProblem) lines.push(`Session id rejected (${r.idProblem}): no session scratch, pin or cleanup ownership; this session routes like a plain shell. Check the host session id.`);
-  lines.push("Caches are routed by ~/dev/machine/env.zsh ($DEVCACHE, npm/pnpm/uv/pip/go/HF/... variables); never override them, never write caches, builds or temp files into ~ or into repos outside their git-ignored build dirs.");
+  lines.push("Clean Development routes its cache variables ($DEVCACHE, npm_config_cache, pnpm_config_store_dir, YARN_CACHE_FOLDER, UV_CACHE_DIR, PIP_CACHE_DIR, HF_HUB_CACHE, HF_ASSETS_CACHE, GOCACHE and GOMODCACHE); preserve these routes and keep work in git-ignored project build directories.");
   lines.push("Scratch/builds are disposable: keep unique work, rollback state and final/partial evidence in a durable project directory before ending. Native lifecycle support: Claude/Codex; OpenCode is environment-only.");
   lines.push("Protect long/quiet jobs with explicit renewable path leases. Verified publish creates a source hold until completion; failed/incomplete publication stays protected until recovery is confirmed, not merely until a TTL expires.");
   if (r.dead.length && r.decision.mode === "internal") lines.push(`Unavailable while the ${c.externalVolume} is away: ${r.dead.map((x) => `~/dev/source/${x.name}`).join(", ")}.`);

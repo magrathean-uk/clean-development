@@ -244,7 +244,7 @@ test("doctor rejects duplicate/stale hooks, wrong options and distinguishes disa
   doc.hooks.Stop.pop(); doc.hooks.Stop[0].hooks[0].timeout = 1; mk(configPath, JSON.stringify(doc));
   d = JSON.parse(cli(s, ["doctor", "--no-gui", "--json"]).stdout);
   assert.match(d.results.find((r) => r.name === "Codex hooks").detail, /timeout/);
-  doc.hooks.Stop[0].hooks[0].timeout = 300; mk(configPath, JSON.stringify(doc));
+  doc.hooks.Stop[0].hooks[0].timeout = 5; mk(configPath, JSON.stringify(doc));
   mk(path.join(s.home, ".codex", "config.toml"), `[hooks.state.${JSON.stringify(`${configPath}:stop:0:0`)}]\nenabled = false\n`);
   d = JSON.parse(cli(s, ["doctor", "--no-gui", "--json"]).stdout);
   assert.match(d.results.find((r) => r.name === "Codex hook trust").detail, /disabled/);

@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { deletionsPath, ownersDir } from "./conf.mjs";
+import { deletionsPath, ownersDir, stateDir } from "./conf.mjs";
 import { canonicalPath, children, lstatOrNull, readJsonOrNull, removeManaged, safeDirectory, writeFileAtomic } from "./fsutil.mjs";
 import { protections } from "./leases.mjs";
 import { classify, readPin, scratchJob } from "./sessions.mjs";
@@ -9,6 +9,7 @@ import { externalAvailable, layout } from "./storage.mjs";
 import { withLifecycleLock } from "./locks.mjs";
 
 export const OWNER_FILE = ".owner.json";
+export const OWNER_CONFLICT_FILE = ".owner-conflict";
 const absoluteOrNull = (p) => p === null || (typeof p === "string" && path.isAbsolute(p) && !p.includes("\0"));
 
 export function ownerRecord({ repo = null, cwd = null, harness, key = null, created = new Date().toISOString() }) {
@@ -24,6 +25,7 @@ export function readOwner(dir) {
     dir = path.resolve(dir);
     const st = fs.lstatSync(dir), file = path.join(dir, OWNER_FILE);
     if (!st.isDirectory() || st.isSymbolicLink()) return null;
+    if (lstatOrNull(path.join(dir, OWNER_CONFLICT_FILE))) return null;
     const f = fs.lstatSync(file);
     if (!f.isFile() || f.isSymbolicLink()) return null;
     const raw = readJsonOrNull(file);
@@ -46,7 +48,9 @@ export function writeOwner(dir, info) {
     const existing = () => {
       const owner = readOwner(dir);
       if (!owner) return { written: false, error: "unreadable or invalid owner file" };
-      return owner.key === record.key ? { written: false } : { written: false, conflict: true };
+      if (owner.key !== record.key) return { written: false, conflict: true };
+      if (owner.repo !== record.repo) return { written: false, conflict: true, projectChanged: true };
+      return { written: false };
     };
     if (lstatOrNull(file)) return existing();
     tmp = path.join(dir, `.owner-${randomUUID()}.tmp`);
@@ -56,6 +60,27 @@ export function writeOwner(dir, info) {
     return { written: true };
   } catch (e) { return { written: false, error: e.code || e.message }; }
   finally { if (tmp) { try { fs.unlinkSync(tmp); } catch { /* absent */ } } }
+}
+
+export function hasOwnerConflict(dir) {
+  return !!lstatOrNull(path.join(path.resolve(dir), OWNER_CONFLICT_FILE));
+}
+
+// A session key can be resumed in a different project while its build directory still contains both projects'
+// outputs. Keep the existing owner record intact and add a no-clobber marker so neither project's prune can claim it.
+export function markOwnerConflict(dir) {
+  try {
+    dir = path.resolve(dir);
+    const st = lstatOrNull(dir);
+    if (!st?.isDirectory() || st.isSymbolicLink() || !safeDirectory(dir, dir))
+      return { written: false, error: "unsafe owner directory" };
+    const marker = path.join(dir, OWNER_CONFLICT_FILE);
+    if (lstatOrNull(marker)) return { written: false, conflict: true };
+    fs.writeFileSync(marker, "", { flag: "wx", mode: 0o600 });
+    return { written: true };
+  } catch (e) {
+    return e.code === "EEXIST" ? { written: false, conflict: true } : { written: false, error: e.code || e.message };
+  }
 }
 
 export function pruneProject(conf, env, repo, { apply = false, now = Date.now(), deadline = Infinity } = {}) {
@@ -76,7 +101,11 @@ export function pruneProject(conf, env, repo, { apply = false, now = Date.now(),
     // (state/clean-development/owners/<key>), or the pin.s projectRoot. Unknown ownership is skipped, never guessed.
     const key = /^[cx]-[A-Za-z0-9_-]{12}$/.test(path.basename(p)) ? path.basename(p) : null;
     const pin = key ? readPin(env, key) : null;
-    const owner = readOwner(p) || (key && readOwner(path.join(ownersDir(env), key)))
+    const ownerIndex = key ? path.join(ownersDir(env), key) : null;
+    if (hasOwnerConflict(p)) return { reason: "ambiguous project ownership" };
+    if (ownerIndex && !safeDirectory(stateDir(env), ownerIndex, { missingAnchor: true })) return { reason: "unsafe owner index" };
+    if (ownerIndex && hasOwnerConflict(ownerIndex)) return { reason: "ambiguous project ownership" };
+    const owner = readOwner(p) || (ownerIndex && readOwner(ownerIndex))
       || (key && pin && !pin.errors.length && pin.meta?.projectRoot && path.isAbsolute(pin.meta.projectRoot)
         ? ownerRecord({ repo: pin.meta.projectRoot, cwd: pin.meta.cwd ?? null, harness: pin.meta.harness, key, created: pin.meta.startedAt || new Date(0).toISOString() }) : null);
     if (!owner) return { reason: "unknown owner" };

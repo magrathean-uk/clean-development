@@ -7,7 +7,7 @@ import { loadConf, stateDir } from "../runtime/lib/conf.mjs";
 import { canonicalPath, withLock } from "../runtime/lib/fsutil.mjs";
 import { createLease } from "../runtime/lib/leases.mjs";
 import { lifecycleLock, writePin } from "../runtime/lib/sessions.mjs";
-import { OWNER_FILE, ownerRecord, readOwner, writeOwner, pruneProject } from "../runtime/lib/owners.mjs";
+import { OWNER_FILE, OWNER_CONFLICT_FILE, ownerRecord, readOwner, writeOwner, markOwnerConflict, pruneProject } from "../runtime/lib/owners.mjs";
 
 const keyA = "x-aaaaaaaaaaaa", keyB = "c-bbbbbbbbbbbb";
 const info = (repo, key = keyA) => ({ repo, cwd: repo, harness: "codex", key, created: "2026-11-05T12:00:00.000Z" });
@@ -79,6 +79,22 @@ test("a competing owner published during an atomic write is retained", (t) => {
   assert.deepEqual(writeOwner(p, info(a)), { written: false, conflict: true });
   assert.equal(fs.readFileSync(path.join(p, OWNER_FILE), "utf8"), other);
   assert.deepEqual(fs.readdirSync(p), [OWNER_FILE]);
+});
+
+test("a session key reused by another project is marked ambiguous and cannot authorize either prune", () => {
+  const { s, conf, a, b, build } = fixture(), index = path.join(stateDir(s.env), "owners", keyA);
+  assert.equal(writeOwner(index, info(a)).written, true);
+  assert.deepEqual(writeOwner(index, info(b)), { written: false, conflict: true, projectChanged: true });
+  assert.deepEqual(markOwnerConflict(index), { written: true });
+  assert.equal(fs.existsSync(path.join(index, OWNER_CONFLICT_FILE)), true);
+  assert.equal(readOwner(index), null);
+  const reused = build(keyA, a);
+  for (const repo of [a, b]) {
+    const result = pruneProject(conf, s.env, repo);
+    assert.deepEqual(result.candidates, []);
+    assert.ok(result.skipped.some((entry) => entry.path === reused && entry.reason === "ambiguous project ownership"));
+  }
+  assert.equal(fs.readFileSync(path.join(reused, "output"), "utf8"), keyA);
 });
 
 test("project preview selects only matching owners across both roots and writes nothing", () => {
