@@ -34,9 +34,9 @@ export function hookShimText(env = process.env, version = VERSION) {
 }
 // The release a shim names, or null when the text is not a shim this runtime wrote.
 export function shimRelease(text, env = process.env) {
-  const m = String(text).match(/^rt='([^']+)'$/m);
-  if (!m || path.dirname(m[1]) !== runtimeRoot(env) || !RELEASE_DIR.test(path.basename(m[1]))) return null;
-  return text === hookShimText(env, path.basename(m[1])) ? path.basename(m[1]) : null;
+  const m = String(text).match(/^rt=.*\/(\d+\.\d+\.\d+)'$/m);
+  if (!m || !RELEASE_DIR.test(m[1])) return null;
+  return text === hookShimText(env, m[1]) ? m[1] : null;
 }
 export const confPath = (env = process.env) => path.join(machineDir(env), "storage.conf");
 

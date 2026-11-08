@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { hookShimPath } from "../runtime/lib/conf.mjs";
+import { VERSION, hookShimPath, hookShimText, runtimeRoot, shimRelease } from "../runtime/lib/conf.mjs";
 import { hookCommandMatches } from "../runtime/lib/doctor.mjs";
 import { managedHookCommand, managedTrustEntries } from "../runtime/lib/codex-trust.mjs";
 
@@ -21,12 +21,13 @@ test("managed hook parser accepts shell-safe absolute and active HOME forms", ()
   const apostrophe = "/Users/O'Reilly/dev/machine/runtime/clean-development/active/bin/cd-hook";
   const shellQuote = (value) => `'${String(value).replaceAll("'", "'\\''")}'`;
   assert.equal(managedHookCommand(`${shellQuote(apostrophe)} stop codex`)?.file, apostrophe);
-  const substitutions = [
-    '"/tmp/$(printf parser-probe)/runtime/clean-development/active/bin/cd-hook" stop codex',
-    '"/tmp/`printf parser-probe`/runtime/clean-development/active/bin/cd-hook" stop codex'
-  ];
-  for (const command of substitutions) assert.equal(managedHookCommand(command), null);
-  assert.equal(managedTrustEntries("/Users/Alice/.codex/hooks.json", trustDoc(substitutions)).length, 0);
+  const unsafeHomes = ["/Users/Alice$(printf parser-probe)", "/Users/Alice`printf parser-probe`", "/Users/Alice$VAR", "/Users/Alice\\path", "/Users/Alice!path"];
+  for (const home of unsafeHomes) {
+    const shim = `${home}/dev/machine/runtime/clean-development/active/bin/cd-hook`;
+    const command = `"${shim}" stop codex`, env = { HOME: home };
+    assert.equal(managedHookCommand(command), null);
+    assert.equal(managedTrustEntries("/Users/Alice/.codex/hooks.json", trustDoc([command]), env).length, 0);
+  }
 });
 
 test("doctor and Codex trust use the same accepted active shim spellings", () => {
@@ -39,15 +40,22 @@ test("doctor and Codex trust use the same accepted active shim spellings", () =>
   const noSpaceShim = hookShimPath(noSpaceEnv);
   const simpleAccepted = [`'${noSpaceShim}' stop codex`, `"${noSpaceShim}" stop codex`, `${noSpaceShim} stop codex`];
   for (const command of simpleAccepted) assert.equal(hookCommandMatches(noSpaceEnv, "Stop", "codex", command), true);
-  assert.equal(managedTrustEntries("/Users/Alice/.codex/hooks.json", trustDoc(simpleAccepted)).length, 3);
+  assert.equal(managedTrustEntries("/Users/Alice/.codex/hooks.json", trustDoc(simpleAccepted), noSpaceEnv).length, 3);
+  const versioned = `${runtimeRoot(noSpaceEnv)}/0.6.7/bin/cd-hook`;
+  assert.equal(managedTrustEntries("/Users/Alice/.codex/hooks.json", trustDoc([`'${versioned}' stop codex`]), noSpaceEnv).length, 1);
+  const outside = "/tmp/evil/runtime/clean-development/active/bin/cd-hook";
+  const traversal = `${runtimeRoot(noSpaceEnv)}/active/bin/../../../../../../tmp/evil/runtime/clean-development/active/bin/cd-hook`;
+  assert.equal(managedTrustEntries("/Users/Alice/.codex/hooks.json", trustDoc([`'${outside}' stop codex`]), noSpaceEnv).length, 0);
+  assert.equal(managedTrustEntries("/Users/Alice/.codex/hooks.json", trustDoc([`'${traversal}' stop codex`]), noSpaceEnv).length, 0);
 
   const apostropheEnv = { HOME: "/Users/O'Reilly" };
   const apostropheShim = hookShimPath(apostropheEnv);
   const escapedApostrophe = `'${apostropheShim.replaceAll("'", "'\\''")}' stop codex`;
   assert.equal(hookCommandMatches(apostropheEnv, "Stop", "codex", escapedApostrophe), true);
-  assert.equal(managedTrustEntries("/Users/O'Reilly/.codex/hooks.json", trustDoc([escapedApostrophe])).length, 1);
+  assert.equal(managedTrustEntries("/Users/O'Reilly/.codex/hooks.json", trustDoc([escapedApostrophe]), apostropheEnv).length, 1);
 
   const literalHome = "'$HOME/dev/machine/runtime/clean-development/active/bin/cd-hook' stop codex";
   assert.equal(hookCommandMatches(noSpaceEnv, "Stop", "codex", literalHome), false);
-  assert.equal(managedTrustEntries("/Users/Alice/.codex/hooks.json", trustDoc([literalHome])).length, 0);
+  assert.equal(managedTrustEntries("/Users/Alice/.codex/hooks.json", trustDoc([literalHome]), noSpaceEnv).length, 0);
+  assert.equal(shimRelease(hookShimText(apostropheEnv), apostropheEnv), VERSION);
 });

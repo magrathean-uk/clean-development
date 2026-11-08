@@ -34,7 +34,7 @@ function configure(s) {
   json(path.join(s.home, ".claude", "plugins", "installed_plugins.json"), { plugins: { "clean-development@clean-development": [{ version: VERSION }] } });
   // ~/.codex is always checked: a healthy fixture has its shim hooks and their trust.
   const codexHooks = path.join(s.home, ".codex", "hooks.json"), codexDoc = hooks(s.env, "codex");
-  json(codexHooks, codexDoc); mk(path.join(s.home, ".codex", "config.toml"), trustToml(managedTrustEntries(codexHooks, codexDoc)));
+  json(codexHooks, codexDoc); mk(path.join(s.home, ".codex", "config.toml"), trustToml(managedTrustEntries(codexHooks, codexDoc, s.env)));
   return s;
 }
 
@@ -179,8 +179,8 @@ test("configured Codex home requires hooks and matching trust", () => {
   const doc = hooks(s.env, "codex"); json(file, doc);
   assert.equal(row(result(s), "Codex hooks (configured-codex)").ok, true);
   assert.equal(row(result(s), "Codex hook trust (configured-codex)").ok, false);
-  // The trust recogniser is owned elsewhere; retain real hash coverage until its shim support lands.
-  const managed = managedTrustEntries(file, doc), entries = managed.length ? managed : trustEntries(file, doc);
+  // The trust recogniser uses the same synthetic home as doctor for this fixture.
+  const managed = managedTrustEntries(file, doc, s.env), entries = managed.length ? managed : trustEntries(file, doc);
   assert.equal(entries.length, 3);
   mk(path.join(home, "config.toml"), trustToml(entries));
   const passed = cli(s, ["doctor", "--json", "--no-gui"]);
@@ -444,7 +444,7 @@ test("doctor accepts hooks written with the absolute active shim path", () => {
     mk(path.join(stateDir(s.env), "claude-profiles.list"), "~/dev/machine/state/profiles/primary/settings.json\n");
     const codexHooks = path.join(s.home, ".codex", "hooks.json"), codexDoc = absoluteHooks("codex");
     json(codexHooks, codexDoc);
-    const trusted = managedTrustEntries(codexHooks, codexDoc);
+    const trusted = managedTrustEntries(codexHooks, codexDoc, s.env);
     assert.equal(trusted.length, 3);
     mk(path.join(s.home, ".codex", "config.toml"), trustToml(trusted));
 

@@ -9,6 +9,7 @@ import { spawnSync } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { runtimeRoot } from "./conf.mjs";
 
 const LABEL = (event) => event.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
 
@@ -77,11 +78,19 @@ export function managedHookCommand(command) {
   return { file, event: HOOK_EVENT_NAMES[m[4]], harness: m[5], fromHome };
 }
 
-export function managedTrustEntries(hooksPath, doc) {
+function installedRuntimeShim(file, env) {
+  if (path.resolve(file) !== file) return false;
+  let root;
+  try { root = path.resolve(runtimeRoot(env)); } catch { return false; }
+  return /^(?:\d+\.\d+\.\d+|active)\/bin\/cd-hook$/.test(path.relative(root, file));
+}
+
+export function managedTrustEntries(hooksPath, doc, env = process.env) {
   const owned = new Set();
   for (const [event, groups] of Object.entries(doc?.hooks || {})) (groups || []).forEach((g, gi) => (g.hooks || []).forEach((h, hi) => {
     const parsed = managedHookCommand(h.command);
-    if (parsed?.harness === "codex" && parsed.event === event)
+    const managedPath = parsed?.fromHome || parsed && installedRuntimeShim(parsed.file, env);
+    if (managedPath && parsed.harness === "codex" && parsed.event === event)
       owned.add(`${hooksPath}:${LABEL(event)}:${gi}:${hi}`);
   }));
   return trustEntries(hooksPath, doc).filter((e) => owned.has(e.key));

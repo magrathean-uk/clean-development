@@ -149,7 +149,7 @@ export function doctor(env = process.env, { gui = false, internalWarnBytes = 102
     if (!codexDoc) { results.push({ name: `Codex hook trust${label}`, ok: false, detail: `cannot inspect missing/invalid hooks; ${remedy}` }); continue; }
     let toml = "";
     try { toml = fs.readFileSync(path.join(codexHome, "config.toml"), "utf8"); } catch { /* missing */ }
-    const states = readHookStates(toml), managed = managedTrustEntries(codexHooksFile, codexDoc);
+    const states = readHookStates(toml), managed = managedTrustEntries(codexHooksFile, codexDoc, env);
     const currentKeys = new Set(trustEntries(codexHooksFile, codexDoc).filter((e) => {
       const parts = e.key.slice(codexHooksFile.length + 1).split(":");
       const event = Object.keys(EVENTS).find((ev) => EVENTS[ev].replaceAll("-", "_") === parts[0]);

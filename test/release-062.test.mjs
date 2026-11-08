@@ -43,7 +43,7 @@ test("0.6.2 everywhere; hooks use the version-less shim, which survives an upgra
   const shim = hookShimPath(s.env);
   assert.equal(fs.readFileSync(shim, "utf8"), hookShimText(s.env, VERSION));
   const doc = { hooks: { SessionStart: [{ matcher: "startup|resume|clear|compact|fork", hooks: [{ type: "command", command: `'${shim}' session-start codex`, timeout: 30 }] }] } };
-  const before = managedTrustEntries("/h/hooks.json", doc);
+  const before = managedTrustEntries("/h/hooks.json", doc, s.env);
   assert.equal(before.length, 1);
   const run = () => spawnSync("/bin/sh", [shim, "session-start", "claude"], { input: JSON.stringify({ session_id: "77777777-7777-4777-8777-0000000000a1", cwd: s.root }),
     env: { ...s.env, CLEAN_DEV_NODE: process.execPath }, encoding: "utf8", timeout: 20000 });
@@ -63,7 +63,7 @@ test("0.6.2 everywhere; hooks use the version-less shim, which survives an upgra
   assert.deepEqual(fs.readFileSync(shim), prior); assert.equal(fs.statSync(shim).mode & 0o777, priorMode);
   installPackage(src, s.env);
   assert.equal(fs.readFileSync(shim, "utf8"), hookShimText(s.env, next));
-  assert.deepEqual(managedTrustEntries("/h/hooks.json", doc), before);
+  assert.deepEqual(managedTrustEntries("/h/hooks.json", doc, s.env), before);
   assert.equal(run().status, 0);
   assert.equal(fs.readFileSync(marker, "utf8").trim(), "session-start claude");
   // A shim naming a missing release fails open: exit 0, no output.

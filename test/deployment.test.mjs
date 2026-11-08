@@ -31,7 +31,7 @@ test("default trust scope never approves unrelated command handlers", () => {
     { type: "command", command: "echo '/h/dev/machine/runtime/clean-development/0.6.0/bin/cd-hook' stop codex" },
     { type: "command", command: "'/h/dev/machine/runtime/clean-development/0.6.0/bin/cd-hook' stop codex; unrelated-command" },
     { type: "command", command: "'/h/dev/machine/runtime/clean-development/0.6.0/bin/cd-hook' stop claude" }
-  ] }] } });
+  ] }] } }, { HOME: "/h" });
   assert.deepEqual(entries.map((e) => e.key), ["/h/hooks.json:stop:0:1"]);
 });
 
@@ -115,7 +115,7 @@ test("codex-trust --apply writes the live [features] hooks = true shape and leav
   const s = sim({ mounted: false }), hooks = path.join(s.home, ".codex", "hooks.json"), config = path.join(s.home, ".codex", "config.toml");
   const command = `'${path.join(s.home, "dev", "machine", "runtime", "clean-development", "active", "bin", "cd-hook")}' stop codex`;
   mk(hooks, JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: "command", command, async: true, timeout: 5 }] }] } }));
-  const [entry] = managedTrustEntries(hooks, JSON.parse(fs.readFileSync(hooks, "utf8")));
+  const [entry] = managedTrustEntries(hooks, JSON.parse(fs.readFileSync(hooks, "utf8")), s.env);
   assert.ok(entry, "managed Stop handler selected");
   mk(config, `model = "x"\n\n[features]\nhooks = true\n\n[hooks.state]\n\n[hooks.state.${JSON.stringify(entry.key)}]\ntrusted_hash = "sha256:old"\n`);
   const r = cli(s, ["codex-trust", "--hooks", hooks, "--config", config, "--apply"]);
