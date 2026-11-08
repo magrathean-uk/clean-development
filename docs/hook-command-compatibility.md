@@ -10,6 +10,8 @@ Replace `stop` with `session-start` or `session-end`, and `claude` with `codex` 
 
 During upgrades, `doctor` also accepts an absolute path to the current `active/bin/cd-hook` when the path is quoted with single or double quotes. An unquoted absolute path is accepted when it contains no spaces. Codex trust checks use the same command parser and also recognize absolute paths to versioned runtime shims so existing trust entries can be maintained.
 
+The parser understands the standard shell-escaped form for apostrophes in a single-quoted path. It rejects double-quoted absolute paths containing shell expansion characters; the double-quoted `$HOME` installer form remains supported.
+
 Do not single-quote `$HOME`: the shell would pass the literal text instead of expanding it. For an absolute path containing spaces, keep the path quoted.
 
 These forms help diagnose existing settings. Use the supplied hook merge tools to install or update handlers so unrelated configuration is preserved.

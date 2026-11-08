@@ -66,11 +66,14 @@ const ABSOLUTE_MANAGED_SHIM = /^\/.*\/runtime\/clean-development\/(?:\d+\.\d+\.\
 // $HOME must be double-quoted so the shell expands it; absolute paths may use
 // single quotes, double quotes, or no quotes when the path has no spaces.
 export function managedHookCommand(command) {
-  const m = String(command || "").match(/^(?:"([^"\r\n]+)"|'([^'\r\n]+)'|(\/[A-Za-z0-9_./-]+)) (session-start|stop|session-end) (claude|codex)$/);
+  const m = String(command || "").match(/^(?:"([^"\r\n]+)"|'((?:[^']|'\\'')+)'|(\/[A-Za-z0-9_./-]+)) (session-start|stop|session-end) (claude|codex)$/);
   if (!m) return null;
-  const file = m[1] ?? m[2] ?? m[3];
+  const file = m[1] ?? m[2]?.replaceAll("'\\''", "'") ?? m[3];
   const fromHome = m[1] === HOME_ACTIVE_SHIM;
-  if (!fromHome && !ABSOLUTE_MANAGED_SHIM.test(file)) return null;
+  // Inside double quotes, shell parameter/command substitution, backticks,
+  // backslashes and history expansion remain active. Reject them before this
+  // path can be treated as an owned hook. Single-quoted paths are literal.
+  if (!fromHome && (!ABSOLUTE_MANAGED_SHIM.test(file) || (m[1] !== undefined && /[$`\\!]/.test(file)))) return null;
   return { file, event: HOOK_EVENT_NAMES[m[4]], harness: m[5], fromHome };
 }
 
