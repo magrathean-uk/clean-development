@@ -111,7 +111,7 @@ function pruneOwnerIndex(env, conf, { roots, external, deadline, log }) {
   if (!safeDirectory(stateDir(env), dir)) return;
   for (const d of children(dir, 20000)) {
     if (!timeLeft(deadline)) return;
-    const p = path.join(dir, d.name), names = d.isDirectory() && !d.isSymbolicLink() ? children(p).map((entry) => entry.name) : null;
+    const p = path.join(dir, d.name), names = d.isDirectory() && !d.isSymbolicLink() ? children(p, 20000, { requireComplete: true }).map((entry) => entry.name) : null;
     if (!/^[cx]-[A-Za-z0-9_-]{12}$/.test(d.name) || !names || names.some((n) => ![OWNER_FILE, OWNER_CONFLICT_FILE].includes(n))) continue;
     const st = lstatOrNull(path.join(p, OWNER_FILE));
     if (!st?.isFile() || Date.now() - st.mtimeMs < conf.EXTERNAL_BUILD_DAYS * DAY) continue;

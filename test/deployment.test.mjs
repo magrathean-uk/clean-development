@@ -53,6 +53,7 @@ test("trust editor ignores backslashes in comments and multiline values", () => 
   ]) {
     const after = applyTrust(before, "/h/hooks.json", entries);
     assert.ok(after.startsWith(before), after);
+    verifyTrustEdit(before, after, entries);
   }
 });
 
