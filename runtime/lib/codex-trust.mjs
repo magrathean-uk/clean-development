@@ -71,6 +71,8 @@ export function hookDocumentProblems(doc) {
       if (!Array.isArray(group.hooks)) { problems.push(`hooks.${event}[${groupIndex}].hooks must be an array`); return; }
       group.hooks.forEach((handler, handlerIndex) => {
         if (!isRecord(handler)) problems.push(`hooks.${event}[${groupIndex}].hooks[${handlerIndex}] must be an object`);
+        else if (handler.type === "command" && typeof handler.command !== "string")
+          problems.push(`hooks.${event}[${groupIndex}].hooks[${handlerIndex}].command must be a string`);
       });
     });
   }
@@ -100,7 +102,8 @@ const ABSOLUTE_MANAGED_SHIM = /^\/.*\/runtime\/clean-development\/(?:\d+\.\d+\.\
 // $HOME must be double-quoted so the shell expands it; absolute paths may use
 // single quotes, double quotes, or no quotes when the path has no spaces.
 export function managedHookCommand(command) {
-  const m = String(command || "").match(/^(?:"([^"\r\n]+)"|'((?:[^']|'\\'')+)'|(\/[A-Za-z0-9_./-]+)) (session-start|stop|session-end) (claude|codex)$/);
+  if (typeof command !== "string") return null;
+  const m = command.match(/^(?:"([^"\r\n]+)"|'((?:[^']|'\\'')+)'|(\/[A-Za-z0-9_./-]+)) (session-start|stop|session-end) (claude|codex)$/);
   if (!m) return null;
   const file = m[1] ?? m[2]?.replaceAll("'\\''", "'") ?? m[3];
   const fromHome = m[1] === HOME_ACTIVE_SHIM;

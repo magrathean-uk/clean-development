@@ -192,7 +192,10 @@ test("doctor reports malformed Codex hook shapes without trust parser exceptions
   const malformed = [
     (doc) => { doc.hooks.Stop = { hooks: [] }; return /hooks\.Stop must be an array/; },
     (doc) => { doc.hooks.Stop[0].hooks = {}; return /hooks\.Stop\[0\]\.hooks must be an array/; },
-    (doc) => { doc.hooks.Stop[0].hooks = [null]; return /hooks\.Stop\[0\]\.hooks\[0\] must be an object/; }
+    (doc) => { doc.hooks.Stop[0].hooks = [null]; return /hooks\.Stop\[0\]\.hooks\[0\] must be an object/; },
+    (doc) => { doc.hooks.Stop[0].hooks[0].command = [doc.hooks.Stop[0].hooks[0].command]; return /hooks\.Stop\[0\]\.hooks\[0\]\.command must be a string/; },
+    (doc) => { doc.hooks.Stop[0].hooks[0].command = { toString: null }; return /hooks\.Stop\[0\]\.hooks\[0\]\.command must be a string/; },
+    (doc) => { delete doc.hooks.Stop[0].hooks[0].command; return /hooks\.Stop\[0\]\.hooks\[0\]\.command must be a string/; }
   ];
   for (const makeMalformed of malformed) {
     const s = configure(sim()), file = path.join(s.home, ".codex", "hooks.json"), doc = hooks(s.env, "codex");

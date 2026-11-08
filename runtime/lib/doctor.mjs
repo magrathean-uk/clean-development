@@ -33,7 +33,7 @@ export function hookCommandMatches(env, event, harness, command) {
 function commandsIn(doc) {
   const out = [];
   for (const [event, groups] of Object.entries(doc?.hooks || {})) for (const g of Array.isArray(groups) ? groups : []) for (const h of Array.isArray(g?.hooks) ? g.hooks : []) {
-    if (h?.type === "command") out.push({ event, command: String(h.command || ""), matcher: g.matcher, timeout: h.timeout, async: h.async === true });
+    if (h?.type === "command") out.push({ event, command: typeof h.command === "string" ? h.command : "", matcher: g.matcher, timeout: h.timeout, async: h.async === true });
   }
   return out;
 }
