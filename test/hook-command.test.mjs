@@ -42,12 +42,13 @@ test("doctor and Codex trust use the same accepted active shim spellings", () =>
   for (const command of simpleAccepted) assert.equal(hookCommandMatches(noSpaceEnv, "Stop", "codex", command), true);
   assert.equal(managedTrustEntries("/Users/Alice/.codex/hooks.json", trustDoc(simpleAccepted), noSpaceEnv).length, 3);
   const noncanonical = [
-    `${runtimeRoot(noSpaceEnv)}/active//bin/cd-hook`,
-    `${runtimeRoot(noSpaceEnv)}/active/./bin/cd-hook`,
-    `${runtimeRoot(noSpaceEnv)}/active/../active/bin/cd-hook`,
+    noSpaceShim.replace("/dev/machine/", "//dev/machine/"),
+    noSpaceShim.replace("/dev/machine/", "/./dev/machine/"),
+    noSpaceShim.replace("/dev/machine/", "/../Alice/dev/machine/"),
   ];
   for (const file of noncanonical) {
     const command = `'${file}' stop codex`;
+    assert.equal(managedHookCommand(command)?.file, file);
     assert.equal(hookCommandMatches(noSpaceEnv, "Stop", "codex", command), false);
     assert.equal(managedTrustEntries("/Users/Alice/.codex/hooks.json", trustDoc([command]), noSpaceEnv).length, 0);
   }
