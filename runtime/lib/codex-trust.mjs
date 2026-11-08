@@ -58,15 +58,27 @@ export function trustToml(entries) {
   return entries.map((e) => `[hooks.state.${JSON.stringify(e.key)}]\ntrusted_hash = ${JSON.stringify(e.hash)}\n`).join("\n");
 }
 
+const HOOK_EVENT_NAMES = { "session-start": "SessionStart", stop: "Stop", "session-end": "SessionEnd" };
+const HOME_ACTIVE_SHIM = "$HOME/dev/machine/runtime/clean-development/active/bin/cd-hook";
+const ABSOLUTE_MANAGED_SHIM = /^\/.*\/runtime\/clean-development\/(?:\d+\.\d+\.\d+|active)\/bin\/cd-hook$/;
+
+// Parse the shell-safe hook spellings written by current and legacy installers.
+// $HOME must be double-quoted so the shell expands it; absolute paths may use
+// single quotes, double quotes, or no quotes when the path has no spaces.
+export function managedHookCommand(command) {
+  const m = String(command || "").match(/^(?:"([^"\r\n]+)"|'([^'\r\n]+)'|(\/[A-Za-z0-9_./-]+)) (session-start|stop|session-end) (claude|codex)$/);
+  if (!m) return null;
+  const file = m[1] ?? m[2] ?? m[3];
+  const fromHome = m[1] === HOME_ACTIVE_SHIM;
+  if (!fromHome && !ABSOLUTE_MANAGED_SHIM.test(file)) return null;
+  return { file, event: HOOK_EVENT_NAMES[m[4]], harness: m[5], fromHome };
+}
+
 export function managedTrustEntries(hooksPath, doc) {
   const owned = new Set();
   for (const [event, groups] of Object.entries(doc?.hooks || {})) (groups || []).forEach((g, gi) => (g.hooks || []).forEach((h, hi) => {
-    const m = String(h.command || "").match(/^(?:'([^']+)'|"([^"]+)"|(\/[A-Za-z0-9_./-]+)) (session-start|stop|session-end) codex$/);
-    const file = m && (m[1] || m[2] || m[3]);
-    const expected = { SessionStart: "session-start", Stop: "stop", SessionEnd: "session-end" }[event];
-    const managedPath = file && ((/^[A-Za-z0-9_./ -]+$/.test(file) && /^\/.*\/runtime\/clean-development\/(?:\d+\.\d+\.\d+|active)\/bin\/cd-hook$/.test(file))
-      || /^\$HOME\/dev\/machine\/runtime\/clean-development\/(?:\d+\.\d+\.\d+|active)\/bin\/cd-hook$/.test(file));
-    if (managedPath && m[4] === expected)
+    const parsed = managedHookCommand(h.command);
+    if (parsed?.harness === "codex" && parsed.event === event)
       owned.add(`${hooksPath}:${LABEL(event)}:${gi}:${hi}`);
   }));
   return trustEntries(hooksPath, doc).filter((e) => owned.has(e.key));

@@ -18,7 +18,7 @@
 - Runs the storage write retry before taking the shared lifecycle lock, then rechecks external storage under the lock.
 - Makes GUI launchd/Xcode checks opt-in with `doctor --gui`; derives `CLEAN_DEV_WORK` from a writable parent of `LAB_ROOT`, falls back to writable `EXTERNAL_ROOT`, and uses `~/dev/machine` if neither is available.
 - Keeps worktrees under either the external or internal work root in doctor, and requires zsh routing in `.zshenv`.
-- Accepts current active-shim hook commands written with either `$HOME` or an absolute path, so doctor recognises existing installations during upgrades.
+- Accepts `$HOME` hook commands in double quotes and absolute active-shim paths in single quotes, double quotes or unquoted form; doctor and Codex trust use the same parser.
 - Makes repository metadata inventory opt-in for general installs; the optional private environment extension can keep it enabled on a configured workstation.
 - Retires stale internal-only ownership entries while external storage is away, and external-used/legacy entries once every root is inspectable; fresh internal sessions record their storage history.
 - Uses internal `/tmp` for the documented test fixture example so it works with external-volume session routing.

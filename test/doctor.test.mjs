@@ -424,30 +424,37 @@ test("doctor skips workspace inventory unless explicitly enabled", () => {
 
 test("doctor accepts hooks written with the absolute active shim path", () => {
   const s = configure(sim());
-  const quote = (value) => `'${String(value).replaceAll("'", "'\\''")}'`;
-  const absoluteHooks = (harness) => {
-    const doc = hooks(s.env, harness), shim = quote(hookShimPath(s.env));
-    for (const [event, groups] of Object.entries(doc.hooks)) {
-      groups[0].hooks[0].command = `${shim} ${{ SessionStart: "session-start", Stop: "stop", SessionEnd: "session-end" }[event]} ${harness}`;
-    }
-    return doc;
-  };
-  const claude = path.join(s.home, ".claude", "settings.json"), claudeDoc = absoluteHooks("claude");
-  json(claude, claudeDoc);
-  const profile = path.join(s.home, "dev", "machine", "state", "profiles", "primary", "settings.json");
-  json(profile, claudeDoc);
-  mk(path.join(stateDir(s.env), "claude-profiles.list"), "~/dev/machine/state/profiles/primary/settings.json\n");
-  const codexHooks = path.join(s.home, ".codex", "hooks.json"), codexDoc = absoluteHooks("codex");
-  json(codexHooks, codexDoc);
-  mk(path.join(s.home, ".codex", "config.toml"), trustToml(managedTrustEntries(codexHooks, codexDoc)));
+  const spellings = [
+    (shim) => `'${String(shim).replaceAll("'", "'\\''")}'`,
+    (shim) => `"${shim}"`,
+    (shim) => shim
+  ];
+  for (const quote of spellings) {
+    const absoluteHooks = (harness) => {
+      const doc = hooks(s.env, harness), shim = quote(hookShimPath(s.env));
+      for (const [event, groups] of Object.entries(doc.hooks)) {
+        groups[0].hooks[0].command = `${shim} ${{ SessionStart: "session-start", Stop: "stop", SessionEnd: "session-end" }[event]} ${harness}`;
+      }
+      return doc;
+    };
+    const claude = path.join(s.home, ".claude", "settings.json"), claudeDoc = absoluteHooks("claude");
+    json(claude, claudeDoc);
+    const profile = path.join(s.home, "dev", "machine", "state", "profiles", "primary", "settings.json");
+    json(profile, claudeDoc);
+    mk(path.join(stateDir(s.env), "claude-profiles.list"), "~/dev/machine/state/profiles/primary/settings.json\n");
+    const codexHooks = path.join(s.home, ".codex", "hooks.json"), codexDoc = absoluteHooks("codex");
+    json(codexHooks, codexDoc);
+    const trusted = managedTrustEntries(codexHooks, codexDoc);
+    assert.equal(trusted.length, 3);
+    mk(path.join(s.home, ".codex", "config.toml"), trustToml(trusted));
 
-  const r = result(s);
-  assert.equal(row(r, "Claude hooks").ok, true, row(r, "Claude hooks").detail);
-  assert.equal(row(r, "Claude profile hooks (dev/machine/state/profiles/primary/settings.json)").ok, true);
-  assert.equal(row(r, "Codex hooks").ok, true, row(r, "Codex hooks").detail);
-  assert.equal(row(r, "Codex hook trust").ok, true, row(r, "Codex hook trust").detail);
+    const r = result(s);
+    assert.equal(row(r, "Claude hooks").ok, true, row(r, "Claude hooks").detail);
+    assert.equal(row(r, "Claude profile hooks (dev/machine/state/profiles/primary/settings.json)").ok, true);
+    assert.equal(row(r, "Codex hooks").ok, true, row(r, "Codex hooks").detail);
+    assert.equal(row(r, "Codex hook trust").ok, true, row(r, "Codex hook trust").detail);
+  }
 });
-
 
 test("doctor warns when internal free space is under INTERNAL_MIN_FREE_GB and has no stale-internal row", () => {
   const s = configure(sim());

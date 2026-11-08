@@ -5,7 +5,7 @@ import { spawnSync } from "node:child_process";
 import { sessionsDir, VERSION, RELEASE_DIR, homeDir, hookShimPath, hookShimText, shimRelease, loadConf, runtimeRoot, stateDir } from "./conf.mjs";
 import { detect, externalWorkRoot, fmtGB, GB, internalFreeBytes, layout } from "./storage.mjs";
 import { children, lstatOrNull, readJsonOrNull, safeDirectory } from "./fsutil.mjs";
-import { managedTrustEntries, readHookStates, trustEntries } from "./codex-trust.mjs";
+import { managedHookCommand, managedTrustEntries, readHookStates, trustEntries } from "./codex-trust.mjs";
 import { claudeProfiles, claudeSettings, codexHomes, inventoryExtras, policyInventory, scanLiteralCachePaths, worktreeInventory } from "./inventory.mjs";
 import { readSizeCache, trashPaths } from "./sizes.mjs";
 import { dotReport } from "./dots.mjs";
@@ -17,15 +17,17 @@ import { sourceRepos } from "./project.mjs";
 import { colimaHomeMatches, vmHome } from "./vm.mjs";
 
 const EVENTS = { SessionStart: "session-start", Stop: "stop", SessionEnd: "session-end" };
-const shellQuote = (value) => `'${String(value).replaceAll("'", "'\\''")}'`;
 
 export function hookCommand(env, event, harness) {
   return `\"$HOME/dev/machine/runtime/clean-development/active/bin/cd-hook\" ${EVENTS[event] || event} ${harness}`;
 }
 
 export function hookCommandMatches(env, event, harness, command) {
-  const args = `${EVENTS[event] || event} ${harness}`;
-  return command === hookCommand(env, event, harness) || command === `${shellQuote(hookShimPath(env))} ${args}`;
+  const parsed = managedHookCommand(command);
+  const expectedEvent = Object.hasOwn(EVENTS, event) ? event : Object.keys(EVENTS).find((name) => EVENTS[name] === event) || event;
+  if (!parsed || parsed.event !== expectedEvent || parsed.harness !== harness) return false;
+  return parsed.fromHome && command === hookCommand(env, event, harness)
+    || !parsed.fromHome && path.resolve(parsed.file) === path.resolve(hookShimPath(env));
 }
 
 function commandsIn(doc) {
