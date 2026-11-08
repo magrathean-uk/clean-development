@@ -540,6 +540,50 @@ test("forced Stop preserves data inside an unexpected owner conflict directory",
   assert.equal(fs.readFileSync(payload, "utf8"), "preserve this data");
 });
 
+test("forced Stop fails closed on owner conflict inspection errors and prunes verified entries non-recursively", () => {
+  const s = sim();
+  const start = hook(s, "session-start", "claude", { cwd: s.root });
+  assert.equal(start.status, 0, start.stderr);
+  assert.match(JSON.parse(start.stdout).hookSpecificOutput.additionalContext, /mode=external/);
+  const owners = path.join(s.home, "dev/machine/state/clean-development/owners");
+  const makeStaleOwner = (key) => {
+    const dir = path.join(owners, key), ownerFile = path.join(dir, ".owner.json");
+    const record = { schemaVersion: 1, repo: null, cwd: s.root, harness: "claude", key, created: new Date().toISOString(), externalUsed: false };
+    const text = `${JSON.stringify(record)}\n`;
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(ownerFile, text);
+    agePath(ownerFile, (loadConf(s.env).EXTERNAL_BUILD_DAYS + 1) * 24);
+    return { dir, ownerFile, text };
+  };
+  const affectedKey = "c-aaaaaaaaaaaa", controlKey = "c-bbbbbbbbbbbb";
+  const affected = makeStaleOwner(affectedKey), control = makeStaleOwner(controlKey);
+  const conflict = path.join(affected.dir, ".owner-conflict"), payload = path.join(conflict, "important.txt");
+  fs.mkdirSync(conflict);
+  fs.writeFileSync(payload, "preserve this data");
+  const originalLstatSync = fs.lstatSync;
+  let injected = false;
+  fs.lstatSync = function (file, ...args) {
+    if (file === conflict && !injected) {
+      injected = true;
+      const error = new Error("temporary owner marker inspection failure");
+      error.code = "EIO";
+      throw error;
+    }
+    return originalLstatSync.call(fs, file, ...args);
+  };
+  let r;
+  try { r = stop({}, "claude", s.env, { force: true, budgetMs: 10000 }); }
+  finally { fs.lstatSync = originalLstatSync; }
+  assert.equal(injected, true, "the conflict marker inspection failure was exercised");
+  assert.equal(r.locked, false);
+  assert.deepEqual(r.result.errors, []);
+  assert.equal(r.result.timedOut, false);
+  assert.equal(r.result.deferred, false);
+  assert.equal(fs.existsSync(control.dir), false, "the control entry proves owner-index pruning ran");
+  assert.equal(fs.readFileSync(affected.ownerFile, "utf8"), affected.text);
+  assert.equal(fs.readFileSync(payload, "utf8"), "preserve this data");
+});
+
 test("prune --project finds a reaped session's external builds through the ownership index, never stamping builds/<key>", async () => {
   const s = sim();
   const repoA = path.join(s.home, "dev", "source", "alpha"), repoB = path.join(s.home, "dev", "source", "beta");

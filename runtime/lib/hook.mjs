@@ -124,6 +124,11 @@ function ownerEntryNames(dir, limit = 3) {
   }
 }
 
+function lstatOrMissing(p) {
+  try { return fs.lstatSync(p); }
+  catch (e) { if (e.code === "ENOENT") return null; throw e; }
+}
+
 // Index entries hold .owner.json and, after a project switch, an optional .owner-conflict marker. Internal-only
 // entries can be removed once their internal build path and pin are gone; external-used or legacy-unknown entries
 // wait until the external root is available and every build path can be checked.
@@ -135,14 +140,25 @@ function pruneOwnerIndex(env, conf, { roots, external, deadline, log }) {
     if (!/^[cx]-[A-Za-z0-9_-]{12}$/.test(d.name) || !d.isDirectory() || d.isSymbolicLink()) continue;
     const p = path.join(dir, d.name), names = ownerEntryNames(p);
     if (names.length > 2 || names.some((n) => ![OWNER_FILE, OWNER_CONFLICT_FILE].includes(n))) continue;
-    const st = lstatOrNull(path.join(p, OWNER_FILE)), conflict = lstatOrNull(path.join(p, OWNER_CONFLICT_FILE));
-    if (!st?.isFile() || (conflict && !conflict.isFile()) || Date.now() - st.mtimeMs < conf.EXTERNAL_BUILD_DAYS * DAY) continue;
+    let st, conflict;
+    try {
+      st = lstatOrMissing(path.join(p, OWNER_FILE));
+      conflict = lstatOrMissing(path.join(p, OWNER_CONFLICT_FILE));
+    } catch (e) {
+      log(`owner index ${p}: ${e.code || e.message}`);
+      continue;
+    }
+    if (!st?.isFile() || (conflict !== null && !conflict.isFile()) || Date.now() - st.mtimeMs < conf.EXTERNAL_BUILD_DAYS * DAY) continue;
     const owner = readOwner(p);
     // When external storage is away, retire only entries created with explicit internal-only ownership.
     // Legacy or external-used entries remain until every root can be inspected.
     if (!external && owner?.externalUsed !== false) continue;
     if (readPin(env, d.name).mode || readPin(env, d.name).meta || roots.some((r) => lstatOrNull(path.join(layout(r).builds, d.name)))) continue;
-    try { fs.rmSync(p, { recursive: true, force: true }); } catch (e) { log(`owner index ${p}: ${e.code || e.message}`); }
+    try {
+      if (conflict) fs.unlinkSync(path.join(p, OWNER_CONFLICT_FILE));
+      fs.unlinkSync(path.join(p, OWNER_FILE));
+      fs.rmdirSync(p);
+    } catch (e) { log(`owner index ${p}: ${e.code || e.message}`); }
   }
 }
 
