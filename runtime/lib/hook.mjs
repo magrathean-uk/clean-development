@@ -103,6 +103,27 @@ function noteOwnerExternal(env, key) {
   }
 }
 
+// Read only enough entries to determine whether a candidate owner folder contains extra files.
+// opendir/readSync bounds memory and work even if a damaged folder contains many entries.
+function ownerEntryNames(dir, limit = 3) {
+  let opened = null;
+  try {
+    opened = fs.opendirSync(dir, { bufferSize: 1 });
+    const names = [];
+    while (names.length < limit) {
+      const entry = opened.readSync();
+      if (!entry) break;
+      names.push(entry.name);
+    }
+    return names;
+  } catch (e) {
+    if (e.code === "ENOENT" || e.code === "ENOTDIR") return [];
+    throw e;
+  } finally {
+    if (opened) opened.closeSync();
+  }
+}
+
 // Index entries hold .owner.json and, after a project switch, an optional .owner-conflict marker. Internal-only
 // entries can be removed once their internal build path and pin are gone; external-used or legacy-unknown entries
 // wait until the external root is available and every build path can be checked.
@@ -111,7 +132,7 @@ function pruneOwnerIndex(env, conf, { roots, external, deadline, log }) {
   if (!safeDirectory(stateDir(env), dir)) return;
   for (const d of children(dir, 20000)) {
     if (!timeLeft(deadline)) return;
-    const p = path.join(dir, d.name), names = d.isDirectory() && !d.isSymbolicLink() ? children(p, 3).map((entry) => entry.name) : null;
+    const p = path.join(dir, d.name), names = d.isDirectory() && !d.isSymbolicLink() ? ownerEntryNames(p) : null;
     if (!/^[cx]-[A-Za-z0-9_-]{12}$/.test(d.name) || !names || names.length > 2 || names.some((n) => ![OWNER_FILE, OWNER_CONFLICT_FILE].includes(n))) continue;
     const st = lstatOrNull(path.join(p, OWNER_FILE));
     if (!st?.isFile() || Date.now() - st.mtimeMs < conf.EXTERNAL_BUILD_DAYS * DAY) continue;

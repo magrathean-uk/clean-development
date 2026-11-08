@@ -491,13 +491,27 @@ test("forced Stop skips owner folders with extra entries without deferring", () 
   const start = hook(s, "session-start", "claude", { cwd: s.root });
   assert.equal(start.status, 0, start.stderr);
   const owner = path.join(s.home, "dev/machine/state/clean-development/owners/c-012345678901");
+  const extras = ["extra-a", "extra-b", "extra-c", "extra-d"];
   fs.mkdirSync(owner, { recursive: true });
-  for (const name of ["extra-a", "extra-b", "extra-c", "extra-d"]) fs.writeFileSync(path.join(owner, name), "");
-  const r = stop({}, "claude", s.env, { force: true, budgetMs: 3000 });
+  for (const name of extras) fs.writeFileSync(path.join(owner, name), `keep:${name}`);
+  const originalOpendirSync = fs.opendirSync;
+  let ownerReads = 0;
+  fs.opendirSync = function (dir, options) {
+    const opened = originalOpendirSync.call(fs, dir, options);
+    if (dir !== owner) return opened;
+    return {
+      readSync(...args) { ownerReads++; return opened.readSync(...args); },
+      closeSync(...args) { return opened.closeSync(...args); }
+    };
+  };
+  let r;
+  try { r = stop({}, "claude", s.env, { force: true, budgetMs: 3000 }); }
+  finally { fs.opendirSync = originalOpendirSync; }
+  assert.equal(ownerReads, 3, "only three entries are read to detect extras");
   assert.equal(r.locked, false);
   assert.deepEqual(r.result.errors, []);
   assert.equal(r.result.deferred, false);
-  assert.equal(fs.existsSync(owner), true);
+  for (const name of extras) assert.equal(fs.readFileSync(path.join(owner, name), "utf8"), `keep:${name}`);
 });
 
 test("prune --project finds a reaped session's external builds through the ownership index, never stamping builds/<key>", async () => {
