@@ -264,9 +264,9 @@ test("placeholder and short session ids are rejected with a warning; existing re
 test("an external root unwritable once but writable later probes external outside the lifecycle lock", async () => {
   const s = sim();
   fs.chmodSync(s.ext, 0o500);
-  const fixer = spawn("/bin/sh", ["-c", `sleep 0.5; chmod 700 '${s.ext}'`], { stdio: "ignore" });
+  const fixer = spawn(process.execPath, ["-e", 'setTimeout(() => require("node:fs").chmodSync(process.argv[1], 0o700), 500)', s.ext], { stdio: "ignore" });
   const lockFile = path.join(s.home, "dev/machine/state/clean-development/lifecycle.lock"), observation = path.join(s.root, "lock-observation");
-  const observer = spawn("/bin/sh", ["-c", 'sleep 0.1; if [ -e "$1" ]; then printf locked > "$2"; else printf clear > "$2"; fi', "watch-lock", lockFile, observation], { stdio: "ignore" });
+  const observer = spawn(process.execPath, ["-e", 'setTimeout(() => { const fs = require("node:fs"); fs.writeFileSync(process.argv[2], fs.existsSync(process.argv[1]) ? "locked" : "clear"); }, 100)', lockFile, observation], { stdio: "ignore" });
   try {
     const r = hook(env(s, { CLEAN_DEV_PROBE_RETRY_MS: "2500" }), "session-start", "claude", { session_id: "dddddddd-0000-4000-8000-0000000000a7", cwd: s.root });
     await new Promise((resolve) => observer.once("close", resolve));

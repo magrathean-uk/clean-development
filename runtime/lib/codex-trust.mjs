@@ -262,7 +262,8 @@ export function verifyTrustEdit(before, after, entries, env = process.env, { tim
     input: JSON.stringify({ before, after, nonce, entries: entries.map(({ key, hash }) => ({ key, hash })) }),
     encoding: "utf8", timeout: timeoutMs, killSignal: "SIGKILL", maxBuffer: 1 << 20 });
   if (!ok(r) || r.stdout !== `verified ${nonce}\n`) {
-    const why = r.error ? r.error.code || r.error.message : r.signal ? `killed by ${r.signal}`
+    const why = r.error?.code === "EPIPE" ? "without the verification answer"
+      : r.error ? r.error.code || r.error.message : r.signal ? `killed by ${r.signal}`
       : (r.stderr || "").trim().split("\n").pop() || `exit ${r.status} without the verification answer`;
     throw new Error(`trust edit failed verification (${why}); nothing written; inspect config.toml and retry with a supported Python 3.11+ interpreter`);
   }
