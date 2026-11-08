@@ -157,13 +157,17 @@ test("reclaim refuses when the lock was replaced (token or inode) or the recover
   put(lock, { pid: process.pid, token: "stale", bootId: OLD });
   const observed = inspectLocks(s.env, { boot })[0];
   // Another process reclaimed it and took the lock in this boot: new token, new inode.
-  fs.unlinkSync(lock); put(lock, { pid: process.pid, token: "fresh", bootId: NOW });
+  const heldObservedInode = path.join(s.root, "held-observed-lifecycle.lock");
+  fs.renameSync(lock, heldObservedInode); put(lock, { pid: process.pid, token: "fresh", bootId: NOW });
+  assert.notEqual(fs.lstatSync(lock).ino, observed.inode);
   assert.deepEqual(reclaimOrphanedLock(s.env, observed, { boot, log: nolog }), { status: "refused", reason: "lock ownership changed" });
   assert.equal(readJsonOrNull(lock).token, "fresh");
   // Same token rewritten through a new inode (a replacement, not the observed file).
   fs.unlinkSync(lock); put(lock, { pid: process.pid, token: "stale", bootId: OLD });
+  assert.notEqual(fs.lstatSync(lock).ino, observed.inode);
   assert.equal(reclaimOrphanedLock(s.env, observed, { boot, log: nolog }).reason, "lock ownership changed");
   assert.ok(fs.existsSync(lock));
+  fs.unlinkSync(heldObservedInode);
   // Same inode, rewritten in place with a new token.
   const again = inspectLocks(s.env, { boot })[0];
   fs.writeFileSync(lock, JSON.stringify({ pid: process.pid, token: "rewritten", bootId: OLD }));
