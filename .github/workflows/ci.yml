@@ -40,7 +40,6 @@ jobs:
         shell: bash
         run: |
           export CLEAN_DEV_TEST_DIR="$(mktemp -d "$RUNNER_TEMP/clean-development.XXXXXX")"
-          export CLEAN_DEV_TEST_PYTHON="$(command -v python3)"
           node --test test/*.test.mjs
           if [[ "$RUNNER_OS" == macOS ]]; then
             zsh test/env-modes.sh "$CLEAN_DEV_TEST_DIR/env"

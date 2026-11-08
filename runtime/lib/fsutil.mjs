@@ -1,9 +1,10 @@
-// clean-development 0.6.0: bounded filesystem helpers and the only deletion path.
+// clean-development 0.6.2: bounded filesystem helpers and the only deletion path.
 import fs from "node:fs";
 import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
+import os from "node:os";
 
 export function lstatOrNull(p) { try { return fs.lstatSync(p); } catch { return null; } }
 export function exists(p) { return lstatOrNull(p) !== null; }
@@ -36,8 +37,9 @@ export function children(dir, limit = 5000, { requireComplete = false } = {}) {
   } catch (e) { if (e.code === "ENOENT" || e.code === "ENOTDIR") return []; throw e; }
 }
 
-// Last use = newest mtime of the entry and its direct children (bounded). Symlinks are not followed.
-export function lastUsedMs(p, limit = 2000, { deadline = Infinity } = {}) {
+// Last use = newest mtime of the entry and its direct children (bounded). Symlinks are not followed. Names in
+// ignore (our own metadata such as .owner.json) are not activity.
+export function lastUsedMs(p, limit = 2000, { deadline = Infinity, ignore = null } = {}) {
   let st;
   try { st = fs.lstatSync(p); } catch (e) { return e.code === "ENOENT" ? 0 : Infinity; }
   let newest = st.mtimeMs;
@@ -47,6 +49,7 @@ export function lastUsedMs(p, limit = 2000, { deadline = Infinity } = {}) {
     if (entries.length > limit) return Infinity; // incomplete observation cannot prove idle
     for (const d of entries) {
       if (!timeLeft(deadline)) return Infinity;
+      if (ignore?.has(d.name)) continue;
       let c;
       try { c = fs.lstatSync(path.join(p, d.name)); } catch (e) { if (e.code !== "ENOENT") return Infinity; }
       if (c && c.mtimeMs > newest) newest = c.mtimeMs;
@@ -115,7 +118,9 @@ export function removeManaged(p, { anchor, allowedRoots, trashDir, trashAnchor =
       target = dest;
     } catch (e) {
       if (e.code === "ENOENT") return { path: p, removed: false, reason: "absent" };
+      // Never fall back to deleting the original in place: it stays byte-identical and the next run retries.
       log(`rename failed for ${p}: ${e.code}; retaining source`);
+      if (eventsFile) appendJsonl(eventsFile, { ts: new Date().toISOString(), event: "delete", status: "skipped-rename-failed", source: p, error: e.code || e.message, retry: "next run" });
       return { path: p, removed: false, reason: `rename failed: ${e.code || e.message}` };
     }
   }
@@ -153,17 +158,64 @@ export function flushDeletes() {
   }
 }
 
-// Synchronous delete for tests and the CLI (--wait).
+// Restores owner rwx on every directory, parent before children and never through links, so a mode-000 subtree
+// (test fixtures, read-only module caches) cannot make the delete fail with EACCES/ENOTEMPTY. `chmod -R u+w`
+// did not add r/x, which left 0.6.0 trash entries stuck and re-failing on every Stop.
+export function makeRemovable(p) {
+  const stack = [p];
+  while (stack.length) {
+    const d = stack.pop(), st = lstatOrNull(d);
+    if (!st?.isDirectory()) continue;
+    if ((st.mode & 0o700) !== 0o700) { try { fs.chmodSync(d, (st.mode & 0o7777) | 0o700); } catch { /* rm reports it */ } }
+    let entries;
+    try { entries = fs.readdirSync(d, { withFileTypes: true }); } catch { continue; }
+    for (const e of entries) if (e.isDirectory()) stack.push(path.join(d, e.name));
+  }
+}
+
+// Synchronous delete used by the detached worker, tests and the CLI. Links are removed as links.
 export function deleteNow(p) {
   const st = lstatOrNull(p);
-  if (st?.isSymbolicLink()) { fs.unlinkSync(p); return; }
-  spawnSync("/bin/chmod", ["-R", "-P", "u+w", p], { stdio: "ignore", timeout: 30000, killSignal: "SIGKILL" });
-  fs.rmSync(p, { recursive: true, force: true });
+  if (!st) return;
+  if (!st.isDirectory()) { fs.rmSync(p, { force: true }); return; }
+  makeRemovable(p);
+  fs.rmSync(p, { recursive: true, force: true, maxRetries: 2 });
+}
+
+// The current boot: macOS kern.bootsessionuuid (new on every boot, not on wake) and kern.boottime; Linux boot_id.
+// { id: null, time: null } when unreadable. Lock owners record it so a reboot is proved by identity: kern.boottime
+// alone is not proof, because XNU shifts it when the clock is set. Ids are canonical upper-case UUIDs or null.
+// Test mode only (DEV_STORAGE_VOLUME_TEST set): CLEAN_DEV_TEST_BOOT is JSON { id, time } or "unknown".
+const UUID = /^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$/;
+export function normBootId(id) { const u = typeof id === "string" ? id.trim().toUpperCase() : ""; return UUID.test(u) ? u : null; }
+export function parseDarwinBoot(text) {
+  const [uuid = "", bt = ""] = String(text ?? "").split("\n");
+  const m = /^\{\s*sec\s*=\s*(\d+),\s*usec\s*=\s*(\d+)\s*\}/.exec(bt.trim());
+  return { id: normBootId(uuid), time: m ? Number(m[1]) * 1000 + Math.floor(Number(m[2]) / 1000) : null };
+}
+let realBoot;
+export function bootIdentity(env = process.env) {
+  if (env.DEV_STORAGE_VOLUME_TEST && env.CLEAN_DEV_TEST_BOOT !== undefined) {
+    let t = null; try { t = JSON.parse(env.CLEAN_DEV_TEST_BOOT); } catch { /* unknown */ }
+    return { id: normBootId(t?.id), time: Number.isFinite(t?.time) ? t.time : null };
+  }
+  if (realBoot) return realBoot;
+  let boot = { id: null, time: null };
+  if (process.platform === "darwin") {
+    const r = spawnSync("/usr/sbin/sysctl", ["-n", "kern.bootsessionuuid", "kern.boottime"], { encoding: "utf8", timeout: 1000 });
+    if (r.status === 0 && !r.error) boot = parseDarwinBoot(r.stdout);
+  } else if (process.platform === "linux") {
+    try { boot.id = normBootId(fs.readFileSync("/proc/sys/kernel/random/boot_id", "utf8")); } catch { /* unknown */ }
+    const up = os.uptime(); if (Number.isFinite(up) && up > 0) boot.time = Date.now() - Math.round(up * 1000);
+  }
+  realBoot = boot;
+  return realBoot;
 }
 
 // Non-blocking owner-fenced lock. Never steal a lock by age: a paused owner can still resume.
-// A crashed owner's lock is reported for explicit recovery rather than granting deletion authority.
-export function withLock(lockPath, fn) {
+// A crashed owner's lock is reported for explicit recovery rather than granting deletion authority; the only
+// automatic takeover is locks.mjs withReclaimableLock, for lifecycle/housekeeping locks whose recorded boot id is not this boot's.
+export function withLock(lockPath, fn, { boot = bootIdentity() } = {}) {
   fs.mkdirSync(path.dirname(lockPath), { recursive: true });
   let fd;
   try { fd = fs.openSync(lockPath, "wx", 0o600); } catch (e) {
@@ -172,7 +224,7 @@ export function withLock(lockPath, fn) {
   }
   const token = randomUUID();
   const acquired = fs.fstatSync(fd);
-  try { fs.writeSync(fd, JSON.stringify({ pid: process.pid, token, acquiredAt: new Date().toISOString() })); return { locked: false, result: fn() }; } finally {
+  try { fs.writeSync(fd, JSON.stringify({ pid: process.pid, token, acquiredAt: new Date().toISOString(), bootId: normBootId(boot?.id), bootTime: Number.isFinite(boot?.time) ? new Date(boot.time).toISOString() : null })); return { locked: false, result: fn() }; } finally {
     try { fs.closeSync(fd); } catch { /* ignore */ }
     const current = lstatOrNull(lockPath);
     if (current?.ino === acquired.ino && current?.dev === acquired.dev && readJsonOrNull(lockPath)?.token === token) {
@@ -193,21 +245,31 @@ export function stampTouch(dir, name) {
   fs.writeFileSync(path.join(dir, name), new Date().toISOString() + "\n");
 }
 
+// Logs rotate at 5 MB and keep 5 generations (.1 newest). Concurrent rotation may drop one generation early;
+// it never throws or blocks a hook.
+export const LOG_ROTATE_BYTES = 5 * 1024 * 1024, LOG_KEEP = 5;
+export function rotate(file, maxBytes = LOG_ROTATE_BYTES, keep = LOG_KEEP) {
+  const st = lstatOrNull(file);
+  if (!st || st.size <= maxBytes) return;
+  for (let i = keep - 1; i >= 1; i--) { try { fs.renameSync(`${file}.${i}`, `${file}.${i + 1}`); } catch { /* gap */ } }
+  try { fs.renameSync(file, `${file}.1`); } catch { /* another writer rotated */ }
+}
 export function appendLog(file, line) {
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    const st = lstatOrNull(file);
-    if (st && st.size > 512 * 1024) fs.renameSync(file, `${file}.1`);
+    rotate(file);
     fs.appendFileSync(file, `${new Date().toISOString()} ${line}\n`);
   } catch { /* logging never breaks a hook */ }
 }
 
-// One JSON object per line, rotated at 512 KB like hook.log (keeps one .1 file). Never throws.
+// One JSON object per line, rotated like hook.log. Never throws.
 export function appendJsonl(file, obj) {
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    const st = lstatOrNull(file);
-    if (st && st.size > 512 * 1024) fs.renameSync(file, `${file}.1`);
+    rotate(file);
     fs.appendFileSync(file, `${JSON.stringify(obj)}\n`, { mode: 0o600 });
   } catch { /* the event log never breaks a hook */ }
 }
+
+// Synchronous sleep for short, bounded retries in hooks (no busy loop).
+export function sleepMs(ms) { if (ms > 0) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); }

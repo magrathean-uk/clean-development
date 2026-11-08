@@ -1,34 +1,70 @@
 # Changelog
 
-## 0.6.1 (30 Oct 2026)
+## 0.6.8 (7 November 2026)
 
-First published release of the 0.6 machine-scoped rewrite, replacing public v0.5.0.
+- Makes installer and runtime launchers enforce Node.js 20.12 or later, retain the installer-selected path for GUI-launched hooks, and report missing Node clearly.
+- Skips unsupported Node installations during auto-detection, rejects invalid explicit `CLEAN_DEV_NODE` paths, and keeps lifecycle hook exit status successful if Node is unavailable.
+- Doctor now supports zsh and Bash startup files, skips unconfigured Claude/Codex homes, treats the guidance plugin as optional, and follows symlinks to regular settings files during read-only registry checks.
+- Explicit registry entries are required unless prefixed with ?, so absent optional profiles stay visible without failing health checks.
+- Blocks a new install while an earlier activation receipt still needs recovery, preventing stale rollback from undoing a later installation.
+- Keeps toolchain homes, VM and Docker settings, histories, telemetry switches and host-specific PATH filtering in the private environment extension. Standalone installs preserve existing host configuration and do not install the optional Colima shim.
+- Makes private sidecar installation opt-in through a validated source manifest, keeps inspection mode from executing the private extension, and preserves existing HF credential locations while routing only model caches.
+- Bounds synchronous Stop hooks to five seconds, matches doctor and release fragments, uses the configured worktree root, and adds conflict-aware installer recovery with `--accept-current`.
+- Narrows legacy removal to the retired `runtime` subdirectory, preserves sibling configuration and receipt files, and checks every registered settings file for old references.
+- Refuses Colima rehomes that would move disks referenced by any Lima instance, and requires `COLIMA_HOME` to match the configured VM home; rollback rechecks destination-home disk users before moving a disk back.
+- Clarifies that new shells follow the mounted-volume state even when an earlier session pin owns paths on another root.
+- Keeps host-managed Cargo toolchain caches outside automatic pruning unless `CLEAN_DEV_CARGO_CACHE_HOME` explicitly opts them in.
+- Treats conflict-preserving installer recovery as complete in `doctor`, recognises copied Colima shim headers, and syntax-checks the exact manifest-listed sidecar source.
+- Runs the storage write retry before taking the shared lifecycle lock, then rechecks external storage under the lock.
+- Makes GUI launchd/Xcode checks opt-in with `doctor --gui`; derives `CLEAN_DEV_WORK` from a writable parent of `LAB_ROOT`, falls back to writable `EXTERNAL_ROOT`, and uses `~/dev/machine` if neither is available.
+- Keeps worktrees under either the external or internal work root in doctor, and requires zsh routing in `.zshenv`.
+- Shares shell-safe hook parsing across doctor and Codex trust, preserves shell-escaped apostrophes in absolute paths, requires exact installed shim path spelling, and limits absolute trust entries to the installed runtime root.
+- Makes repository metadata inventory opt-in for general installs; the optional private environment extension can keep it enabled on a configured workstation.
+- Retires stale internal-only ownership entries while external storage is away, and external-used/legacy entries once every root is inspectable; fresh internal sessions record their storage history.
+- Uses internal `/tmp` for the documented test fixture example so it works with external-volume session routing.
+- Documents the Python 3.11 requirement for Codex TOML operations and limits tests that read parent-source scripts to explicit private-source opt-in.
 
-- Make standalone source validation independent of adjacent monorepo tools; retain their regression coverage when present. Add macOS CI for minimum Node 20.12.0 and Node 24/26; retain required Linux Node checks and CodeQL.
-- Protect active fallback builds in every selector; reopen deferred-ended owners with versioned phase/generation metadata, fence stale snapshots/tagged events and canonicalise checkout identity. Refuse collisions/invalid ownership rather than replace another owner.
-- Unify supported lifecycle cleanup/lease locking; remove age-based lock takeover, add explicit dead-owner recovery and fail-closed configuration/path admission. Reject redirected layout/trash directories; retain sources on rename failure.
-- Parse storage policy as data in fork-free POSIX shell and Node; align path/numeric validation and preserve approved lab/model overrides.
-- Add renewable explicit path leases and verified no-clobber single-file publication with durable receipts and retained source/recovery copies. These are not process supervision or an OS quota.
-- Bound cooperative hook/Git/measurement work, retain deferred cleanup, and distinguish hook completion from queued/completed deletion. Batch deletion jobs per anchor to avoid per-entry Node process storms.
-- Add immutable runtime publication, digest/permission receipts, policy-preserving configuration installation, strict flags, truthful preview and conflict-aware rollback/recovery. Retain previous releases and recovery data.
-- Revalidate activation target topology, bytes and permissions at backup/activation; journal write intent only after conflict checks so rollback cannot claim pre-existing user edits. Make offline profile fixtures independent of TMPDIR aliases.
-- Report bounded Git/rename deferrals with their repo paths and leave incomplete repository sweeps due instead of postponing them for a week. Keep the 200 ms Git bound; test both successful cleanup and explicit, fail-closed timeout deferral.
-- Pin project development to Node 26.12.1 via `.node-version`; retain the tested minimum-runtime and project-schema compatibility contracts. No third-party npm/model dependency is introduced.
-- Preserve Codex disablement/unknown state in offline and host trust refresh plus config rebuild; refuse positional preference changes without explicit review. Hook merges retain recovery bytes and unrelated handlers.
-- Fix wider-tooling reprovision rollback so never-moved originals survive; retain failed replacement snapshots, journal outcomes and do not trim failed reprovision recovery data. Claude-tooling preview now performs no deployment.
-- Expand diagnostics/support claims and regression coverage. OpenCode remains environment-only; its source client alias filters inherited session identity without claiming a reused server is repaired.
+## 0.6.7 (7 November 2026)
 
-## 0.6.0 (20 Oct 2026)
+- Completes the portable public release: runtime, installer, metadata, policies, examples and current documentation share the 0.6.7 identity.
+- Supports home-relative paths in optional doctor registries for additional Codex homes, Claude settings and Claude profiles. Additional profile inventories can be managed through user-configured registries.
+- A source-tree manifest can install allow-listed private sidecars before activating the generic environment. Sidecars are created atomically and remain host-owned if they appear during installation.
+- Repairs migrated routing and doctor fixtures, and retains the private Codex/Claude profile checks through explicit registries.
 
-Rewrite for one machine (G's Mac), replacing the 0.2-0.5 multi-host package (last public state: tag v0.5.0).
+## 0.6.6 (7 November 2026)
 
-- Storage policy moves to `~/dev/machine/storage.conf`; env.zsh rewritten (fork-free session pin, stamp-based precedence, no exits, TMPDIR per session only).
-- Mode detected by volume name plus a real write probe at session start and pinned per session; internal fallback is normal.
-- New hooks: SessionStart (pin, context, time-boxed reap), Stop (async, throttled housekeeping), SessionEnd (immediate session cleanup) for Claude Code and Codex; same hooks for claude-1..5.
-- Automatic cleanup per G's rules (Q30), 30 GB LRU cap on dependency caches, 14-day external build prune, repo build/dependency dirs via `.clean-development.json` v2 (`buildDirs`, `depDirs`, git-ignored only).
-- No-dot-folder report for `~` and `~/dev` (allowlist includes `.aws`, `.insightface`, `.opencode`); `doctor` and `status` also list unmanaged top-level entries of each cache root.
-- Every hook call appends one JSON line (`ts`, `harness`, `event`, `session_id`, `mode`) to `~/dev/machine/state/clean-development/events.jsonl` (rotated at 512 KB).
-- Xcode DerivedData is never wiped by the last-session-out cleanup; it ages out after 14 days.
-- `DEV_STORAGE_VOLUME_TEST=present` is accepted as an alias of `mounted`.
-- Codex hook trust hashes computed (`codex-trust --apply`), so changed hooks run without a review click.
-- Removed: command shims and `clean-development agent|session|setup|prune` consent flows (`run [--session X] -- CMD` stays as a no-policy shim that just execs CMD, for stale per-repo docs), per-host integrations (Cursor, Devin, Grok, Kimi, Hermes, Pi, OpenCode, Gemini), npm publishing. `pnpm_config_store_dir` replaces `npm_config_store_dir` (ignored by pnpm 12).
+- Claude Code Stop hooks are synchronous, matching Codex. This prevents a one-shot Claude invocation from terminating an asynchronous cleanup hook while it holds the lifecycle lock. Doctor checks managed Claude and Codex hook configuration.
+- Release checks require synchronous Stop settings in both fragments. Merge coverage confirms an asynchronous Claude Stop is replaced while unrelated handlers remain unchanged.
+- Public defaults and documentation now use configurable example paths and workspace allowlists. Host integrations can remain in the optional `~/dev/machine/env.private.zsh`; `run --clean-env` accepts additional non-secret variable names from its state allowlist.
+
+## 0.6.5 (7 November 2026)
+
+- Codex Stop hooks are synchronous so one-shot commands wait for lifecycle work to finish. Doctor checks the harness-specific setting.
+- Repairs installation drift in packaged guidance. Host hook and profile settings remain user-managed.
+
+## 0.6.4 (6 November 2026)
+
+- Lock owners record a validated host boot identifier. Lifecycle and housekeeping locks from a previous boot can be reclaimed safely; same-boot dead or unverifiable owners still require explicit recovery.
+- Recovery now uses shared and per-boot guards. Doctor distinguishes recoverable reboot leftovers from active, malformed or uncertain lock state.
+
+## 0.6.3 (6 November 2026)
+
+- Codex trust and hook merging parse TOML using the host's semantics, preserve disabled or positional hook preferences, and verify that a trust edit changes only the intended values.
+- Release preflight exercises managed hook trust changes before runtime activation. Ambiguous or unsupported configuration is refused.
+
+## 0.6.2 (6 November 2026)
+
+- Storage routing follows the configured external volume on every shell, with an internal fallback. A session can own paths on both roots, and cleanup waits when a root it used is unavailable.
+- Session liveness includes leases, running jobs, the recorded harness process and bounded activity evidence. Unknown activity does not grant deletion authority.
+- The installer publishes immutable runtime versions and journals activation for conflict-aware recovery. The Colima helper pins the configured Lima home.
+
+## 0.6.1 (30 October 2026)
+
+- Adds bounded path leases and verified single-file publication with a durable source hold, no-overwrite behaviour and completion receipts.
+- Adds cleanup ownership checks, guarded paths, recovery receipts and safer installer rollback. See [the 0.6.1 release record](docs/release-0.6.1.md).
+
+## 0.6.0 (20 October 2026)
+
+- Introduces the macOS-focused 0.6 series: configurable storage routing, Claude Code and Codex lifecycle hooks, and cleanup of managed caches and Git-ignored project build/dependency directories.
+- Adds schema-v2 project configuration, status and doctor commands, and dependency cache retention controls.
+- Removes the earlier multi-host, Windows, SwiftPM and npm package integrations. OpenCode is environment-only in the 0.6 series.

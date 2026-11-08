@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/magrathean-uk/bolyki-dev/main/clean-development/schemas/project-config.schema.json",
+  "$id": "https://raw.githubusercontent.com/magrathean-uk/clean-development/main/schemas/project-config.schema.json",
   "title": "Clean Development project configuration (.clean-development.json)",
-  "description": "Schema v2 (clean-development 0.6.1). Valid schema v1 files remain readable/migratable; invalid configuration grants no cleanup authority.",
+  "description": "Schema v2 (clean-development 0.6.8). Valid schema v1 files remain readable/migratable; invalid configuration grants no cleanup authority.",
   "oneOf": [
     {
       "type": "object",

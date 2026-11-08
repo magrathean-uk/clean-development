@@ -1,8 +1,13 @@
 #!/bin/sh
 # clean-development 0.6.0 CLI launcher (status, doctor, housekeeping, reap, codex-trust, init, migrate, hook, version).
 rt="${0%/bin/clean-development}"
-for n in "${CLEAN_DEV_NODE:-}" "$HOME/dev/machine/toolchains/node/current/bin/node" "$HOME/dev/toolchains/node/current/bin/node" /opt/homebrew/bin/node; do
-  if [ -n "$n" ] && [ -x "$n" ]; then exec "$n" "$rt/bin/clean-development.mjs" "$@"; fi
+node_ok() {
+  [ -x "$1" ] && "$1" -e 'const [major, minor] = process.versions.node.split(".").map(Number); process.exit(major < 20 || (major === 20 && minor < 12) ? 1 : 0)' >/dev/null 2>&1
+}
+for n in "${CLEAN_DEV_NODE:-}" "$HOME/dev/machine/toolchains/node/current/bin/node" "$HOME/.local/bin/node" /opt/homebrew/bin/node /usr/local/bin/node; do
+  if [ -n "$n" ] && node_ok "$n"; then exec "$n" "$rt/bin/clean-development.mjs" "$@"; fi
 done
-echo "clean-development: node not found" >&2
+node=$(command -v node 2>/dev/null || true)
+if [ -n "$node" ] && node_ok "$node"; then exec "$node" "$rt/bin/clean-development.mjs" "$@"; fi
+echo "clean-development: Node.js 20.12 or later not found; set CLEAN_DEV_NODE or install Node on PATH" >&2
 exit 127

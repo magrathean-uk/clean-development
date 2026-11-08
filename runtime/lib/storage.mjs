@@ -1,7 +1,26 @@
-// clean-development 0.6.0: external volume detection (by name + mount + writable probe) and cache-root layout.
+// clean-development 0.6.2: external volume detection (by name + mount + writable probe) and cache-root layout.
 import fs from "node:fs";
 import path from "node:path";
-import { children, safeDirectory, sizeBytes } from "./fsutil.mjs";
+import { randomUUID } from "node:crypto";
+import { children, safeDirectory, sizeBytes, sleepMs, strictlyBelow } from "./fsutil.mjs";
+import { homeDir } from "./conf.mjs";
+
+// One real write: exclusive create, write, fsync, close, unlink. access(2) and `test -w` miss macOS removable-volume
+// denials and read-only remounts; a single transient failure pinned whole sessions internal for days in 0.6.0.
+export function writeProbe(dir) {
+  const f = path.join(dir, `probe-${process.pid}-${Date.now()}-${randomUUID().slice(0, 8)}.tmp`);
+  let fd;
+  try {
+    fd = fs.openSync(f, "wx", 0o600);
+    fs.writeSync(fd, "clean-development write probe\n");
+    fs.fsyncSync(fd);
+    return null;
+  } catch (e) { return e.code || e.message; } finally {
+    if (fd !== undefined) { try { fs.closeSync(fd); } catch { /* ignore */ } try { fs.unlinkSync(f); } catch { /* ignore */ } }
+  }
+}
+export const PROBE_RETRY_MS = 5000;
+const probeRetryMs = (env) => env.DEV_STORAGE_VOLUME_TEST && /^\d+$/.test(env.CLEAN_DEV_PROBE_RETRY_MS || "") ? Number(env.CLEAN_DEV_PROBE_RETRY_MS) : PROBE_RETRY_MS;
 
 // Strict check used by hooks: the mount point named /Volumes/<EXTERNAL_VOLUME> is a different device from its parent
 // (a real mount, not a stale empty folder), and EXTERNAL_CACHE accepts a real file write (catches read-only mounts
@@ -28,10 +47,11 @@ export function detect(conf, env = process.env, { probe = true, create = true } 
     if (!fs.statSync(conf.externalCache).isDirectory()) throw new Error("not a directory");
   } catch (e) { out.reason = `${conf.externalCache} unusable (${e.code || e.message})`; return out; }
   if (probe) {
-    const f = path.join(conf.externalCache, `probe-${process.pid}-${Date.now()}.tmp`);
-    try { fs.writeFileSync(f, "x"); fs.unlinkSync(f); } catch (e) {
-      out.reason = `${conf.externalCache} not writable (${e.code || e.message})`; return out;
-    }
+    // Two tries, PROBE_RETRY_MS apart (tests may shorten it under DEV_STORAGE_VOLUME_TEST).
+    let error = writeProbe(conf.externalCache);
+    out.attempts = 1;
+    if (error) { sleepMs(probeRetryMs(env)); error = writeProbe(conf.externalCache); out.attempts = 2; }
+    if (error) { out.reason = `${conf.externalCache} not writable (${error}; ${out.attempts} write probes ${probeRetryMs(env) / 1000} s apart)`; return out; }
   } else {
     try { fs.accessSync(conf.externalCache, fs.constants.W_OK | fs.constants.X_OK); } catch (e) {
       out.reason = `${conf.externalCache} not writable (${e.code})`; return out;
@@ -50,6 +70,18 @@ export function externalAvailable(conf, env = process.env) {
 }
 
 export function rootFor(conf, mode) { return mode === "external" ? conf.externalCache : conf.internalRoot; }
+// Work root for worktrees, jobs and bundles (env.zsh exports it as CLEAN_DEV_WORK): writable parent of LAB_ROOT when
+// strictly below the mounted volume, otherwise writable EXTERNAL_ROOT; if neither works, use ~/dev/machine.
+export function externalWorkRoot(conf) {
+  const labParent = path.dirname(conf.labRoot);
+  return conf.mountPoint && strictlyBelow(conf.mountPoint, labParent) ? labParent : conf.externalRoot;
+}
+export function workRoot(conf, mode, env = process.env) {
+  if (mode === "external") for (const ext of new Set([externalWorkRoot(conf), conf.externalRoot])) {
+    try { if (fs.statSync(ext).isDirectory()) { fs.accessSync(ext, fs.constants.W_OK | fs.constants.X_OK); return ext; } } catch { /* try the configured fallback */ }
+  }
+  return path.join(homeDir(env), "dev", "machine");
+}
 
 export function layout(root) {
   return {
@@ -82,6 +114,8 @@ export function rootExtras(root, { sizes = true, timeoutMs = 15000 } = {}) {
 export function freeBytes(p) {
   try { const s = fs.statfsSync(p); return Number(s.bavail) * Number(s.bsize); } catch { return null; }
 }
+// Free space on the internal disk: the internal cache root, or HOME (same disk) before that root exists.
+export function internalFreeBytes(conf, env = process.env) { return freeBytes(conf.internalRoot) ?? freeBytes(homeDir(env)); }
 
 export const GB = 1024 ** 3;
 export const fmtGB = (b) => (b === null || b === undefined ? "unknown" : `${(b / GB).toFixed(b < 10 * GB ? 1 : 0)} GB`);

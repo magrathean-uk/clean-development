@@ -1,12 +1,12 @@
-# Release validation - 30 October 2026
+# Release validation for 0.6.1
 
-Version **0.6.1** is the first published source release of the machine-scoped
+Version **0.6.1** is the first published source release of the storage-routing
 0.6 rewrite. The previous public release is v0.5.0. The 0.6.0 changelog entry
 records the rewrite's development milestone; no v0.6.0 release was published.
 
-This replaces the former multi-host/npm package. Current support covers storage
-routing and lifecycle hooks for G's Mac: Claude Code, Codex and numbered Claude
-profiles. OpenCode remains environment-only. The former Windows, SwiftPM and
+This replaces the former multi-host/npm package. At the time of release, support
+covered storage routing and lifecycle hooks for macOS with Claude Code and Codex.
+OpenCode remains environment-only. The former Windows, SwiftPM and
 other host adapters are outside this version's scope. There is no npm publish
 step; GitHub distributes the source archive and its SHA-256 checksum.
 
@@ -14,23 +14,16 @@ step; GitHub distributes the source archive and its SHA-256 checksum.
 
 | Source layout | Runtime | Node tests | Shell assertions | Source/release checks |
 |---|---|---|---|---|
-| Monorepo, including adjacent tools | Node 26.10.0 | 97 passed, 0 skipped | 52 passed | Passed |
-| Standalone copy | Node 26.10.0 | 91 passed, 6 skipped | 52 passed | Passed |
-| Standalone copy | Node 24.21.0 | 91 passed, 6 skipped | 52 passed | Passed |
+| Source copy | Node 26.10.0 | 91 passed, 6 skipped | 52 passed | Passed |
+| Source copy | Node 24.21.0 | 91 passed, 6 skipped | 52 passed | Passed |
 
 Every run used a fresh, explicit fixture directory with fabricated homes and
-volumes. Standalone skips cover the numbered Claude profile suite, three
-monorepo Codex configuration/trust helpers, reprovision rollback and the
-monorepo OpenCode launcher. Those files are not part of this distribution.
-The component's own installer, hooks, trust editor and safety tests still run.
-Adjacent installer preview checks run only when that installer is available;
-Clean Development's preview and unknown-flag checks always run.
+volumes. Six optional integration checks were skipped because they require
+adjacent tools or authenticated host configuration. The component's installer,
+hooks, trust editor and safety tests still ran.
 
-The pinned development runtime remains Node 26.12.1. The earlier
-[validation matrix](validation-2026-10-25-current.md) records separate runs on
-26.12.1, 24.22.1 and the minimum supported 20.12.0; the table above reports the
-versions actually installed for this fresh local check. The standalone GitHub
-Actions workflow runs macOS checks on exact Node 20.12.0 and Node 24/26. Required
+The table above reports the versions used for the fresh source checks. The GitHub Actions workflow runs
+macOS checks on exact Node 20.12.0 and Node 24/26. Required
 Linux checks exercise source syntax and isolated Node fixtures on Node 20/22/24;
 the macOS-specific shell assertions run only on macOS. CodeQL remains enabled.
 These compatibility checks do not add Linux or Windows deployment support.

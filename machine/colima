@@ -1,0 +1,48 @@
+#!/bin/sh
+# Optional Clean Development Colima shim. Private source manifests may install it for configured hosts.
+# Colima's own Lima instances live under $COLIMA_HOME/_lima; keep the inherited LIMA_HOME consistent.
+if [ -z "${COLIMA_HOME:-}" ]; then
+  echo "colima: set COLIMA_HOME to the configured VM home before using this shim" >&2
+  exit 78
+fi
+if [ ! -d "${COLIMA_HOME%/*}" ]; then
+  echo "colima: ${COLIMA_HOME%/*} is missing; Colima VMs require the configured VM storage" >&2
+  exit 78
+fi
+self=$(CDPATH= cd -- "$(dirname -- "$0")" 2>/dev/null && pwd -P)
+real=""
+candidates="/opt/homebrew/bin/colima /usr/local/bin/colima"
+if [ -n "${DEV_STORAGE_VOLUME_TEST:-}" ] && [ -n "${CLEAN_DEV_COLIMA:-}" ]; then candidates="$CLEAN_DEV_COLIMA"; fi # test mode only
+for c in $candidates; do
+  [ -x "$c" ] || continue
+  [ "$c" -ef "$0" ] && continue
+  d=$(CDPATH= cd -- "$(dirname -- "$c")" 2>/dev/null && pwd -P)
+  [ "$d" = "$self" ] && continue
+  head -c 512 "$c" 2>/dev/null | grep -Eiq 'optional clean[- ]development colima shim' && continue
+  real=$c
+  break
+done
+if [ -z "$real" ]; then
+  echo "colima: the Homebrew colima binary was not found" >&2
+  exit 127
+fi
+# Mutual exclusion with `clean-development vm colima-rehome` (two flags): announce this run first, then look for the
+# rehome fence; the rehome takes its fence first, then looks for runs. Whichever comes second sees the other and stops.
+# The run marker lives for the whole colima command (no exec), so a start cannot pass the check and act after a rehome.
+mkdir -p "$COLIMA_HOME" || exit 73
+run="$COLIMA_HOME/.cd-colima-run.$$"
+trap 'rm -f "$run"' EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+(umask 077; echo "$$" > "$run") || exit 73
+fence="$COLIMA_HOME/.cd-rehome.lock"
+if [ -e "$fence" ]; then
+  # Held while a rehome runs; left behind only if one was killed. Either way nothing may start until it is resolved.
+  echo "colima: $fence exists: a colima-rehome is running or was interrupted ($(head -c 64 "$fence" 2>/dev/null | tr -d '\n'))." >&2
+  echo "colima: if none runs (check its pid), remove the fence, then finish with clean-development vm colima-rehome --rollback <manifest> --apply (manifests in the Clean Development records directory)" >&2
+  exit 75
+fi
+LIMA_HOME="$COLIMA_HOME/_lima"
+export LIMA_HOME
+"$real" "$@"

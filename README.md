@@ -1,80 +1,107 @@
-# clean-development 0.6.1
+# Clean Development 0.6.8
 
-Keeps G's Mac tidy while agents work.
+Clean Development routes development caches and temporary files to configured storage, and manages cleanup at the end of supported coding sessions. It is designed for macOS workstations using Claude Code or Codex. OpenCode can use the environment routing, but does not have a native lifecycle cleanup integration.
 
-- **Routing.** `~/dev/machine/env.zsh` sends every cache, build and temp file to one root: `/Volumes/4TB/machine/cache` when the 4TB is attached (detected by name plus a write probe), otherwise `~/dev/machine/cache`. Claude Code, Codex and claude-1..5 pin the choice per session.
-- **Cleanup.** At session end disposable scratch/internal builds become eligible, subject to ownership, generation, leases and validated paths. Each turn, throttled housekeeping reaps finished/stale sessions and prunes old output. Dependency eviction is a best-effort shallow-mtime cap, not a strict quota or read-aware LRU. Xcode DerivedData is never last-out wiped.
-- **Rules for agents.** The session-start message states the mode, the 5 GB rule when the 4TB is away, and any unexpected dot-folders in `~` or `~/dev` (reported, never deleted).
+The runtime has no npm dependencies and requires Node.js 20.12 or later. The installer accepts `CLEAN_DEV_NODE` as an absolute path to a supported Node.js executable; otherwise it checks common install locations and `PATH`, skipping versions that are too old. The Codex hook merge and trust tools need Python 3.11 or later for the standard-library `tomllib` parser. Trust operations search `PATH` and common install locations; set `CLEAN_DEV_PYTHON` to an absolute interpreter path if needed. Clean Development does not publish an npm package; GitHub is the source distribution.
 
-## Safety contract
-
-- Live keys protect builds on **both roots**, including external-pinned internal fallback. Reopening deferred-ended sessions establishes a new live generation; old snapshots/tagged events cannot reap it.
-- The same lifecycle lock covers supported hook transitions, selection/rename and explicit lease mutations. A paused owner is never evicted by age. A dead owner requires reviewed `locks --recover ... --apply`; startup stays fail-open, uncertain cleanup stays closed.
-- Whole cache anchors and their managed children/trash must be real directories, not redirection links. A candidate leaf link is removable without following its target. Unexpected rename failure, including cross-device failure, retains the source; no unchecked direct-delete fallback.
-- Invalid machine/project policy grants no deletion authority. Machine policy is parsed as data by both shell and Node; the shell remains fork-free and compatible with stock Bash 3.2. Project identity is canonical per checkout, not shared Git history.
-- Scratch is **not** durable unfinished work, rollback storage or final/partial evidence. Keep unique bytes in the project's durable directory. An explicit job lease protects required paths beyond the conversation; expiry is not proof of process completion.
-- Hook completion and deletion completion are different. `events.jsonl` records hook outcomes/version/generation; `deletions.jsonl` correlates queued and completed/failed jobs. One worker per anchor/invocation consumes a manifest, rather than spawning Node for every entry.
-
-These are cooperative same-user safeguards, not a hostile-filesystem sandbox or an OS job supervisor. Kernel-blocked synchronous filesystem calls cannot be interrupted by a JavaScript deadline. See [implementation and remaining acceptance](docs/safety-release.md).
-
-## Explicit work lifetimes
-
-Commands below require the **0.6.1 runtime**, not merely an updated skill/plugin. All preview commands are read-only; mutations require `--apply`.
+Clone the repository, then run the installer from its directory:
 
 ```sh
-clean-development version
-clean-development leases list
-clean-development leases create --path "$CLEAN_DEV_SCRATCH" --path "$CLEAN_DEV_BUILDS" --minutes 60 --owner 'long build'  # preview
-clean-development leases create --path "$CLEAN_DEV_SCRATCH" --path "$CLEAN_DEV_BUILDS" --minutes 60 --owner 'long build' --apply
-clean-development leases renew LEASE_ID --minutes 60 --apply
-clean-development leases release LEASE_ID --apply
-
-clean-development publish --source "$TMPDIR/result.json" --destination /absolute/project/evidence/result.json  # preview
-clean-development publish --source "$TMPDIR/result.json" --destination /absolute/project/evidence/result.json --kind evidence --apply
-clean-development locks
-clean-development locks --recover lifecycle              # inspect a provably dead owner
-clean-development locks --recover lifecycle --apply       # explicit recovery, never a live owner
+git clone https://github.com/magrathean-uk/clean-development.git
+cd clean-development
 ```
 
-Acquire protection **before** using required paths; protect every scratch/build/cache/project path the job needs. Leases last 1-1440 minutes and must be renewed before expiry; released/expired leases cannot silently be revived. They do not launch, supervise or kill processes. A corrupt registry blocks cleanup until inspected. Released records move into durable `lease-history/`, outside the active-registry inspection limit; recovery metadata is not automatically evicted cache.
+## What it does
 
-Publication currently handles **one regular file**. It creates a durable source hold, copies to the destination device, verifies SHA-256 and mode, fsyncs, then publishes without overwriting. The source is never deleted; conflicting existing output is retained. Identical bytes/mode permit an idempotent retry. Cache/temp and declared disposable project destinations are rejected. Pending/failed publication holds **do not expire**: even parent end or a long copy cannot make the sole source evictable. Success releases its hold; failures or interrupted release require inspection and `leases release HOLD_ID --recovery-confirmed --apply` only after the bytes are durably recovered/published. Retain the receipt/recovery copy and never claim completion without a completed receipt. Package directories explicitly or promote them in project-specific transactions; do not assume recursive directory publication exists.
+- Routes cache, build and scratch locations according to `machine/storage.conf`. An attached external volume can be used when its configured mount and cache pass checks; otherwise the configured internal cache is used.
+- Tracks supported Claude Code and Codex sessions and removes only managed, disposable files after ownership and path checks.
+- Protects long-running work with renewable path leases. The `publish` command copies one regular file to durable project storage, verifies it and leaves the source in place.
+- Provides `status`, `doctor`, cleanup previews and recovery commands for inspecting the installed runtime and its state.
 
-## Installation and recovery - not automatic deployment
+The project configuration file, `.clean-development.json`, lists Git-ignored build and dependency directories that may be cleaned. Invalid policy, uncertain ownership or unsafe paths fail closed for deletion. Clean Development is cooperative same-user software, not an OS sandbox or job supervisor.
 
-Source validation does not install anything. First inspect the plan:
+## Installation
+
+Review `machine/storage.conf` before installing. It is an editable macOS example, with an external volume named `External`, external cache under `/Volumes/External/dev/cache` and internal fallback under `~/dev/machine/cache`. Change the volume name and paths to match your setup. The default layout uses `~/dev/machine/` for configuration and state and `~/dev/source/` for repository discovery. The installer preserves an existing storage policy; it uses the repository example for a new installation or when `--replace-config` is explicitly supplied.
+
+If Node is installed in a non-standard location, set `CLEAN_DEV_NODE` to its absolute path. Preview the configuration install:
 
 ```sh
 ./install.sh --dry-run --config
 ```
 
-When separately approved, `./install.sh --config` installs an immutable versioned runtime and new environment, **preserving existing `storage.conf` overrides**. `--config --replace-config` is the explicit policy-replacement option; unknown flags are rejected in every order. Existing releases are retained; changed bytes/permissions under an existing version are refused. Activation files have private backups, a journal and conflict-aware rollback under `~/dev/machine/state/clean-development/installations/`.
+After reviewing the preview, install the runtime and environment files:
 
-After interrupted installation, inspect its receipt/lock and use `./install.sh --recover TRANSACTION_ID`. Recovery refuses a live/unverifiable installer and never overwrites a subsequent user edit. A published but inactive runtime is retained. Receipts, rollback predecessors and failed reprovision snapshots are not age-trimmed; review their storage separately.
+```sh
+./install.sh --config
+```
 
-Hook deployment is separate. Preview `fragments/merge-hooks.py FRAGMENT TARGET --dry-run` before any approved merge. Real merges preserve recovery bytes, unrelated handlers and file mode. Changing Codex hooks with positional disablement/unknown preferences is refused until explicitly reviewed/remapped. Trust refresh preserves such state; `clean-development codex-trust` defaults to **managed CD handlers**, with `--all` an explicit broader approval. The dependency-free editor supports ordinary host table syntax; complex/ambiguous TOML is refused in favour of the TOML-aware `codex-hooks-trust` helper, which also preserves disablement. Hash/config consistency is not actual host dispatch evidence.
+The installer writes under `~/dev/machine/`. It does not edit Claude Code or Codex settings. The portable environment file routes Clean Development cache, build and session scratch variables. It leaves your locale, existing XDG config/data/state locations, installed toolchain homes, model stores, VM homes, Docker config and telemetry preferences unchanged. `HF_HOME` also stays with the host because it may hold credentials; only `HF_HUB_CACHE` and `HF_ASSETS_CACHE` are routed to cache storage. Standalone installs do not set Colima's home or place a shim ahead of your existing Colima command. If a private source manifest opts into the Colima shim, set `COLIMA_HOME` to the configured `LAB_ROOT/VM/colima-home`; rehome and rollback refuse a different path.
 
-On G's machine, explicitly running manual `dev-update` (or `--development-only`) coordinates these steps for the current coherent source release. It checks release identity, every hook merge and the restricted trust editor **before** activation, retains policy/old runtimes/recovery bytes, and never uses `--all` trust or resets disabled state. Hook replacement retains unrelated handler positions. Active or unverifiable native sessions/leases/locks defer runtime changes; the updater never stops a process to pass admission. Do not start new native sessions during a release update. Component journals are retained on failure; this is ordered deployment, not a cross-process atomic transaction. No production rollout/model/hardware acceptance is implied by source tests or the updater's configuration checks.
+`CARGO_HOME` remains a host-managed toolchain home and is not pruned by default. To include its Cargo registry and Git dependency caches in the configured dependency-cache cap, explicitly set `CLEAN_DEV_CARGO_CACHE_HOME` to the same absolute directory. This opt-in covers only Cargo's `registry/cache`, `registry/src`, `git/checkouts` and `git/db` directories.
 
-Policy values live in `~/dev/machine/storage.conf`; paths must be absolute without dot/traversal components, numeric values non-negative plain decimals. Approved internal lab/model overrides remain valid. Reconnection may route subsequent external-pinned shells externally again; no fallback data is copied back. Existing processes retain their own environment.
+Source `~/dev/machine/env.zsh` from the startup file used by your shell. For zsh, use `~/.zshenv`; for Bash, use the startup file your development tools load, such as `~/.bash_profile` or `~/.bashrc`:
 
-## Harness scope and validation
+```sh
+# zsh, in ~/.zshenv
+[ -r "$HOME/dev/machine/env.zsh" ] && . "$HOME/dev/machine/env.zsh"
 
-`.node-version` pins development to current Node **26.12.1**; select it with your version manager or an explicit Node `PATH`. Current LTS **24.22.1** and the minimum supported **20.12.0** remain compatibility targets, not development defaults. The [current validation record](docs/validation-2026-10-25-current.md) separates isolated source/native checks from the still-pending live rollout. The project pin does not replace the machine's shared Node installation.
+# Bash, in ~/.bash_profile or ~/.bashrc
+[ -r "$HOME/dev/machine/env.zsh" ] && . "$HOME/dev/machine/env.zsh"
+```
 
-Clean Development uses Node built-ins only: no third-party npm packages, AI model, model SDK or API version needs upgrading. Project configuration schema v2 is current; v1 support is intentionally read/migrate compatibility.
+Then merge only the relevant hook fragment into the harness configuration. Preview each merge first:
 
-| Consumer | Support |
-|---|---|
-| Claude, Codex, managed numbered Claude seats | Native lifecycle implementation; actual installed-host acceptance remains separate |
-| OpenCode | Environment routing only; no native session deletion adapter. `bin/opencode2` filters foreign identities for new client launches; reused-server environment is not validated by that test |
-| Plain shells / GUI tools | Tool routing only; no conversation ownership or process supervision |
+```sh
+python3 fragments/merge-hooks.py fragments/claude-hooks.json "$HOME/.claude/settings.json" --dry-run
+python3 fragments/merge-hooks.py fragments/codex-hooks.json "$HOME/.codex/hooks.json" --dry-run
+```
 
-`run [--session X] -- CMD` remains a no-policy compatibility shim, with direct-child signal forwarding. It creates no lease, budget or durable task. Never interpret a parent's `$TMPDIR` as a handoff protocol.
+Remove `--dry-run` to apply a reviewed merge. The helper preserves unrelated handlers and saves a recovery copy. The Codex merge needs Python 3.11 or later; the Claude merge can use Python 3. Run `clean-development codex-trust --apply` after installation if required by the Codex configuration. That command also needs Python 3.11 or later; set `CLEAN_DEV_PYTHON` if it is not found automatically. Review Codex trust changes before applying them.
+
+Doctor and Codex trust recognize the current and legacy shim command forms described in [hook command compatibility](docs/hook-command-compatibility.md).
+
+The environment loader can also source `~/dev/machine/env.private.zsh` after standard routing. Treat it as trusted shell code and keep it portable across zsh and Bash. Inspection with `DEV_ENV_INSPECT_ONLY=1` never sources this extension. A standalone clone does not include or create the file. During `--config`, the installer reads only the exact sibling manifest `<source-parent>/.clean-development-private-sidecars.json`; it does not crawl ancestor directories. The manifest may opt in to a fixed set of known sidecars. Only listed files are read, and existing target files and symlinks are preserved. Sidecar sources must be regular files owned by the installer user and not writable by group or other users. For `clean-development run --clean-env`, additional non-secret variable names can be listed one per line in `~/dev/machine/state/clean-development/childenv-allow.list`. Harness identities and secret-like names remain excluded, and variables that require explicit `--keep` still need that option.
+
+For an older installation that placed the runtime under `~/Library/Application Support/clean-development/runtime`, `./remove-legacy.sh` previews the runtime path. It checks the default Claude/Codex settings and registered additional settings files for old references. After the checks pass, `./remove-legacy.sh --apply` removes only that `runtime` subdirectory and preserves other files in the legacy application directory.
+
+`doctor` checks the default `~/.codex` and `~/.claude/settings.json` only when their configuration files exist. Additional Codex homes, Claude settings files and Claude profile settings files can be listed in `codex-homes.list`, `claude-settings.list` and `claude-profiles.list` under `~/dev/machine/state/clean-development/`. Codex entries are home directories; the other entries are settings files. Use one absolute or `~/`-relative path per line. Entries are required by default; prefix a path with `?` when it is intentionally optional. Symlinks to regular settings files are followed for read-only checks.
+
+Plugin installation makes the guidance skill available; it does not install the runtime or hooks. The plugin is optional. Confirm the active version and host setup with:
+
+```sh
+clean-development version
+clean-development doctor
+```
+
+GUI launchd and Xcode cache checks are opt-in with `doctor --gui`; this package does not install a GUI environment helper. The default `doctor` checks the startup files for the shell in `$SHELL` (zsh or Bash) and works for standalone installs. To include a read-only inventory of repositories under `~/dev/source` that lack Clean Development or agent metadata, run `CLEAN_DEV_REPORT_UNADOPTED_REPOS=1 clean-development doctor`. Registry entries only enable read-only checks; they do not change authentication or settings.
+
+## Storage and cleanup
+
+The active `storage.conf` controls the external volume, internal fallback, cache limits, build retention, free-space threshold and report-only folder allowlists. These values are examples, not universal defaults. On external storage, the work root is the writable parent of `LAB_ROOT` when strictly below the mounted volume, otherwise a writable `EXTERNAL_ROOT`; it falls back to `~/dev/machine` if neither is writable. Internal sessions use `~/dev/machine`. Do not override routing variables in child processes. The runtime uses variables such as `$DEVCACHE`, `$TMPDIR`, `$CLEAN_DEV_BUILDS` and `$CLEAN_DEV_WORK` to expose the selected locations. Cargo cache cleanup is excluded unless `CLEAN_DEV_CARGO_CACHE_HOME` explicitly opts in an absolute Cargo home.
+
+Use `clean-development housekeeping` or `clean-development reap` to inspect cleanup plans. These commands preview by default; use `--apply` only after reviewing the listed paths. Never use cache or scratch as the sole copy of unfinished work, rollback data or evidence. Publish important files into durable project storage and retain the completed receipt.
+
+For installer recovery, `install.sh --recover ID` retries a failed rollback. If a user edit is the only remaining conflict, inspect it first and use `install.sh --recover ID --accept-current` to leave that current content untouched and finish recovery. For leases and verified publication, see [the 0.6.1+ command reference](skills/clean-development/references/0.6.1.md). For implementation boundaries and remaining host acceptance, see [the safety and acceptance guide](docs/safety-release.md).
+
+## Development
 
 ```sh
 npm run check
-CLEAN_DEV_TEST_DIR="$TMPDIR/unique-cd-test-root" npm test
+CLEAN_DEV_TEST_DIR="$(mktemp -d /tmp/clean-development.XXXXXX)" npm test
 ```
 
-Tests require explicit scratch and fabricated homes/volumes; adjacent profile tests use fake CLIs/authentication and mocked VPS responses. No real mount, service restart, model call or native login is part of the suite. See [the acceptance matrix](docs/safety-release.md) before considering production rollout.
+The test fixtures must be on an internal filesystem path because `test/env-modes.sh` simulates a removable volume. The example uses `/tmp`, which is internal on supported macOS hosts. The tests use fabricated homes and volumes. They do not configure a live host, edit user harness settings or exercise a real removable volume. Optional integration checks for the containing source monorepo are skipped unless `CLEAN_DEV_TEST_PRIVATE_SOURCE=1` is explicitly set there. See [CHANGELOG.md](CHANGELOG.md) for version history and release-specific changes.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the supported scope and contribution checks.
+
+## Support scope
+
+| Environment | Support |
+|---|---|
+| macOS, Claude Code | Native session lifecycle hooks when configured |
+| macOS, Codex | Native session lifecycle hooks when configured |
+| OpenCode | Environment routing only; no native cleanup lifecycle integration |
+| Linux, Windows, other coding agents | Not supported as deployment targets by this version |
+
+Linux CI runs source checks and isolated fixtures. It does not imply Linux runtime or deployment support.

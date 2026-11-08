@@ -233,7 +233,7 @@ test("a timed-out repo check is reported and does not suppress cleanup for a wee
 
 test("doctor rejects duplicate/stale hooks, wrong options and distinguishes disabled trust", () => {
   const s = sim();
-  const doc = JSON.parse(fs.readFileSync(path.join(plugin, "fragments", "codex-hooks.json"), "utf8").replaceAll("/Users/bolyki", s.home));
+  const doc = JSON.parse(fs.readFileSync(path.join(plugin, "fragments", "codex-hooks.json"), "utf8"));
   const configPath = path.join(s.home, ".codex", "hooks.json"); mk(configPath, JSON.stringify(doc));
   let d = JSON.parse(cli(s, ["doctor", "--no-gui", "--json"]).stdout);
   assert.equal(d.results.find((r) => r.name === "Codex hooks").ok, true);
@@ -244,7 +244,7 @@ test("doctor rejects duplicate/stale hooks, wrong options and distinguishes disa
   doc.hooks.Stop.pop(); doc.hooks.Stop[0].hooks[0].timeout = 1; mk(configPath, JSON.stringify(doc));
   d = JSON.parse(cli(s, ["doctor", "--no-gui", "--json"]).stdout);
   assert.match(d.results.find((r) => r.name === "Codex hooks").detail, /timeout/);
-  doc.hooks.Stop[0].hooks[0].timeout = 300; mk(configPath, JSON.stringify(doc));
+  doc.hooks.Stop[0].hooks[0].timeout = 5; mk(configPath, JSON.stringify(doc));
   mk(path.join(s.home, ".codex", "config.toml"), `[hooks.state.${JSON.stringify(`${configPath}:stop:0:0`)}]\nenabled = false\n`);
   d = JSON.parse(cli(s, ["doctor", "--no-gui", "--json"]).stdout);
   assert.match(d.results.find((r) => r.name === "Codex hook trust").detail, /disabled/);

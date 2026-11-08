@@ -1,7 +1,7 @@
 {
   "name": "clean-development",
-  "version": "0.6.1",
-  "description": "Storage routing (4TB external or internal fallback), the 5 GB rule, session-end cleanup and the no-dot-folder policy for G's Mac. Hooks are installed in user settings, not by this plugin.",
+  "version": "0.6.8",
+  "description": "Storage routing and safe session cleanup for configured development workstations. Hook setup is separate from plugin installation.",
   "author": {
     "name": "MAGRATHEAN UK LTD",
     "url": "https://github.com/magrathean-uk"
@@ -9,8 +9,8 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "Clean Development",
-    "shortDescription": "Storage routing and cleanup on this Mac",
-    "longDescription": "Where caches, builds, scratch, models and VMs go on this Mac, the 5 GB rule when the 4TB is absent, automatic session-end cleanup and the no-dot-folder policy. Hooks live in ~/.codex/hooks.json.",
+    "shortDescription": "Storage routing and safe cleanup for configured workstations",
+    "longDescription": "Route caches, builds and scratch from machine policy, inspect cleanup, and protect long-running work. Claude Code and Codex lifecycle hooks are configured separately; OpenCode receives routing only.",
     "developerName": "MAGRATHEAN UK LTD",
     "category": "Developer Tools",
     "capabilities": ["Read"],
