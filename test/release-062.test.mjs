@@ -456,7 +456,7 @@ test("the real ancestor walk records the harness (no test override) and harness 
     { input: JSON.stringify({ session_id: id, cwd: s.root }), env: e, encoding: "utf8", timeout: 20000 });
   assert.equal(r.status, 0);
   const owner = JSON.parse(fs.readFileSync(path.join(s.sessions, `${key}.json`), "utf8")).owner;
-  assert.equal(owner.pid, process.pid, JSON.stringify(owner)); assert.ok([path.basename(process.execPath), process.title].includes(owner.command), JSON.stringify(owner));
+  assert.equal(owner.pid, process.pid, JSON.stringify(owner)); assert.ok([path.basename(process.execPath), "MainThread"].includes(owner.command), JSON.stringify(owner));
   ageSession(s, key, 48);
   assert.equal(live(s, key).liveReason, `harness process ${process.pid}`);
   ageSession(s, key, 8 * 24);
