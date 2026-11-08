@@ -173,7 +173,9 @@ export function applyTrust(configToml, hooksPath, entries) {
       if ((rootState && line.trim() && !line.trim().startsWith("#")) || (rootHooks && hooksTableState.test(line)) || (topLevel && topHookState.test(line)))
         throw new Error("inline hook state is outside the safe editor's supported subset; update hook trust with a TOML-aware editor");
       // Likewise an escaped key ("h\u006foks" = {...}) where hook state can live.
-      if ((topLevel || rootHooks || rootState) && line.split("=")[0].includes("\\"))
+      const trimmed = line.trimStart();
+      const assignment = trimmed.match(/^(?:[A-Za-z0-9_-]+|"(?:[^"\\]|\\.)*"|'[^']*')(?:\s*\.\s*(?:[A-Za-z0-9_-]+|"(?:[^"\\]|\\.)*"|'[^']*'))*\s*=/);
+      if ((topLevel || rootHooks || rootState) && assignment && assignment[0].slice(0, -1).includes("\\"))
         throw new Error("escaped key is outside the safe editor's supported subset; update hook trust with a TOML-aware editor");
     }
   }

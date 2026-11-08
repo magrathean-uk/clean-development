@@ -45,6 +45,17 @@ test("restricted offline trust editor refuses ambiguous TOML instead of duplicat
   ]) assert.throws(() => applyTrust(text, "/h/hooks.json", entries), /outside the safe editor's supported subset/);
 });
 
+test("trust editor ignores backslashes in comments and multiline values", () => {
+  const entries = [{ key: "/h/hooks.json:stop:0:0", hash: "sha256:new" }];
+  for (const before of [
+    '# See C:\\tools\nmodel = "x"\n',
+    'paths = [\n  "C:\\\\=sdk",\n]\n'
+  ]) {
+    const after = applyTrust(before, "/h/hooks.json", entries);
+    assert.ok(after.startsWith(before), after);
+  }
+});
+
 test("trust editor accepts the [features] hooks = true switch but refuses root hook state in every spelling", () => {
   const key = "/h/hooks.json:stop:0:0", entries = [{ key, hash: "sha256:new" }];
   // A Codex config with the hook feature enabled and managed per-hook state.

@@ -5,6 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { cli, hook, mk, plugin, repo, sim, waitFor } from "./helpers.mjs";
+import { stop } from "../runtime/lib/hook.mjs";
 import { VERSION, hookShimPath, hookShimText, loadConf } from "../runtime/lib/conf.mjs";
 import { installPackage } from "../installer.mjs";
 import { managedTrustEntries } from "../runtime/lib/codex-trust.mjs";
@@ -470,6 +471,19 @@ test("pid-file inspection honours the caller's deadline per entry and reports it
   const r = pidFileJobs(dir, { deadline: Date.now() - 1 });
   assert.equal(r.complete, false); assert.equal(r.reason, "deadline"); assert.equal(r.jobs.length, 0);
   assert.equal(pidFileJobs(dir).complete, true);
+});
+
+test("forced Stop tolerates a not-yet-created owner index", () => {
+  const s = sim({ mounted: false });
+  const start = hook(s, "session-start", "claude", { cwd: s.root });
+  assert.equal(start.status, 0, start.stderr);
+  const owners = path.join(s.home, "dev/machine/state/clean-development/owners");
+  assert.equal(fs.existsSync(owners), false);
+  const r = stop({}, "claude", s.env, { force: true, budgetMs: 3000 });
+  assert.equal(r.locked, false);
+  assert.deepEqual(r.result.errors, []);
+  assert.equal(r.result.deferred, false);
+  assert.equal(fs.existsSync(owners), false);
 });
 
 test("prune --project finds a reaped session's external builds through the ownership index, never stamping builds/<key>", async () => {
