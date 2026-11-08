@@ -20,7 +20,7 @@ function sortDeep(v) {
 }
 
 export function normaliseHandler(event, h) {
-  if (h.type !== "command") return null;
+  if (!isRecord(h) || h.type !== "command" || typeof h.command !== "string") return null;
   const label = LABEL(event);
   const short = label === "session_end" || label === "interrupt";
   const t = Number.isInteger(h.timeout) ? h.timeout : undefined;
@@ -40,17 +40,50 @@ export function hookHash(event, matcher, handler) {
   return "sha256:" + crypto.createHash("sha256").update(json).digest("hex");
 }
 
+function isRecord(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function hookHandlerEntries(doc) {
+  if (!isRecord(doc) || !isRecord(doc.hooks)) return [];
+  const out = [];
+  for (const [event, groups] of Object.entries(doc.hooks)) {
+    if (!Array.isArray(groups)) continue;
+    groups.forEach((group, groupIndex) => {
+      if (!isRecord(group) || !Array.isArray(group.hooks)) return;
+      group.hooks.forEach((handler, handlerIndex) => {
+        if (isRecord(handler)) out.push({ event, group, groupIndex, handler, handlerIndex });
+      });
+    });
+  }
+  return out;
+}
+
+// Keep doctor useful on syntactically valid JSON that does not match Codex's hooks shape.
+export function hookDocumentProblems(doc) {
+  const problems = [];
+  if (!isRecord(doc)) return ["document must be an object"];
+  if (!isRecord(doc.hooks)) return ["hooks must be an object"];
+  for (const [event, groups] of Object.entries(doc.hooks)) {
+    if (!Array.isArray(groups)) { problems.push(`hooks.${event} must be an array`); continue; }
+    groups.forEach((group, groupIndex) => {
+      if (!isRecord(group)) { problems.push(`hooks.${event}[${groupIndex}] must be an object`); return; }
+      if (!Array.isArray(group.hooks)) { problems.push(`hooks.${event}[${groupIndex}].hooks must be an array`); return; }
+      group.hooks.forEach((handler, handlerIndex) => {
+        if (!isRecord(handler)) problems.push(`hooks.${event}[${groupIndex}].hooks[${handlerIndex}] must be an object`);
+      });
+    });
+  }
+  return problems;
+}
+
 // Returns [{ key, hash }] for every command handler in a hooks.json document located at hooksPath.
 export function trustEntries(hooksPath, doc) {
   const out = [];
-  for (const [event, groups] of Object.entries(doc?.hooks || {})) {
-    (groups || []).forEach((g, gi) => {
-      (g.hooks || []).forEach((h, hi) => {
-        const n = normaliseHandler(event, h);
-        if (!n) return;
-        out.push({ key: `${hooksPath}:${LABEL(event)}:${gi}:${hi}`, hash: hookHash(event, g.matcher, n) });
-      });
-    });
+  for (const { event, group, groupIndex, handler, handlerIndex } of hookHandlerEntries(doc)) {
+    const n = normaliseHandler(event, handler);
+    if (!n) continue;
+    out.push({ key: `${hooksPath}:${LABEL(event)}:${groupIndex}:${handlerIndex}`, hash: hookHash(event, group.matcher, n) });
   }
   return out;
 }
@@ -87,12 +120,12 @@ function installedRuntimeShim(file, env) {
 
 export function managedTrustEntries(hooksPath, doc, env = process.env) {
   const owned = new Set();
-  for (const [event, groups] of Object.entries(doc?.hooks || {})) (groups || []).forEach((g, gi) => (g.hooks || []).forEach((h, hi) => {
-    const parsed = managedHookCommand(h.command);
+  for (const { event, groupIndex, handler, handlerIndex } of hookHandlerEntries(doc)) {
+    const parsed = managedHookCommand(handler.command);
     const managedPath = parsed?.fromHome || parsed && installedRuntimeShim(parsed.file, env);
     if (managedPath && parsed.harness === "codex" && parsed.event === event)
-      owned.add(`${hooksPath}:${LABEL(event)}:${gi}:${hi}`);
-  }));
+      owned.add(`${hooksPath}:${LABEL(event)}:${groupIndex}:${handlerIndex}`);
+  }
   return trustEntries(hooksPath, doc).filter((e) => owned.has(e.key));
 }
 

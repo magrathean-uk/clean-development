@@ -188,6 +188,26 @@ test("configured Codex home requires hooks and matching trust", () => {
   assert.equal(row(JSON.parse(passed.stdout), "Codex hook trust (configured-codex)").trustedEnabled, 3);
 });
 
+test("doctor reports malformed Codex hook shapes without trust parser exceptions", () => {
+  const malformed = [
+    (doc) => { doc.hooks.Stop = { hooks: [] }; return /hooks\.Stop must be an array/; },
+    (doc) => { doc.hooks.Stop[0].hooks = {}; return /hooks\.Stop\[0\]\.hooks must be an array/; },
+    (doc) => { doc.hooks.Stop[0].hooks = [null]; return /hooks\.Stop\[0\]\.hooks\[0\] must be an object/; }
+  ];
+  for (const makeMalformed of malformed) {
+    const s = configure(sim()), file = path.join(s.home, ".codex", "hooks.json"), doc = hooks(s.env, "codex");
+    const expected = makeMalformed(doc);
+    json(file, doc);
+    assert.doesNotThrow(() => trustEntries(file, doc));
+    assert.doesNotThrow(() => managedTrustEntries(file, doc, s.env));
+    const r = cli(s, ["doctor", "--json", "--no-gui"]);
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    const check = row(JSON.parse(r.stdout), "Codex hooks");
+    assert.equal(check.ok, false);
+    assert.match(check.detail, expected);
+  }
+});
+
 test("the default and explicitly configured Codex homes are checked independently", () => {
   const s = sim();
   const custom = path.join(s.root, "custom-codex");

@@ -5,7 +5,7 @@ import { spawnSync } from "node:child_process";
 import { sessionsDir, VERSION, RELEASE_DIR, homeDir, hookShimPath, hookShimText, shimRelease, loadConf, runtimeRoot, stateDir } from "./conf.mjs";
 import { detect, externalWorkRoot, fmtGB, GB, internalFreeBytes, layout } from "./storage.mjs";
 import { children, lstatOrNull, readJsonOrNull, safeDirectory } from "./fsutil.mjs";
-import { managedHookCommand, managedTrustEntries, readHookStates, trustEntries } from "./codex-trust.mjs";
+import { hookDocumentProblems, managedHookCommand, managedTrustEntries, readHookStates, trustEntries } from "./codex-trust.mjs";
 import { claudeProfiles, claudeSettings, codexHomes, inventoryExtras, policyInventory, scanLiteralCachePaths, worktreeInventory } from "./inventory.mjs";
 import { readSizeCache, trashPaths } from "./sizes.mjs";
 import { dotReport } from "./dots.mjs";
@@ -41,6 +41,7 @@ function commandsIn(doc) {
 function checkHooks(name, file, harness, env, results) {
   const doc = readJsonOrNull(file);
   if (!doc) { results.push({ name, ok: false, detail: `${file} missing or not JSON` }); return null; }
+  const shapeProblems = hookDocumentProblems(doc);
   const cmds = commandsIn(doc);
   const owned = cmds.filter((c) => /\/runtime\/clean-development\/|clean-development\/runtime\/|Application Support\/clean-development/.test(c.command));
   const problems = [];
@@ -57,7 +58,8 @@ function checkHooks(name, file, harness, env, results) {
   }
   const legacy = owned.filter((c) => !Object.keys(EVENTS).some((ev) => c.event === ev && hookCommandMatches(env, ev, harness, c.command)));
   if (legacy.length) problems.push(`${legacy.length} stale/legacy clean-development handler(s)`);
-  results.push({ name, ok: problems.length === 0, detail: problems.join("; ") || `${VERSION} configured; dispatch/completion not tested` });
+  const allProblems = [...shapeProblems, ...problems];
+  results.push({ name, ok: allProblems.length === 0, detail: allProblems.join("; ") || `${VERSION} configured; dispatch/completion not tested` });
   return doc;
 }
 
