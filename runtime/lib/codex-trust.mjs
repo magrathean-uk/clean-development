@@ -72,6 +72,8 @@ export function hookDocumentProblems(doc, { requireHooks = true } = {}) {
       if (!Array.isArray(group.hooks)) { problems.push(`hooks.${event}[${groupIndex}].hooks must be an array`); return; }
       group.hooks.forEach((handler, handlerIndex) => {
         if (!isRecord(handler)) problems.push(`hooks.${event}[${groupIndex}].hooks[${handlerIndex}] must be an object`);
+        else if (typeof handler.type !== "string")
+          problems.push(`hooks.${event}[${groupIndex}].hooks[${handlerIndex}].type must be a string`);
         else if (handler.type === "command" && typeof handler.command !== "string")
           problems.push(`hooks.${event}[${groupIndex}].hooks[${handlerIndex}].command must be a string`);
       });

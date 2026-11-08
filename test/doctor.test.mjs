@@ -125,11 +125,12 @@ test("doctor validates present Claude profile hooks and accepts inherited shared
   assert.equal(inheritedCheck.detail, "inherits shared hooks");
 
   const cases = [
-    (doc) => { doc.hooks.Stop[0].hooks[0].command = [doc.hooks.Stop[0].hooks[0].command]; },
-    (doc) => { doc.hooks.Stop[0].hooks[0].command = { toString: null }; },
-    (doc) => { delete doc.hooks.Stop[0].hooks[0].command; }
+    [(doc) => { doc.hooks.Stop[0].hooks[0].command = [doc.hooks.Stop[0].hooks[0].command]; }, /hooks\.Stop\[0\]\.hooks\[0\]\.command must be a string/],
+    [(doc) => { doc.hooks.Stop[0].hooks[0].command = { toString: null }; }, /hooks\.Stop\[0\]\.hooks\[0\]\.command must be a string/],
+    [(doc) => { delete doc.hooks.Stop[0].hooks[0].command; }, /hooks\.Stop\[0\]\.hooks\[0\]\.command must be a string/],
+    [(doc) => { delete doc.hooks.Stop[0].hooks[0].type; }, /hooks\.Stop\[0\]\.hooks\[0\]\.type must be a string/]
   ];
-  for (const [index, mutate] of cases.entries()) {
+  for (const [index, [mutate, expected]] of cases.entries()) {
     const s = configure(sim()), file = path.join(s.home, "dev", "machine", "state", "profiles", `${index}.json`), doc = hooks(s.env, "claude");
     mutate(doc); json(file, doc);
     mk(path.join(stateDir(s.env), "claude-profiles.list"), `${file}\n`);
@@ -137,7 +138,7 @@ test("doctor validates present Claude profile hooks and accepts inherited shared
     assert.equal(r.status, 1, r.stdout + r.stderr);
     const check = row(JSON.parse(r.stdout), `Claude profile hooks (${path.relative(s.home, file)})`);
     assert.equal(check.ok, false);
-    assert.match(check.detail, /hooks\.Stop\[0\]\.hooks\[0\]\.command must be a string/);
+    assert.match(check.detail, expected);
   }
 });
 
