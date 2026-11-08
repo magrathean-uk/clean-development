@@ -11,18 +11,18 @@ import { guardFile, inspectLocks, rebootProof, reclaimOrphanedLock, recoverLock,
 import { doctor } from "../runtime/lib/doctor.mjs";
 
 const OLD = "11111111-1111-4111-8111-111111111111", NOW = "22222222-2222-4222-8222-222222222222";
-const BOOT_TIME = Date.parse("2026-11-06T14:14:08.158Z");
+const BOOT_TIME = Date.parse("2025-06-01T14:14:08.158Z");
 const boot = { id: NOW, time: BOOT_TIME };
 const deadPid = () => { const c = spawnSync(process.execPath, ["-e", ""]); assert.equal(c.status, 0); return c.pid; };
 const lockOf = (s, name = "lifecycle") => path.join(stateDir(s.env), `${name}.lock`);
 const put = (file, owner) => { writeFileAtomic(file, JSON.stringify(owner)); return fs.lstatSync(file).ino; };
-const preBoot = { acquiredAt: "2026-11-06T14:12:11.278Z" }, sameBoot = { acquiredAt: "2026-11-06T14:20:00.000Z" };
+const preBoot = { acquiredAt: "2025-06-01T14:12:11.278Z" }, sameBoot = { acquiredAt: "2025-06-01T14:20:00.000Z" };
 const logOf = (s) => { try { return fs.readFileSync(path.join(stateDir(s.env), "hook.log"), "utf8"); } catch { return ""; } };
 const nolog = () => {};
 
 test("boot identity parses sysctl output deterministically and only canonical UUIDs count", () => {
-  assert.deepEqual(parseDarwinBoot(`c8b15f4d-a17b-415d-ab7b-70c5c4324ed3\n{ sec = 1793974448, usec = 158203 } Fri Nov  6 14:14:08 2026\n`),
-    { id: "C8B15F4D-A17B-415D-AB7B-70C5C4324ED3", time: 1793974448158 });
+  assert.deepEqual(parseDarwinBoot(`c8b15f4d-a17b-415d-ab7b-70c5c4324ed3\n{ sec = 1748787248, usec = 158203 } Sun Jun  1 14:14:08 2025\n`),
+    { id: "C8B15F4D-A17B-415D-AB7B-70C5C4324ED3", time: 1748787248158 });
   assert.deepEqual(parseDarwinBoot("\n\n"), { id: null, time: null }, "sandboxed sysctl prints nothing");
   assert.deepEqual(parseDarwinBoot("unreadable\n{ sec = x }"), { id: null, time: null });
   for (const bad of ["unreadable", "", " ", "1111", `${OLD}x`, `{${OLD}}`, 42, null, undefined]) assert.equal(normBootId(bad), null, String(bad));
@@ -82,7 +82,7 @@ test("a lock recorded in an earlier boot is reclaimed even when its pid is reuse
   assert.match(logOf(s), /lifecycle\.lock reclaimed: orphaned by reboot \(boot id changed\); owner pid \d+ token old-boot .*bootId 11111111/);
 });
 
-test("a legacy record acquired before this boot (the 6 Nov 2026 case) is reported, not reclaimed; explicit recovery works", () => {
+test("a legacy record acquired before this boot is reported, not reclaimed; explicit recovery works", () => {
   const s = sim({ mounted: false }), lock = lockOf(s);
   put(lock, { pid: deadPid(), token: "legacy", ...preBoot });
   const [l] = inspectLocks(s.env, { boot });

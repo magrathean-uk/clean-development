@@ -70,8 +70,8 @@ export function externalAvailable(conf, env = process.env) {
 }
 
 export function rootFor(conf, mode) { return mode === "external" ? conf.externalCache : conf.internalRoot; }
-// Work root for worktrees, jobs and bundles (env.zsh exports it as CLEAN_DEV_WORK): the parent of LAB_ROOT when it
-// is strictly below the mounted volume, otherwise EXTERNAL_ROOT; internal sessions use ~/dev/machine.
+// Work root for worktrees, jobs and bundles (env.zsh exports it as CLEAN_DEV_WORK): writable parent of LAB_ROOT when
+// strictly below the mounted volume, otherwise writable EXTERNAL_ROOT; if neither works, use ~/dev/machine.
 export function externalWorkRoot(conf) {
   const labParent = path.dirname(conf.labRoot);
   return conf.mountPoint && strictlyBelow(conf.mountPoint, labParent) ? labParent : conf.externalRoot;

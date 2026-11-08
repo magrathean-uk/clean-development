@@ -69,7 +69,7 @@ function startLocked(input, harness, env, conf, preflight) {
       ownedRoots: [...new Set([...(prev?.ownedRoots || []), root])],
       startedAt: prev?.startedAt || new Date().toISOString(), lastSeen: new Date().toISOString()
     }, { reopen: pin.ended });
-    // Ownership for prune --project (R8) goes to the durable index, never into builds/<key>: a file there would make
+    // Ownership for prune --project goes to the durable index, never into builds/<key>: a file there would make
     // $CLEAN_DEV_BUILDS non-empty and break `git clone URL "$CLEAN_DEV_BUILDS"`, and scratch disappears at session end.
     const priorRoots = prev?.ownedRoots;
     const externalUsed = root === conf.externalCache || priorRoots?.includes(conf.externalCache) ? true
@@ -195,7 +195,7 @@ export function stop(input, harness, env = process.env, { force = false, dryRun 
     const liveInternal = live.filter((s) => !s.ended && (!extNow || s.mode === "internal" || s.lost || s.meta?.mode === "internal"
       || (s.meta?.ownedRoots || []).includes(conf.internalRoot)));
     const eventsFile = deletionsPath(env);
-    // Internal builds: idle prune hourly (DerivedData only after EXTERNAL_BUILD_DAYS); session build dirs wiped when no internal session is live (Q30).
+    // Internal builds: idle prune hourly (DerivedData only after EXTERNAL_BUILD_DAYS); session build dirs are wiped when no internal session is live.
     if (force || stampDue(stamps, "internal-builds", HOUR)) stage("internal builds", () => {
       out.internalIdle = agePruneBuilds(conf.internalRoot, conf.INTERNAL_BUILD_IDLE_HOURS * HOUR, { liveKeys, dryRun, log, eventsFile, protect, deadline, derivedDataMaxAgeMs: conf.EXTERNAL_BUILD_DAYS * DAY });
       if (liveInternal.length === 0) out.lastOut = wipeInternalBuilds(conf, { liveKeys, dryRun, log, eventsFile, protect, deadline });
@@ -227,7 +227,7 @@ export function stop(input, harness, env = process.env, { force = false, dryRun 
       pruneOwnerIndex(env, conf, { roots: [conf.internalRoot].concat(ext ? [conf.externalCache] : []), external: ext, deadline, log });
       if (timeLeft(deadline)) stampTouch(stamps, "owners");
     });
-    // Daily detached size measurement for `status --sizes`, doctor and housekeeping (R9); the CLI refreshes on --apply.
+    // Daily detached size measurement for `status --sizes`, doctor and housekeeping; the CLI refreshes on --apply.
     if (!dryRun && !force && stampDue(stamps, "sizes", DAY)) stage("sizes", () => { spawnSizeRefresh(env); stampTouch(stamps, "sizes"); });
     out.timedOut = !timeLeft(deadline);
     out.deferred = out.repoBlocked.length > 0 || out.errors.length > 0;

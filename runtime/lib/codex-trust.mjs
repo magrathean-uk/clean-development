@@ -4,7 +4,7 @@
 // { event_name: <snake_case event>, matcher?: <matcher>, hooks: [<normalised handler>] }.
 // Normalised command handler: type, command, commandWindows?, timeout (SessionEnd/Interrupt: default 1, clamp 1..3;
 // others: default 600), async (default false), statusMessage?, additionalContextLimit?.
-// Verified against five trusted_hash values in ~/.codex/config.toml (Codex CLI 0.163.0-alpha.10.2) on 19 Oct 2026.
+// The fingerprint format is covered by fixtures and checked against Codex hook state during installation review.
 import { spawnSync } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";

@@ -17,9 +17,15 @@ import { sourceRepos } from "./project.mjs";
 import { colimaHomeMatches, vmHome } from "./vm.mjs";
 
 const EVENTS = { SessionStart: "session-start", Stop: "stop", SessionEnd: "session-end" };
+const shellQuote = (value) => `'${String(value).replaceAll("'", "'\\''")}'`;
 
 export function hookCommand(env, event, harness) {
   return `\"$HOME/dev/machine/runtime/clean-development/active/bin/cd-hook\" ${EVENTS[event] || event} ${harness}`;
+}
+
+export function hookCommandMatches(env, event, harness, command) {
+  const args = `${EVENTS[event] || event} ${harness}`;
+  return command === hookCommand(env, event, harness) || command === `${shellQuote(hookShimPath(env))} ${args}`;
 }
 
 function commandsIn(doc) {
@@ -37,7 +43,7 @@ function checkHooks(name, file, harness, env, results) {
   const owned = cmds.filter((c) => /\/runtime\/clean-development\/|clean-development\/runtime\/|Application Support\/clean-development/.test(c.command));
   const problems = [];
   for (const ev of Object.keys(EVENTS)) {
-    const handlers = owned.filter((c) => c.event === ev && c.command === hookCommand(env, ev, harness));
+    const handlers = owned.filter((c) => c.event === ev && hookCommandMatches(env, ev, harness, c.command));
     if (handlers.length !== 1) { problems.push(`${ev}: expected exactly one current handler, found ${handlers.length}`); continue; }
     const h = handlers[0];
     if (ev === "SessionStart" && h.matcher !== "startup|resume|clear|compact|fork") problems.push("SessionStart matcher differs");
@@ -47,7 +53,7 @@ function checkHooks(name, file, harness, env, results) {
     const timeout = ev === "Stop" ? 5 : ev === "SessionStart" ? 30 : harness === "codex" ? 3 : 15;
     if (h.timeout !== timeout) problems.push(`${ev} timeout differs`);
   }
-  const legacy = owned.filter((c) => !Object.keys(EVENTS).some((ev) => c.event === ev && c.command === hookCommand(env, ev, harness)));
+  const legacy = owned.filter((c) => !Object.keys(EVENTS).some((ev) => c.event === ev && hookCommandMatches(env, ev, harness, c.command)));
   if (legacy.length) problems.push(`${legacy.length} stale/legacy clean-development handler(s)`);
   results.push({ name, ok: problems.length === 0, detail: problems.join("; ") || `${VERSION} configured; dispatch/completion not tested` });
   return doc;
@@ -118,7 +124,7 @@ export function doctor(env = process.env, { gui = false, internalWarnBytes = 102
     detail: profiles.errors.join("; ") || profiles.files.length + " profile settings file(s)" + (profiles.optionalMissing.length ? "; optional absent: " + profiles.optionalMissing.join(", ") : "") });
   for (const file of profiles.files) {
     const doc = readJsonOrNull(file), seatHandlers = commandsIn(doc).filter((c) => /clean-development/.test(c.command));
-    const stale = seatHandlers.filter((c) => c.command !== hookCommand(env, c.event, "claude"));
+    const stale = seatHandlers.filter((c) => !hookCommandMatches(env, c.event, "claude", c.command));
     const asynchronous = seatHandlers.filter((c) => c.async), invalid = !doc;
     results.push({ name: `Claude profile hooks (${path.relative(home, file) || file})`, ok: !stale.length && !asynchronous.length && !invalid,
       detail: invalid ? `${file} unreadable or not JSON` : stale.length ? `${file}: ${stale.length} stale per-profile clean-development handler(s); use current shared shim commands` : asynchronous.length ? `${file}: ${asynchronous.length} async per-profile clean-development handler(s); use synchronous hooks` : "inherits shared hooks" });
@@ -145,7 +151,7 @@ export function doctor(env = process.env, { gui = false, internalWarnBytes = 102
     const currentKeys = new Set(trustEntries(codexHooksFile, codexDoc).filter((e) => {
       const parts = e.key.slice(codexHooksFile.length + 1).split(":");
       const event = Object.keys(EVENTS).find((ev) => EVENTS[ev].replaceAll("-", "_") === parts[0]);
-      return event && codexDoc.hooks[event]?.[Number(parts[1])]?.hooks?.[Number(parts[2])]?.command === hookCommand(env, event, "codex");
+      return event && hookCommandMatches(env, event, "codex", codexDoc.hooks[event]?.[Number(parts[1])]?.hooks?.[Number(parts[2])]?.command);
     }).map((e) => e.key));
     const entries = trustEntries(codexHooksFile, codexDoc).filter((e) => currentKeys.has(e.key) || managed.some((m) => m.key === e.key));
     const disabled = entries.filter((e) => states.get(e.key)?.enabled === false);
@@ -226,13 +232,15 @@ export function doctor(env = process.env, { gui = false, internalWarnBytes = 102
   for (const p of policy.strayDev) warn("stray ~/dev entry", p);
   for (const name of policy.staleHomeDots) warn(`stale HOME_DOT_ALLOW ${name}`, "does not exist; suggest removal from ~/dev/machine/storage.conf");
   for (const p of new Set([...trashPaths(conf, env), ...Object.keys(sizes?.trash || {})])) warn("pending Trash", `${p}: ${sizes?.trash?.[p] === null || sizes?.trash?.[p] === undefined ? "unknown, refresh sizes" : `${sizes.trash[p]} bytes (${fmtGB(sizes.trash[p])})`}`);
-  // R15 as a report row, not session context: repos in ~/dev/source without a cleanup config or agent instructions.
-  let repos = [];
-  try { repos = sourceRepos(home).repos; } catch (e) { warn("repo scan", `~/dev/source unreadable (${e.code || e.message}); repo rows skipped`); }
-  const lacking = (f) => repos.filter((r) => !lstatOrNull(path.join(r, f))?.isFile()).map((r) => path.basename(r));
-  for (const [file, why] of [[".clean-development.json", "no declared buildDirs/depDirs; project cleanup skips it"], ["AGENTS.md", "no agent instructions"]]) {
-    const names = lacking(file);
-    if (names.length) warn(`repos without ${file}`, `${names.length}: ${names.join(" ")}; ${why}`);
+  // Optional workspace inventory for users who keep repositories under ~/dev/source.
+  if (env.CLEAN_DEV_REPORT_UNADOPTED_REPOS === "1") {
+    let repos = [];
+    try { repos = sourceRepos(home).repos; } catch (e) { warn("repo scan", `~/dev/source unreadable (${e.code || e.message}); repo rows skipped`); }
+    const lacking = (f) => repos.filter((r) => !lstatOrNull(path.join(r, f))?.isFile()).map((r) => path.basename(r));
+    for (const [file, why] of [[".clean-development.json", "no declared buildDirs/depDirs; project cleanup skips it"], ["AGENTS.md", "no agent instructions"]]) {
+      const names = lacking(file);
+      if (names.length) warn(`repos without ${file}`, `${names.length}: ${names.join(" ")}; ${why}`);
+    }
   }
   const worktreeRoots = [...new Set([externalWorkRoot(conf), conf.externalRoot, path.join(home, "dev", "machine")].map((root) => path.join(root, "worktrees")))];
   const worktrees = worktreeInventory(conf, env);

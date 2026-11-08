@@ -144,7 +144,7 @@ ok O.stubtoken "$(get CLEAN_DEV_SESSION CODEX_THREAD_ID=ol2-stub-key)" UNSET
 ok O.handset "$(get CLEAN_DEV_SESSION CODEX_THREAD_ID=maintree0001)" x-maintree0001
 ok O.nopin "$( [[ -e $H/dev/machine/state/clean-development/sessions/c--to-be-unset.mode ]] && print written || print none)" none
 
-# P 0.6.2 (R10): a clean child (no CLAUDE_* variables) keeps its session's routing through CLEAN_DEV_SESSION + stamp;
+# A clean child (no CLAUDE_* variables) keeps its session's routing through CLEAN_DEV_SESSION + stamp;
 #   a session name without the matching stamp is ignored
 ok P.inherit "$(z CLAUDE_CODE_SESSION_ID=$SID /bin/zsh -c 'env -i HOME="$HOME" PATH=/usr/bin:/bin CLEAN_DEV_SESSION="$CLEAN_DEV_SESSION" CLEAN_DEV_STAMP="$CLEAN_DEV_STAMP" /bin/zsh -c "print -r -- \$TMPDIR\|\$CLEAN_DEV_BUILDS\|\$DEVCACHE\|\${CLAUDE_CODE_SESSION_ID-none}"' 2>/dev/null)" "$EXT/scratch/$KEY/tmp|$EXT/builds/$KEY|$EXT|none"
 ok P.nostamp "$(get TMPDIR CLEAN_DEV_SESSION=$KEY)" UNSET
@@ -154,14 +154,14 @@ ok P.nopin "$(get TMPDIR CLEAN_DEV_SESSION=c-0000deadbeef CLEAN_DEV_STAMP="exter
 ok P.bash "$(z CLAUDE_CODE_SESSION_ID=$SID /bin/bash -c '. "$HOME/dev/machine/env.zsh"; env -i HOME="$HOME" PATH=/usr/bin:/bin CLEAN_DEV_SESSION="$CLEAN_DEV_SESSION" CLEAN_DEV_STAMP="$CLEAN_DEV_STAMP" /bin/bash -c ". \"\$HOME/dev/machine/env.zsh\"; printf %s \"\$TMPDIR\""' 2>/dev/null)" "$EXT/scratch/$KEY/tmp"
 ok P.utf8 "$(z LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 CODEX_THREAD_ID=019a2b3c-4d5e-7f60-8a9b-00000000000é /bin/bash -c '. "$HOME/dev/machine/env.zsh"; printf %s "${CLEAN_DEV_SESSION-UNSET}"' 2>/dev/null)" UNSET
 
-# Q 0.6.2 (R5): a pin written by env.zsh (no hook ran) records why on its second line; readers use line one
+# A pin written by env.zsh (no hook ran) records why on its second line; readers use line one
 QT=019a2b3c-4d5e-7f60-8a9b-0000000000aa
 get CLEAN_DEV_MODE CODEX_THREAD_ID=$QT >/dev/null
 ok Q.line1 "$(sed -n 1p $H/dev/machine/state/clean-development/sessions/x-0000000000aa.mode)" external
 ok Q.line2 "$(sed -n 2p $H/dev/machine/state/clean-development/sessions/x-0000000000aa.mode)" "# env.zsh $EXT writable (test -w)"
 ok Q.mode "$(get CLEAN_DEV_MODE CODEX_THREAD_ID=$QT)" external
 
-# R 0.6.2 (R12): Python bytecode goes to the cache, never __pycache__ in the tree
+# Python bytecode goes to the cache, never __pycache__ in the tree
 ok R.prefix "$(get PYTHONPYCACHEPREFIX)" "$EXT/deps/pycache"
 ok R.prefixint "$(get PYTHONPYCACHEPREFIX DEV_STORAGE_VOLUME_TEST=absent)" "$INT/deps/pycache"
 if [[ -x /usr/bin/python3 ]] && /usr/bin/python3 -c 1 2>/dev/null; then
@@ -171,7 +171,7 @@ if [[ -x /usr/bin/python3 ]] && /usr/bin/python3 -c 1 2>/dev/null; then
   ok R.cached "$( ls $EXT/deps/pycache/**/pymod*.pyc(N) 2>/dev/null | head -1 | grep -c pymod)" 1
 fi
 
-# S 0.6.2 (R11): VM homes use external lab paths in both modes; env.zsh never creates them
+# VM homes use external lab paths in both modes; env.zsh never creates them
 ok S.colima "$(get COLIMA_HOME)" UNSET
 ok S.colimaint "$(get COLIMA_HOME DEV_STORAGE_VOLUME_TEST=absent)" UNSET
 ok S.lima "$(get LIMA_HOME DEV_STORAGE_VOLUME_TEST=absent)" UNSET
@@ -185,7 +185,7 @@ ok U.strictsession "$(get TMPDIR CLAUDE_CODE_SESSION_ID=$SID DEV_STORAGE_VOLUME_
 ok U.strictbash "$(z DEV_STORAGE_VOLUME_TEST=strict /bin/bash -c '. "$HOME/dev/machine/env.zsh"; printf %s "$CLEAN_DEV_MODE"' 2>/dev/null)" external
 ok U.fixture "$(get CLEAN_DEV_MODE)" external
 
-# T 0.6.2: CLEAN_DEV_WORK follows LAB_ROOT's parent when it is an existing path below the mount; otherwise EXTERNAL_ROOT.
+# T 0.6.2: CLEAN_DEV_WORK prefers a writable LAB_ROOT parent below the mount, then writable EXTERNAL_ROOT, else internal.
 cp "$H/dev/machine/storage.conf" "$sim/storage.conf.worktree.bak"
 sed "s#^LAB_ROOT=.*#LAB_ROOT=$V/not-created/lab#" "$H/dev/machine/storage.conf" > "$sim/storage.conf.worktree"
 cp "$sim/storage.conf.worktree" "$H/dev/machine/storage.conf"
@@ -198,6 +198,9 @@ ok T.labparent "$(get CLEAN_DEV_WORK)" "$V/work"
 chmod 500 "$V/work"
 ok T.labparent-readonly "$(get CLEAN_DEV_WORK)" "$V/dev"
 chmod 700 "$V/work"
+chmod 500 "$V/dev"
+ok T.labparent-extroot-readonly "$(get CLEAN_DEV_WORK)" "$V/work"
+chmod 700 "$V/dev"
 cp "$sim/storage.conf.worktree.bak" "$H/dev/machine/storage.conf"
 mkdir -p "$V/dev"
 ok T.external "$(get CLEAN_DEV_WORK)" "$V/dev"

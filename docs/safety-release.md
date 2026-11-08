@@ -15,7 +15,7 @@ This document describes the current Clean Development source, version 0.6.8. It 
 | F7 OpenCode boundary | OpenCode can use the sourced environment routing. This package does not ship a client launcher, server manager or native session-cleanup adapter. | `README.md` support table and `test/env-modes.sh` routing fixtures; no OpenCode service is invoked |
 | F8 unique work/jobs | Explicit path protection; single-file destination-side verified no-clobber publication, non-expiring source hold and durable receipt. Important output is not certified merely because a model finishes. | Publication conflict/source-mutation/receipt-failure/retry and failed-copy parent-end/recovery-confirmation tests |
 
-The runtime has no npm dependencies and requires Node 20.12 or later. Codex TOML merge and trust operations require Python 3.11 or later for `tomllib`; other helper paths use their documented Python interpreter. Tests use fabricated homes and volumes. Parent-monorepo scripts run only when the test suite receives an explicit private-source opt-in.
+The runtime has no npm dependencies and requires Node 20.12 or later. Codex TOML merge and trust operations require Python 3.11 or later for `tomllib`; other helper paths use their documented Python interpreter. Tests use fabricated homes and volumes. Optional integration checks for a containing source monorepo run only with the explicit `CLEAN_DEV_TEST_PRIVATE_SOURCE=1` opt-in.
 
 ## Deliberate compatibility choices
 
@@ -33,7 +33,7 @@ The runtime has no npm dependencies and requires Node 20.12 or later. Codex TOML
 
 `doctor`, `status`, housekeeping/reap previews, lease previews and installer preview perform no intentional probe/lock/state writes. `doctor` separates configured/trusted/disabled support from untested dispatch/completion, detects stale/duplicate/options-mismatched hooks and checks runtime receipts when present. GUI launchd and Xcode cache checks are opt-in with `doctor --gui`; the default suits standalone installs. A receipt digest covers sorted relative names, permissions and bytes. An inactive retained old runtime is not itself a fault.
 
-SessionStart runs its strict two-write external-volume probe before acquiring the shared lifecycle lock, then checks mount, directory safety and access again under the lock. A slow or denied write retry therefore does not block another session's cleanup. On external storage, `CLEAN_DEV_WORK` uses the parent of `LAB_ROOT` when that directory is strictly below the mounted volume and writable; otherwise it uses `EXTERNAL_ROOT`. Internal mode uses `~/dev/machine`. Doctor accepts worktrees under either root so a mount transition does not make valid worktrees appear misplaced.
+SessionStart runs its strict two-write external-volume probe before acquiring the shared lifecycle lock, then checks mount, directory safety and access again under the lock. A slow or denied write retry therefore does not block another session's cleanup. On external storage, `CLEAN_DEV_WORK` prefers a writable parent of `LAB_ROOT` strictly below the mounted volume, then a writable `EXTERNAL_ROOT`, and otherwise falls back to `~/dev/machine`. Internal mode uses `~/dev/machine`. Doctor accepts worktrees under either root so a mount transition does not make valid worktrees appear misplaced.
 
 Owner-index records track whether a session used external storage. When that volume is away, stale internal-only records can be removed after their pin and internal build path are gone; external-used and older unknown-history records stay until their roots can be inspected.
 

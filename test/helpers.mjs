@@ -10,11 +10,28 @@ const privateMarker = path.join(path.dirname(plugin), "machine", "env.private.zs
 export const privateSourceEnabled = process.env.CLEAN_DEV_TEST_PRIVATE_SOURCE === "1" && (() => {
   try { const stat = fs.lstatSync(privateMarker); return stat.isFile() && !stat.isSymbolicLink(); } catch { return false; }
 })();
+function privateTestMap() {
+  if (!privateSourceEnabled) return null;
+  const root = path.dirname(plugin), mapFile = path.join(root, "machine", "clean-development", "private-test-sources.json");
+  try {
+    const map = JSON.parse(fs.readFileSync(mapFile, "utf8"));
+    return map && typeof map === "object" && !Array.isArray(map) ? map : null;
+  } catch { return null; }
+}
+export function privateTestValue(name) {
+  const value = privateTestMap()?.[name];
+  return typeof value === "string" ? value : null;
+}
+export function privateTestSource(name) {
+  const relative = privateTestValue(name);
+  if (relative === null || path.isAbsolute(relative) || relative.split(/[\\/]/).includes("..")) return null;
+  return path.join(path.dirname(plugin), relative);
+}
 export function sim({ mounted = true } = {}) {
   const base = process.env.CLEAN_DEV_TEST_DIR;
   if (!base || !path.isAbsolute(base)) throw new Error("CLEAN_DEV_TEST_DIR must be absolute scratch");
   fs.mkdirSync(base, { recursive: true });
-  const root = fs.mkdtempSync(path.join(base, "safety-"));
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(base, "safety-")));
   const home = path.join(root, "home");
   const vol = path.join(root, "Volumes", "External");
   fs.mkdirSync(path.join(home, "dev", "machine"), { recursive: true });

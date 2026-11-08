@@ -806,7 +806,7 @@ test("colima-rehome rollback refuses a disk change since the move and a manifest
   fs.writeFileSync(yaml, "additionalDisks:\n  - name: colima-sample-vm\n  - name: extra\n");
   fakeLima(t, { extra: ["extra"] });
   assert.throws(() => colimaRehomeRollback(s.conf, s.env, moved.manifest), /disks changed since the move \(now \[colima-sample-vm extra\], moved \[colima-sample-vm\]\)/);
-  const elsewhere = mk(path.join(s.root, "colima-rehome-2026-11-06T00-00-00-000Z.json"), fs.readFileSync(moved.manifest));
+  const elsewhere = mk(path.join(s.root, "colima-rehome-preview.json"), fs.readFileSync(moved.manifest));
   assert.throws(() => colimaRehomeRollback(s.conf, s.env, elsewhere), /manifest must be a colima-rehome-\*\.json file directly in/);
   assert.ok(fs.existsSync(path.join(s.colima, "_lima", "colima-sample-vm")), "nothing moved");
 });

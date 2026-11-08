@@ -7,7 +7,7 @@ import { pathToFileURL } from "node:url";
 import { applyTrust, managedTrustEntries, tomlPython, verifyTrustEdit } from "../runtime/lib/codex-trust.mjs";
 import { hookShimPath, hookShimText, runtimeRoot, VERSION } from "../runtime/lib/conf.mjs";
 import { installPackage, treeDigest } from "../installer.mjs";
-import { cli, sim, mk, plugin, privateSourceEnabled } from "./helpers.mjs";
+import { cli, sim, mk, plugin, privateSourceEnabled, privateTestSource, privateTestValue } from "./helpers.mjs";
 
 const root = path.dirname(plugin);
 const python = process.env.CLEAN_DEV_TEST_PYTHON || tomlPython(process.env) || "python3";
@@ -47,7 +47,7 @@ test("restricted offline trust editor refuses ambiguous TOML instead of duplicat
 
 test("trust editor accepts the [features] hooks = true switch but refuses root hook state in every spelling", () => {
   const key = "/h/hooks.json:stop:0:0", entries = [{ key, hash: "sha256:new" }];
-  // The live ~/.codex shape on 6 Nov 2026 (0.6.2 canary): `codex-trust --apply` refused it as inline hook state.
+  // A Codex config with the hook feature enabled and managed per-hook state.
   const live = `model = "x"\nx = [\n[1, 2],\n]\n\n[features]\nhooks = true\n\n[hooks.state]\n\n[hooks.state.${JSON.stringify(key)}]\ntrusted_hash = "sha256:old"\n`;
   const after = applyTrust(live, "/h/hooks.json", entries);
   const r = spawnSync(python, ["-I", "-B", "-c", "import tomllib,sys; d=tomllib.loads(sys.stdin.read()); assert d['features']['hooks'] is True and d['hooks']['state'][sys.argv[1]] == {'trusted_hash':'sha256:new'}, d", key], { input: after, encoding: "utf8" });
@@ -150,26 +150,26 @@ test("an existing empty trust table at EOF is updated without duplicate identiti
   assert.equal(r.status, 0, r.stderr);
 });
 
-test("Codex config rebuild carries live hook-state blocks rather than staged state", { skip: !privateSourceEnabled || !fs.existsSync(path.join(root, "bin", "codex-config-install")) }, () => {
+test("config rebuild carries live hook-state blocks rather than staged state", { skip: !privateTestSource("config_merge") || !fs.existsSync(privateTestSource("config_merge")) }, () => {
   const s = sim({ mounted: false });
   const script = `import runpy,sys,tomllib\nm=runpy.run_path(sys.argv[1]); names=m['APP_MANAGED']; assert 'hooks.state' in names\nstaged='[hooks.state."slot"]\\nenabled = true\\n'\nlive='[hooks.state."slot"]\\nenabled = false\\nfuture_option = "keep"\\n'\nsb=m['blocks'](staged); lb=m['blocks'](live)\nout=''.join(t for k,t in sb if k and not m['family'](k,names)) + ''.join(t for k,t in lb if m['family'](k,('hooks.state',)))\nassert tomllib.loads(out)['hooks']['state']['slot'] == {'enabled':False,'future_option':'keep'}\n`;
-  const r = spawnSync(python, ["-I", "-B", "-c", script, path.join(root, "bin", "codex-config-install")], { cwd: s.root, env: s.env, encoding: "utf8" });
+  const r = spawnSync(python, ["-I", "-B", "-c", script, privateTestSource("config_merge")], { cwd: s.root, env: s.env, encoding: "utf8" });
   assert.equal(r.status, 0, r.stderr);
 });
 
-test("Codex host trust updates preserve whole state and never enable disabled handlers", { skip: !privateSourceEnabled || !fs.existsSync(path.join(root, "bin", "codex-hooks-trust")) }, () => {
+test("host trust updates preserve whole state and never enable disabled handlers", { skip: !privateTestSource("trust_refresh") || !fs.existsSync(privateTestSource("trust_refresh")) }, () => {
   const s = sim({ mounted: false });
   const script = `import runpy,sys\nm=runpy.run_path(sys.argv[1])\nold={'disabled':{'enabled':False,'future':'keep'},'enabled':{'future':'keep'},'unrelated':{'enabled':False}}\nitems=[{'key':k,'trustStatus':'modified','source':'user','currentHash':'sha256:new','enabled':True} for k in ('disabled','enabled')]\nstate,n=m['refreshed_state'](items,('user',),old)\nassert n==1 and state['disabled']==old['disabled'] and state['unrelated']==old['unrelated']\nassert state['enabled']=={'future':'keep','trusted_hash':'sha256:new'}\n`;
-  const r = spawnSync(python, ["-I", "-B", "-c", script, path.join(root, "bin", "codex-hooks-trust")], { cwd: s.root, env: s.env, encoding: "utf8" });
+  const r = spawnSync(python, ["-I", "-B", "-c", script, privateTestSource("trust_refresh")], { cwd: s.root, env: s.env, encoding: "utf8" });
   assert.equal(r.status, 0, r.stderr);
 });
 
-test("Codex config installation refuses to reassign positional disabled state to changed hooks", { skip: !privateSourceEnabled || !fs.existsSync(path.join(root, "bin", "codex-config-install")) }, () => {
+test("config installation refuses to reassign positional disabled state to changed hooks", { skip: !privateTestSource("config_install") || !fs.existsSync(privateTestSource("config_install")) }, () => {
   const s = sim({ mounted: false }), codex = path.join(s.home, ".codex"), staged = path.join(s.root, "staged");
   mk(path.join(codex, "hooks.json"), JSON.stringify({ hooks: { Stop: ["first", "second"] } }));
   mk(path.join(staged, "hooks.json"), JSON.stringify({ hooks: { Stop: ["second", "first"] } }));
   const script = `import runpy,sys\nm=runpy.run_path(sys.argv[1])\nlive={'hooks':{'state':{sys.argv[2]+'/hooks.json:stop:0:0':{'enabled':False,'trusted_hash':'old'}}}}\nassert m['hook_state_errors'](live,sys.argv[2],sys.argv[3])\n`;
-  const r = spawnSync(python, ["-I", "-B", "-c", script, path.join(root, "bin", "codex-config-install"), codex, staged], { cwd: s.root, env: s.env, encoding: "utf8" });
+  const r = spawnSync(python, ["-I", "-B", "-c", script, privateTestSource("config_install"), codex, staged], { cwd: s.root, env: s.env, encoding: "utf8" });
   assert.equal(r.status, 0, r.stderr);
 });
 
@@ -180,9 +180,9 @@ test("both installer previews and unknown flags leave a fabricated HOME byte-ide
     [path.join(plugin, "install.sh"), "/bin/sh", ["--dry-run", "--config"], 0],
     [path.join(plugin, "install.sh"), "/bin/sh", ["--config", "--dry-run"], 0],
     [path.join(plugin, "install.sh"), "/bin/sh", ["--unknown"], 2],
-    ...(privateSourceEnabled && fs.existsSync(path.join(root, "claude-tooling", "install.sh")) ? [
-      [path.join(root, "claude-tooling", "install.sh"), "/bin/bash", ["--dry-run"], 0],
-      [path.join(root, "claude-tooling", "install.sh"), "/bin/bash", ["--unknown"], 2]
+    ...(privateTestSource("secondary_installer") && fs.existsSync(privateTestSource("secondary_installer")) ? [
+      [privateTestSource("secondary_installer"), "/bin/bash", ["--dry-run"], 0],
+      [privateTestSource("secondary_installer"), "/bin/bash", ["--unknown"], 2]
     ] : [])
   ]) {
     const r = spawnSync(shell, [file, ...args], { env: { ...s.env, CLEAN_DEV_NODE: process.execPath }, cwd: s.root, encoding: "utf8", timeout: 15000 });
@@ -261,8 +261,8 @@ function privateMonorepoSource(s) {
     ["machine/env.private.zsh", "private env fixture\n"],
     ["machine/clean-env-allow.list", "PRIVATE_ROUTE\n"],
     ["machine/clean-development/codex-homes.list", "~/dev/machine/state/extra-codex\n"],
-    ["machine/clean-development/claude-settings.list", "~/dev/machine/state/agent-profiles/shared/settings.json\n"],
-    ["machine/clean-development/claude-profiles.list", "~/dev/machine/state/agent-profiles/profiles/example/settings.json\n"]
+    ["machine/clean-development/claude-settings.list", "~/dev/machine/state/workspace-profiles/shared/settings.json\n"],
+    ["machine/clean-development/claude-profiles.list", "~/dev/machine/state/workspace-profiles/profiles/example/settings.json\n"]
   ];
   for (const [relative, contents] of sources) mk(path.join(parent, relative), contents);
   mk(path.join(parent, ".clean-development-private-sidecars.json"), JSON.stringify({ schemaVersion: 1, sidecars: [
@@ -282,7 +282,7 @@ test("installer syntax-checks the exact Colima sidecar source named by the priva
   assert.throws(() => installPackage(src, s.env, { config: true, dryRun: true }), /preflight \/bin\/sh:/);
 });
 
-test("the private monorepo installs missing sidecars before env.zsh and preserves existing host edits", () => {
+test("a manifest-enabled source project installs missing sidecars before env.zsh and preserves existing host edits", () => {
   const s = sim({ mounted: false }), src = privateMonorepoSource(s);
   const preview = installPackage(src, s.env, { config: true, dryRun: true });
   const privateTarget = path.join(s.home, "dev/machine/env.private.zsh"), envTarget = path.join(s.home, "dev/machine/env.zsh");
@@ -294,7 +294,7 @@ test("the private monorepo installs missing sidecars before env.zsh and preserve
   assert.equal(fs.readFileSync(privateTarget, "utf8"), "private env fixture\n");
   assert.equal(fs.readFileSync(colimaTarget, "utf8"), fs.readFileSync(path.join(plugin, "machine/colima"), "utf8"));
   assert.equal(fs.statSync(colimaTarget).mode & 0o777, 0o755);
-  assert.equal(fs.readFileSync(path.join(s.home, "dev/machine/state/clean-development/claude-profiles.list"), "utf8"), "~/dev/machine/state/agent-profiles/profiles/example/settings.json\n");
+  assert.equal(fs.readFileSync(path.join(s.home, "dev/machine/state/clean-development/claude-profiles.list"), "utf8"), "~/dev/machine/state/workspace-profiles/profiles/example/settings.json\n");
   fs.writeFileSync(privateTarget, "host edit\n");
   installPackage(src, s.env, { config: true });
   assert.equal(fs.readFileSync(privateTarget, "utf8"), "host edit\n");
@@ -310,14 +310,16 @@ test("standalone clones ignore neighboring private settings without an explicit 
   assert.ok(!preview.files.includes(path.join(s.home, "dev/machine/bin/colima")));
 });
 
-test("private monorepo environment extension retains host-only PATH and telemetry settings", { skip: !privateSourceEnabled }, () => {
+test("source environment extension retains host-only PATH and telemetry settings", { skip: !privateSourceEnabled }, () => {
   const s = sim({ mounted: false }), extension = path.join(s.home, "dev/machine/env.private.zsh");
   fs.mkdirSync(path.dirname(extension), { recursive: true });
   fs.mkdirSync(path.join(s.home, "dev/machine/bin"), { recursive: true });
   fs.copyFileSync(path.join(root, "clean-development/machine/env.zsh"), path.join(s.home, "dev/machine/env.zsh"));
   fs.copyFileSync(path.join(root, "machine/env.private.zsh"), extension);
   const env = { ...s.env, PATH: `${path.join(s.home, "dev/bin")}${path.delimiter}/usr/bin:/bin`, DEV_STORAGE_VOLUME_TEST: "absent" };
-  const script = 'set -e; . "$HOME/dev/machine/env.zsh"; printf "%s|%s|%s|%s|%s|%s" "$PATH" "$CARGO_HOME" "$CLEAN_DEV_CARGO_CACHE_HOME" "$XDG_DATA_HOME" "$CLEAN_DEV_PRIVATE_EXTENSION" "$DEV_ENV_LOADED"';
+  const marker = privateTestValue("private_extension_marker");
+  assert.match(marker || "", /^[A-Z_][A-Z0-9_]*$/);
+  const script = `set -e; . "$HOME/dev/machine/env.zsh"; printf "%s|%s|%s|%s|%s|%s" "$PATH" "$CARGO_HOME" "$CLEAN_DEV_CARGO_CACHE_HOME" "$XDG_DATA_HOME" "$${marker}" "$DEV_ENV_LOADED"`;
   const r = spawnSync("/bin/zsh", ["-c", script], { cwd: s.root, env, encoding: "utf8", timeout: 10000 });
   assert.equal(r.status, 0, r.stderr);
   const [loadedPath, cargoHome, cargoCacheHome, dataHome, privateExtension, envLoaded] = r.stdout.split("|");
@@ -406,14 +408,12 @@ test("legacy removal checks every configured Codex home and Claude settings file
   assert.ok(fs.existsSync(old), "a referenced legacy runtime is preserved");
 });
 
-test("legacy removal retains historical Claude shared-account reference checks", () => {
+test("legacy removal checks every configured settings file before deletion", () => {
   const s = sim({ mounted: false }), old = path.join(s.home, "Library/Application Support/clean-development");
   mk(path.join(old, "runtime/keep.txt"), "fixture only\n");
-  const sharedFiles = [
-    path.join(s.home, "dev/machine/state/claude-work/shared/settings.json"),
-    path.join(s.home, "dev/state/claude-work/shared/settings.json")
-  ];
+  const sharedFiles = [path.join(s.home, "dev/profiles/first/settings.json"), path.join(s.home, "dev/profiles/second/settings.json")];
   for (const file of sharedFiles) mk(file, '{"command":"Application Support/clean-development/runtime/bin/cd-hook"}\n');
+  mk(path.join(s.home, "dev/machine/state/clean-development/claude-settings.list"), "~/dev/profiles/first/settings.json\n~/dev/profiles/second/settings.json\n");
   const r = spawnSync("/bin/sh", [path.join(plugin, "remove-legacy.sh"), "--apply"], { env: s.env, encoding: "utf8" });
   assert.equal(r.status, 1);
   for (const file of sharedFiles) assert.ok(r.stderr.includes(file), `missing historical reference report for ${file}`);
@@ -497,7 +497,7 @@ test("hook merge accepts [features] hooks = true with trust-hash-only state, and
   const s = sim({ mounted: false }), target = path.join(s.home, ".codex", "hooks.json"), config = path.join(s.home, ".codex", "config.toml");
   const merge = () => spawnSync(python, ["-I", "-B", path.join(plugin, "fragments", "merge-hooks.py"), path.join(plugin, "fragments", "codex-hooks.json"), target], { env: s.env, encoding: "utf8" });
   mk(target, JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: "command", command: "old" }] }] } }));
-  // The live ~/.codex shape on 6 Nov 2026: the feature switch Codex needs for hooks, plus trust hashes only.
+  // The supported Codex config shape: the hook feature switch and managed trust hashes.
   mk(config, `model = "x"\n\n[features]\nhooks = true\n\n[hooks.state]\n\n[hooks.state.${JSON.stringify(`${target}:stop:0:0`)}]\ntrusted_hash = "sha256:old"\n`);
   const r = merge();
   assert.equal(r.status, 0, r.stderr);

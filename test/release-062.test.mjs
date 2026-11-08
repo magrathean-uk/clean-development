@@ -1,4 +1,4 @@
-// 0.6.2 acceptance tests (report-2026-11-05 section 8, R1-R5, R10, R13). Fixtures only, under CLEAN_DEV_TEST_DIR.
+// 0.6.2 acceptance and regression fixtures. All filesystem state stays under CLEAN_DEV_TEST_DIR.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -34,7 +34,7 @@ const stateFile = (s, name) => path.join(s.home, "dev", "machine", "state", "cle
 const sleeper = () => { const p = spawn("/bin/sleep", ["120"], { stdio: "ignore" }); return p; };
 const env = (s, extra) => ({ ...s, env: { ...s.env, ...extra } });
 
-test("R1: 0.6.2 everywhere; hooks use the version-less shim, which survives an upgrade with the same trust hash", () => {
+test("0.6.2 everywhere; hooks use the version-less shim, which survives an upgrade with the same trust hash", () => {
   const s = sim();
   assert.equal(cli(s, ["version"]).stdout.trim(), VERSION);
   for (const h of ["claude", "codex"]) for (const groups of Object.values(JSON.parse(fs.readFileSync(path.join(plugin, "fragments", `${h}-hooks.json`), "utf8")).hooks))
@@ -73,7 +73,7 @@ test("R1: 0.6.2 everywhere; hooks use the version-less shim, which survives an u
   assert.equal(r.status, 0); assert.equal(r.stdout, "");
 });
 
-test("R1/F1: a file written to a Codex thread's TMPDIR survives session-end and resume; the window then expires", async () => {
+test("a file written to a Codex thread's TMPDIR survives session-end and resume; the window then expires", async () => {
   const s = sim();
   const id = "019a2b3c-4d5e-7f60-8a9b-00000000c0de", key = "x-00000000c0de";
   assert.equal(hook(s, "session-start", "codex", { session_id: id, cwd: s.root, source: "startup" }).status, 0);
@@ -94,7 +94,7 @@ test("R1/F1: a file written to a Codex thread's TMPDIR survives session-end and 
   assert.ok(await waitFor(() => !fs.existsSync(path.join(s.ext, "scratch", key)), 15000));
 });
 
-test("R2: a trash entry with a nested mode-000 dir and two normal entries are all removed in one sweep", async () => {
+test("a trash entry with a nested mode-000 dir and two normal entries are all removed in one sweep", async () => {
   const s = sim();
   const trash = layout(s.int).trash;
   const stuck = path.join(trash, "x-309722634566-1");
@@ -108,12 +108,12 @@ test("R2: a trash entry with a nested mode-000 dir and two normal entries are al
   assert.ok(await waitFor(() => rows(stateFile(s, "deletions.jsonl")).filter((r) => r.event === "delete" && r.status === "completed").length === 3, 15000));
 });
 
-test("R2: a trash entry that still hosts a running *.pid job is retained, then swept once the job ends", async () => {
+test("a trash entry that still hosts a running *.pid job is retained, then swept once the job ends", async () => {
   const s = sim();
   const entry = path.join(layout(s.int).trash, "x-7dc983fd6f87-1");
   const job = sleeper();
   try {
-    mk(path.join(entry, "tmp", "m204c-fix2", "check.pid"), `${job.pid}\n`);
+    mk(path.join(entry, "tmp", "detached-job", "check.pid"), `${job.pid}\n`);
     assert.equal(sweepTrash(s.int, { now: Date.now() + 2 * HOUR }).length, 0);
     assert.ok(fs.existsSync(entry));
     job.kill("SIGKILL");
@@ -122,7 +122,7 @@ test("R2: a trash entry that still hosts a running *.pid job is retained, then s
   } finally { job.kill("SIGKILL"); }
 });
 
-test("R2: a trash entry that cannot be fully inspected is retained for 30 days, then swept", () => {
+test("a trash entry that cannot be fully inspected is retained for 30 days, then swept", () => {
   const s = sim();
   const entry = path.join(layout(s.int).trash, "x-0000000000aa-1");
   for (let i = 0; i < 65; i++) mk(path.join(entry, `j${i}.pid`), "999999\n");
@@ -130,7 +130,7 @@ test("R2: a trash entry that cannot be fully inspected is retained for 30 days, 
   assert.equal(sweepTrash(s.int, { now: Date.now() + 31 * 24 * HOUR, dryRun: true }).length, 1);
 });
 
-test("R2: an unreadable trash directory never fails Stop; the other stages still run", () => {
+test("an unreadable trash directory never fails Stop; the other stages still run", () => {
   const s = sim();
   const id = "88888888-8888-4888-8888-0000000000b2";
   hook(s, "session-start", "claude", { session_id: id, cwd: s.root });
@@ -146,7 +146,7 @@ test("R2: an unreadable trash directory never fails Stop; the other stages still
   } finally { fs.chmodSync(trash, 0o700); }
 });
 
-test("R3: a failed rename keeps the original byte-identical, records skipped-rename-failed and is retried next run", async () => {
+test("a failed rename keeps the original byte-identical, records skipped-rename-failed and is retried next run", async () => {
   const s = sim();
   const id = "99999999-9999-4999-8999-0000000000c3", key = "c-0000000000c3";
   hook(s, "session-start", "claude", { session_id: id, cwd: s.root });
@@ -165,7 +165,7 @@ test("R3: a failed rename keeps the original byte-identical, records skipped-ren
   assert.ok(await waitFor(() => !fs.existsSync(path.join(s.ext, "scratch", key)), 15000));
 });
 
-test("R4: 400 .mode-only stubs aged 8 days with no process are reaped in preview; nothing is written", () => {
+test("400 .mode-only stubs aged 8 days with no process are reaped in preview; nothing is written", () => {
   const s = sim();
   fs.mkdirSync(s.sessions, { recursive: true });
   for (let i = 0; i < 400; i++) {
@@ -183,7 +183,7 @@ test("R4: 400 .mode-only stubs aged 8 days with no process are reaped in preview
   assert.equal(fs.readdirSync(s.sessions).length, 400);
 });
 
-test("R4: a leased job whose mtimes are 48 h old is kept", () => {
+test("a leased job whose mtimes are 48 h old is kept", () => {
   const s = sim();
   const id = "aaaaaaaa-0000-4000-8000-0000000000d4", key = "c-0000000000d4";
   hook(s, "session-start", "claude", { session_id: id, cwd: s.root });
@@ -197,18 +197,18 @@ test("R4: a leased job whose mtimes are 48 h old is kept", () => {
   assert.ok(JSON.parse(cli(s, ["reap", "--json"]).stdout).live.some((l) => l.key === key));
 });
 
-test("R4: a running job named by a *.pid file keeps its scratch, also after session-end; it is reaped once the job ends", async () => {
+test("a running job named by a *.pid file keeps its scratch, also after session-end; it is reaped once the job ends", async () => {
   const s = sim();
   const id = "bbbbbbbb-0000-4000-8000-0000000000e5", key = "c-0000000000e5";
   hook(s, "session-start", "claude", { session_id: id, cwd: s.root });
   const job = sleeper();
   try {
-    const pidFile = mk(path.join(s.ext, "scratch", key, "tmp", "m204c-fix2", "check.pid"), `${job.pid}\n`);
-    mk(path.join(s.ext, "scratch", key, "tmp", "m204c-fix2", "check.log"), "running");
+    const pidFile = mk(path.join(s.ext, "scratch", key, "tmp", "detached-job", "check.pid"), `${job.pid}\n`);
+    mk(path.join(s.ext, "scratch", key, "tmp", "detached-job", "check.log"), "running");
     ageSession(s, key, 48, (p) => p === pidFile);
-    assert.match(live(s, key).liveReason, /^job pid \d+ \(tmp\/m204c-fix2\/check\.pid\)$/);
+    assert.match(live(s, key).liveReason, /^job pid \d+ \(tmp\/detached-job\/check\.pid\)$/);
     assert.equal(hook(s, "session-end", "claude", { session_id: id }).status, 0);
-    assert.ok(fs.existsSync(path.join(s.ext, "scratch", key, "tmp", "m204c-fix2", "check.log")));
+    assert.ok(fs.existsSync(path.join(s.ext, "scratch", key, "tmp", "detached-job", "check.log")));
     assert.equal(live(s, key).done, false);
     job.kill("SIGKILL");
     assert.ok(await waitFor(() => spawnSync("/bin/kill", ["-0", String(job.pid)]).status !== 0, 5000));
@@ -220,7 +220,7 @@ test("R4: a running job named by a *.pid file keeps its scratch, also after sess
   } finally { job.kill("SIGKILL"); }
 });
 
-test("R4: the recorded harness process (pid plus start time) keeps an idle session live; deep writes count as activity", async () => {
+test("the recorded harness process (pid plus start time) keeps an idle session live; deep writes count as activity", async () => {
   const s = sim();
   const harness = sleeper();
   try {
@@ -241,7 +241,7 @@ test("R4: the recorded harness process (pid plus start time) keeps an idle sessi
   } finally { harness.kill("SIGKILL"); }
 });
 
-test("R4: placeholder and short session ids are rejected with a warning; existing rejected pins stay until every signal is quiet for 7 days", () => {
+test("placeholder and short session ids are rejected with a warning; existing rejected pins stay until every signal is quiet for 7 days", () => {
   const s = sim();
   const r = hook(s, "session-start", "claude", { session_id: "aaaaaaaa-to-be-unset", cwd: s.root });
   assert.equal(r.status, 0);
@@ -261,7 +261,7 @@ test("R4: placeholder and short session ids are rejected with a warning; existin
   for (const k of ["c--to-be-unset", "x-KEY1"]) assert.equal(live(s, k).done, true);
 });
 
-test("R5: an external root unwritable once but writable later probes external outside the lifecycle lock", async () => {
+test("an external root unwritable once but writable later probes external outside the lifecycle lock", async () => {
   const s = sim();
   fs.chmodSync(s.ext, 0o500);
   const fixer = spawn("/bin/sh", ["-c", `sleep 0.5; chmod 700 '${s.ext}'`], { stdio: "ignore" });
@@ -317,6 +317,10 @@ test("work root follows an external lab parent and falls back to EXTERNAL_ROOT w
   fs.chmodSync(path.join(s.vol, "work"), 0o500);
   try { assert.equal(workRoot(conf, "external", s.env), path.join(s.vol, "dev"), "an unavailable lab parent falls back to EXTERNAL_ROOT"); }
   finally { fs.chmodSync(path.join(s.vol, "work"), 0o700); }
+  const externalRoot = path.join(s.vol, "dev"), originalMode = fs.statSync(externalRoot).mode & 0o777;
+  fs.chmodSync(externalRoot, 0o500);
+  try { assert.equal(workRoot(conf, "external", s.env), path.join(s.vol, "work"), "a writable lab parent is preferred when EXTERNAL_ROOT is read-only"); }
+  finally { fs.chmodSync(externalRoot, originalMode); }
   fs.writeFileSync(s.config, original.replace(/^LAB_ROOT=.*$/m, `LAB_ROOT=${s.home}/lab`));
   conf = loadConf(s.env);
   assert.equal(conf.valid, true, conf.errors.join("; "));
@@ -383,7 +387,7 @@ test("storage follows the drive: a session that never used the external volume d
   assert.ok(!fs.existsSync(path.join(s.sessions, `${key}.mode`)));
 });
 
-test("R10: run --clean-env and env --child keep routing and drop harness variables and secrets", () => {
+test("run --clean-env and env --child keep routing and drop harness variables and secrets", () => {
   const s = sim();
   const e = env(s, { CLAUDE_CODE_SESSION_ID: "ffffffff-0000-4000-8000-0000000000e1", CLAUDECODE: "1", ANTHROPIC_API_KEY: "sk-test-not-real", GH_TOKEN: "test-not-real",
     TMPDIR: "/fixture/scratch/c-0000000000e1/tmp", CLEAN_DEV_BUILDS: "/fixture/builds/c-0000000000e1", DEVCACHE: "/fixture", CLEAN_DEV_SESSION: "c-0000000000e1",
@@ -397,7 +401,7 @@ test("R10: run --clean-env and env --child keep routing and drop harness variabl
   assert.equal(cli(e, ["run", "--session", "x", "--", "/usr/bin/true"]).status, 0);
 });
 
-test("R13: logs rotate at 5 MB keeping 5 generations; receipts carry outcome and duration", () => {
+test("logs rotate at 5 MB keeping 5 generations; receipts carry outcome and duration", () => {
   assert.equal(LOG_ROTATE_BYTES, 5 * 1024 * 1024); assert.equal(LOG_KEEP, 5);
   const s = sim();
   const f = path.join(s.root, "log.jsonl");
@@ -408,7 +412,7 @@ test("R13: logs rotate at 5 MB keeping 5 generations; receipts carry outcome and
   assert.equal(row.outcome, "completed"); assert.equal(typeof row.durationMs, "number"); assert.equal(row.version, VERSION);
 });
 
-test("R4 review: a .mode-only stub stays live for 7 days of idleness; an incomplete (too deep) scan is live for 30 days, then not", () => {
+test("a .mode-only stub stays live for 7 days of idleness; an incomplete (too deep) scan is live for 30 days, then not", () => {
   const s = sim();
   fs.mkdirSync(s.sessions, { recursive: true });
   const stub = "x-00000000st06";
@@ -429,7 +433,7 @@ test("R4 review: a .mode-only stub stays live for 7 days of idleness; an incompl
   assert.equal(live(s, key).done, true);
 });
 
-test("R4 review: a running job's *.pid under CLEAN_DEV_BUILDS keeps the session through Claude session-end", async () => {
+test("a running job's *.pid under CLEAN_DEV_BUILDS keeps the session through Claude session-end", async () => {
   const s = sim();
   const id = "acacacac-0000-4000-8000-00000000b11d", key = "c-00000000b11d";
   hook(s, "session-start", "claude", { session_id: id, cwd: s.root });
@@ -444,7 +448,7 @@ test("R4 review: a running job's *.pid under CLEAN_DEV_BUILDS keeps the session 
   } finally { job.kill("SIGKILL"); }
 });
 
-test("R4 review: the real ancestor walk records the harness (no test override) and harness liveness is capped at 7 days", () => {
+test("the real ancestor walk records the harness (no test override) and harness liveness is capped at 7 days", () => {
   const s = sim();
   const e = { ...s.env }; delete e.CLEAN_DEV_TEST_HARNESS_PID;
   const id = "adadadad-0000-4000-8000-00000000a11c", key = "c-00000000a11c";
@@ -459,7 +463,7 @@ test("R4 review: the real ancestor walk records the harness (no test override) a
   assert.equal(live(s, key).done, true);
 });
 
-test("R4 review: pid-file inspection honours the caller's deadline per entry and reports it", () => {
+test("pid-file inspection honours the caller's deadline per entry and reports it", () => {
   const s = sim();
   const dir = path.join(s.root, "deadline-scratch");
   for (let i = 0; i < 20; i++) mk(path.join(dir, `j${i}`, "job.pid"), "99999\n");
@@ -468,7 +472,7 @@ test("R4 review: pid-file inspection honours the caller's deadline per entry and
   assert.equal(pidFileJobs(dir).complete, true);
 });
 
-test("R8: prune --project finds a reaped session's external builds through the ownership index, never stamping builds/<key>", async () => {
+test("prune --project finds a reaped session's external builds through the ownership index, never stamping builds/<key>", async () => {
   const s = sim();
   const repoA = path.join(s.home, "dev", "source", "alpha"), repoB = path.join(s.home, "dev", "source", "beta");
   for (const r of [repoA, repoB]) { fs.mkdirSync(r, { recursive: true }); spawnSync("/usr/bin/git", ["init", "-q", r]); }
@@ -487,7 +491,7 @@ test("R8: prune --project finds a reaped session's external builds through the o
   assert.ok(fs.existsSync(path.join(s.ext, "builds", b.key, "obj")));
 });
 
-test("R8: resuming one session in another project makes its build ownership ambiguous", () => {
+test("resuming one session in another project makes its build ownership ambiguous", () => {
   const s = sim(), repoA = path.join(s.home, "dev", "source", "alpha"), repoB = path.join(s.home, "dev", "source", "beta");
   for (const r of [repoA, repoB]) { fs.mkdirSync(r, { recursive: true }); spawnSync("/usr/bin/git", ["init", "-q", r]); }
   const id = "aeaeaeae-0000-4000-8000-0000000000ac", key = "c-0000000000ac";

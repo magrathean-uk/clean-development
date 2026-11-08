@@ -1,6 +1,6 @@
-# Release validation - 30 October 2026
+# Release validation for 0.6.1
 
-Version **0.6.1** is the first published source release of the machine-scoped
+Version **0.6.1** is the first published source release of the storage-routing
 0.6 rewrite. The previous public release is v0.5.0. The 0.6.0 changelog entry
 records the rewrite's development milestone; no v0.6.0 release was published.
 
@@ -22,8 +22,7 @@ volumes. Six optional integration checks were skipped because they require
 adjacent tools or authenticated host configuration. The component's installer,
 hooks, trust editor and safety tests still ran.
 
-The local development runtime was Node 26.12.1. The table above reports the
-versions used for the fresh source checks. The GitHub Actions workflow runs
+The table above reports the versions used for the fresh source checks. The GitHub Actions workflow runs
 macOS checks on exact Node 20.12.0 and Node 24/26. Required
 Linux checks exercise source syntax and isolated Node fixtures on Node 20/22/24;
 the macOS-specific shell assertions run only on macOS. CodeQL remains enabled.

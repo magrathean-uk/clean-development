@@ -12,7 +12,7 @@ This version targets macOS with Claude Code or Codex lifecycle hooks. OpenCode h
 - Preserve fail-closed behaviour when policy, ownership or path safety is uncertain.
 - Do not test against a live user home, real removable volume or authenticated coding-agent account. Use the fabricated homes and volumes in the test suite.
 - If a runtime version changes, update the coordinated release metadata and run `npm run check`.
-- Codex TOML merge and trust tests need Python 3.11 or later. Parent-monorepo scripts require the explicit `CLEAN_DEV_TEST_PRIVATE_SOURCE=1` opt-in.
+- Codex TOML merge and trust tests need Python 3.11 or later. Optional integration checks for a containing source monorepo require the explicit `CLEAN_DEV_TEST_PRIVATE_SOURCE=1` opt-in.
 
 Run the source checks and isolated suite with a fresh test directory:
 

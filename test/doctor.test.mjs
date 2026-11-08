@@ -96,7 +96,7 @@ test("Claude settings registry supports additional configured profiles", () => {
 });
 
 test("Claude profile registry keeps stale and async per-profile handlers visible and skips absent profiles", () => {
-  const s = configure(sim()), base = path.join(s.home, "dev/machine/state/agent-profiles/profiles");
+  const s = configure(sim()), base = path.join(s.home, "dev/machine/state/workspace-profiles/profiles");
   const profile = path.join(base, "1/settings.json"), asyncProfile = path.join(base, "3/settings.json");
   const stale = hooks(s.env, "claude");
   stale.hooks.Stop[0].hooks[0].command = "'/old/runtime/clean-development/0.6.6/bin/cd-hook' stop claude";
@@ -104,9 +104,9 @@ test("Claude profile registry keeps stale and async per-profile handlers visible
   const asynchronous = hooks(s.env, "claude"); asynchronous.hooks.Stop[0].hooks[0].async = true;
   json(asyncProfile, asynchronous);
   mk(path.join(stateDir(s.env), "claude-profiles.list"), [
-    "?~/dev/machine/state/agent-profiles/profiles/1/settings.json",
-    "?~/dev/machine/state/agent-profiles/profiles/2/settings.json",
-    "?~/dev/machine/state/agent-profiles/profiles/3/settings.json"
+    "?~/dev/machine/state/workspace-profiles/profiles/1/settings.json",
+    "?~/dev/machine/state/workspace-profiles/profiles/2/settings.json",
+    "?~/dev/machine/state/workspace-profiles/profiles/3/settings.json"
   ].join("\n") + "\n");
   const registry = claudeProfiles(s.env), r = result(s);
   assert.deepEqual(registry.files, [profile, asyncProfile]);
@@ -287,7 +287,7 @@ test("literal scan caps its regular file count", () => {
   assert.equal(r.files, 2000); assert.equal(r.incomplete, true);
 });
 
-test("R14 warns on stray dev entries, stale and unexpected dots and cached Trash", () => {
+test("doctor warns on stray dev entries, stale and unexpected dots and cached Trash", () => {
   const s = configure(sim());
   mk(path.join(s.home, "dev/run3/file")); mk(path.join(s.home, ".unexpected/file"));
   fs.appendFileSync(s.config, '\nHOME_DOT_ALLOW=".claude .gone"\n'); saveCache(s, cache(s));
@@ -301,7 +301,7 @@ test("R14 warns on stray dev entries, stale and unexpected dots and cached Trash
   assert.equal(cli(s, ["doctor", "--no-gui"]).status, 0);
 });
 
-test("R14 reports a real linked worktree outside the external worktree root", () => {
+test("doctor reports a linked worktree outside the external worktree root", () => {
   const s = sim(), p = repo(s), target = path.join(s.home, "dev/linked-worktree");
   const vol = path.join(path.dirname(s.vol), "FixtureVolume");
   fs.renameSync(s.vol, vol);
@@ -387,8 +387,9 @@ test("a FIFO planted as a pin no longer blocks status; it is reported as invalid
   assert.ok(out.sessions.find((x) => x.key === "x-fixture0000a").errors.includes("invalid ownership metadata"));
 });
 
-test("R15 as report rows: repos in ~/dev/source without .clean-development.json or AGENTS.md are listed, adopted repos are not", () => {
+test("optional workspace inventory reports repositories without project metadata", () => {
   const s = configure(sim());
+  s.env.CLEAN_DEV_REPORT_UNADOPTED_REPOS = "1";
   const src = path.join(s.home, "dev", "source");
   mk(path.join(src, "adopted", ".clean-development.json"), "{}"); mk(path.join(src, "adopted", "AGENTS.md"), "x");
   mk(path.join(src, "bare", "README.md"), "x");
@@ -399,8 +400,9 @@ test("R15 as report rows: repos in ~/dev/source without .clean-development.json 
   assert.ok(row(r, "repos without AGENTS.md").warn);
 });
 
-test("R15 review: an unreadable ~/dev/source gives a WARN row, not a doctor failure", () => {
+test("optional workspace inventory reports an unreadable source directory without failing doctor", () => {
   const s = configure(sim());
+  s.env.CLEAN_DEV_REPORT_UNADOPTED_REPOS = "1";
   const src = path.join(s.home, "dev", "source");
   mk(path.join(src, "a", "AGENTS.md"), "x");
   fs.chmodSync(src, 0o000);
@@ -409,6 +411,41 @@ test("R15 review: an unreadable ~/dev/source gives a WARN row, not a doctor fail
     assert.match(row(r, "repo scan").detail, /^~\/dev\/source unreadable \(EACCES\)/);
     assert.ok(row(r, "repo scan").warn);
   } finally { fs.chmodSync(src, 0o755); }
+});
+
+test("doctor skips workspace inventory unless explicitly enabled", () => {
+  const s = configure(sim());
+  mk(path.join(s.home, "dev/source/unconfigured", "README.md"), "fixture\n");
+  const r = result(s);
+  assert.equal(row(r, "repo scan"), undefined);
+  assert.equal(row(r, "repos without AGENTS.md"), undefined);
+  assert.equal(row(r, "repos without .clean-development.json"), undefined);
+});
+
+test("doctor accepts hooks written with the absolute active shim path", () => {
+  const s = configure(sim());
+  const quote = (value) => `'${String(value).replaceAll("'", "'\\''")}'`;
+  const absoluteHooks = (harness) => {
+    const doc = hooks(s.env, harness), shim = quote(hookShimPath(s.env));
+    for (const [event, groups] of Object.entries(doc.hooks)) {
+      groups[0].hooks[0].command = `${shim} ${{ SessionStart: "session-start", Stop: "stop", SessionEnd: "session-end" }[event]} ${harness}`;
+    }
+    return doc;
+  };
+  const claude = path.join(s.home, ".claude", "settings.json"), claudeDoc = absoluteHooks("claude");
+  json(claude, claudeDoc);
+  const profile = path.join(s.home, "dev", "machine", "state", "profiles", "primary", "settings.json");
+  json(profile, claudeDoc);
+  mk(path.join(stateDir(s.env), "claude-profiles.list"), "~/dev/machine/state/profiles/primary/settings.json\n");
+  const codexHooks = path.join(s.home, ".codex", "hooks.json"), codexDoc = absoluteHooks("codex");
+  json(codexHooks, codexDoc);
+  mk(path.join(s.home, ".codex", "config.toml"), trustToml(managedTrustEntries(codexHooks, codexDoc)));
+
+  const r = result(s);
+  assert.equal(row(r, "Claude hooks").ok, true, row(r, "Claude hooks").detail);
+  assert.equal(row(r, "Claude profile hooks (dev/machine/state/profiles/primary/settings.json)").ok, true);
+  assert.equal(row(r, "Codex hooks").ok, true, row(r, "Codex hooks").detail);
+  assert.equal(row(r, "Codex hook trust").ok, true, row(r, "Codex hook trust").detail);
 });
 
 

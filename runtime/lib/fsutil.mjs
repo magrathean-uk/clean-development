@@ -245,8 +245,8 @@ export function stampTouch(dir, name) {
   fs.writeFileSync(path.join(dir, name), new Date().toISOString() + "\n");
 }
 
-// Logs rotate at 5 MB and keep 5 generations (.1 newest): about 3 days of events at the 5 Nov 2026 rate of
-// 6.5k rows per 28 h. Concurrent rotation may drop one generation early; it never throws or blocks a hook.
+// Logs rotate at 5 MB and keep 5 generations (.1 newest). Concurrent rotation may drop one generation early;
+// it never throws or blocks a hook.
 export const LOG_ROTATE_BYTES = 5 * 1024 * 1024, LOG_KEEP = 5;
 export function rotate(file, maxBytes = LOG_ROTATE_BYTES, keep = LOG_KEEP) {
   const st = lstatOrNull(file);

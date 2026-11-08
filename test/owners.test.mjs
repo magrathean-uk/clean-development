@@ -11,7 +11,7 @@ import { OWNER_FILE, OWNER_CONFLICT_FILE, ownerRecord, readOwner, writeOwner, ma
 import { sessionStart, stop } from "../runtime/lib/hook.mjs";
 
 const keyA = "x-aaaaaaaaaaaa", keyB = "c-bbbbbbbbbbbb";
-const info = (repo, key = keyA) => ({ repo, cwd: repo, harness: "codex", key, created: "2026-11-05T12:00:00.000Z" });
+const info = (repo, key = keyA) => ({ repo, cwd: repo, harness: "codex", key, created: "2025-06-01T12:00:00.000Z" });
 function fixture() {
   const s = sim(), conf = loadConf(s.env);
   const a = path.join(s.home, "dev/source/A"), b = path.join(s.home, "dev/source/B");
@@ -58,7 +58,7 @@ test("new internal-only owner entries age out while external storage is unavaila
   const internalOnly = path.join(ownersDir(s.env), internalSessionRef), external = path.join(ownersDir(s.env), keyB);
   assert.equal(readOwner(internalOnly).externalUsed, false, "a brand new internal session records known internal-only history");
   for (const ext of ["mode", "json", "ended", "lost"]) fs.rmSync(path.join(s.sessions, `${internalSessionRef}.${ext}`), { force: true });
-  const legacyKey = "x-cccccccccccc", legacy = path.join(ownersDir(s.env), legacyKey), created = "2026-11-05T12:00:00.000Z";
+  const legacyKey = "x-cccccccccccc", legacy = path.join(ownersDir(s.env), legacyKey), created = "2025-06-01T12:00:00.000Z";
   writeOwner(external, { ...info(a, keyB), created, externalUsed: true });
   fs.mkdirSync(legacy, { recursive: true });
   fs.writeFileSync(path.join(legacy, OWNER_FILE), JSON.stringify(ownerRecord({ ...info(a, legacyKey), created })) + "\n");

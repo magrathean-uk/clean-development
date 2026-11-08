@@ -1,4 +1,4 @@
-// clean-development 0.6.2: housekeeping rules (Q30). Only paths inside the managed cache roots, explicitly opted-in
+// clean-development 0.6.2: housekeeping rules. Only paths inside the managed cache roots, explicitly opted-in
 // Cargo registry caches and git-ignored declared repo directories are ever removed.
 import path from "node:path";
 import { canonicalPath, children, lastUsedMs, lstatOrNull, removeManaged, safeDirectory, sizeBytes, timeLeft } from "./fsutil.mjs";
@@ -92,7 +92,7 @@ export function agePruneBuilds(root, maxAgeMs, { liveKeys = new Set(), dryRun = 
 }
 
 // Internal mode, last session out: nothing internal is live any more, so every session build dir is removed. Xcode's
-// DerivedData is the GUI's cache, not a session's build output (Q30): it is never wiped here and only ages out by
+// DerivedData is the GUI's cache, not a session's build output: it is never wiped here and only ages out by
 // EXTERNAL_BUILD_DAYS (agePruneBuilds derivedDataMaxAgeMs).
 export function wipeInternalBuilds(conf, { liveKeys = new Set(), dryRun = false, log = () => {}, eventsFile = null, protect = () => false, deadline = Infinity } = {}) {
   const l = layout(conf.internalRoot);
@@ -109,7 +109,7 @@ export function wipeInternalBuilds(conf, { liveKeys = new Set(), dryRun = false,
 // Trash entries whose background delete did not finish are queued for bounded-worker retry after an hour (a failed
 // worker refreshes the entry's ctime, so a stuck entry is retried hourly, not every turn). Each entry is isolated:
 // one unreadable or unremovable entry never stops the rest of the sweep or the caller. An entry that still hosts a running
-// job (a *.pid file naming a live process, as 0.6.0 left in tmp/m204c-fix2) is retained and logged, not deleted.
+// job (a *.pid file naming a live process) is retained and logged, not deleted.
 export function sweepTrash(root, { dryRun = false, now = Date.now(), eventsFile = null, protect = () => false, deadline = Infinity, log = () => {} } = {}) {
   const l = layout(root);
   const swept = [];
@@ -137,7 +137,7 @@ export function sweepTrash(root, { dryRun = false, now = Date.now(), eventsFile 
   return swept;
 }
 
-// Repo-local declared build/dependency dirs (git-ignored) in repositories idle for EXTERNAL_BUILD_DAYS (Q16, Q30).
+// Repo-local declared build/dependency dirs (git-ignored) in repositories idle for EXTERNAL_BUILD_DAYS.
 export function pruneRepos(home, conf, { dryRun = false, log = () => {}, now = Date.now(), liveProjects = new Set(), eventsFile = null, protect = () => false, deadline = Infinity, onBlocked = () => {} } = {}) {
   const { repos } = sourceRepos(home);
   const removed = [];

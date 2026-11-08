@@ -1,4 +1,4 @@
-// clean-development 0.6.0: no-dot-folder policy for ~ and ~/dev (Q8/Q9). Report only, never delete.
+// Report unexpected dot-folders under ~ and ~/dev; never delete them.
 import fs from "node:fs";
 import path from "node:path";
 import { children } from "./fsutil.mjs";

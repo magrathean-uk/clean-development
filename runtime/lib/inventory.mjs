@@ -169,7 +169,8 @@ export function policyInventory(conf, env = process.env) {
 
 export function worktreeInventory(conf, env = process.env, { deadline = Date.now() + 5000 } = {}) {
   deadline = Math.min(deadline, Date.now() + 5000);
-  const root = [path.join(externalWorkRoot(conf), "worktrees"), path.join(conf.externalRoot, "worktrees"), path.join(homeDir(env), "dev", "machine", "worktrees")];
+  const canonical = (p) => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } };
+  const root = [path.join(externalWorkRoot(conf), "worktrees"), path.join(conf.externalRoot, "worktrees"), path.join(homeDir(env), "dev", "machine", "worktrees")].map(canonical);
   const worktrees = [], seen = new Set();
   let incomplete = false;
   for (const repo of sourceDirs(homeDir(env))) {
@@ -182,7 +183,12 @@ export function worktreeInventory(conf, env = process.env, { deadline = Date.now
     if (r.error || r.status !== 0) { incomplete = true; continue; }
     const paths = r.stdout.split("\0").filter((s) => s.startsWith("worktree ")).map((s) => s.slice(9));
     // Repos sharing one git dir list the same worktrees; report each path once, under the repo that owns the main tree.
-    for (const p of paths.slice(1)) if (!root.some((r) => p === r || p.startsWith(r + path.sep)) && !seen.has(p)) { seen.add(p); worktrees.push({ repo: paths[0] || repo, path: p }); }
+    for (const p of paths.slice(1)) {
+      const actual = canonical(p);
+      if (!root.some((r) => actual === r || actual.startsWith(r + path.sep)) && !seen.has(actual)) {
+        seen.add(actual); worktrees.push({ repo: paths[0] || repo, path: p });
+      }
+    }
   }
   return { worktrees, incomplete };
 }

@@ -252,7 +252,7 @@ export function classify(conf, env, now = Date.now(), { deadline = Infinity, pro
   });
 }
 
-// Removes what a finished session leaves (Q30): its scratch on both roots; its internal builds; when it ran internal (or
+// Removes what a finished session leaves: its scratch on both roots; its internal builds; when it ran internal (or
 // lost the external volume) also the declared, git-ignored build dirs of its repo, unless another live session works
 // there. External builds are kept for the 14-day prune. While a root the session used is absent the pin stays (with its
 // .ended marker) so its scratch there is removed after reconnection.
@@ -296,7 +296,7 @@ export function reapSession(conf, env, s, options = {}) {
   return { key: s.key, mode, deferred, blocked, projectBlocked, removed: removed.filter((r) => r.removed || r.wouldRemove) };
 }
 
-// An unpinned scratch dir can still host a detached job (0.6.0 trashed tmp/m204c-fix2 while it ran). An incomplete
+// An unpinned scratch dir can still host a detached job. An incomplete
 // observation keeps it for at most UNOBSERVED_DAYS.
 function orphanIdle(p, staleMs, deadline) {
   // Too many entries to list (or unreadable): unobserved, with the directory's own mtime as the retention clock.
@@ -350,7 +350,7 @@ export function reapAll(conf, env, options = {}) {
         continue;
       }
       if (known.has(d.name) || d.name === currentKey) continue;
-      // An unpinned scratch dir can still host a detached job (0.6.0 trashed tmp/m204c-fix2 while it ran).
+      // An unpinned scratch dir can still host a detached job.
       if (orphanIdle(p, staleMs, deadline))
         orphans.push(removeManaged(p, { anchor: root, allowedRoots: [l.scratch], trashDir: l.trash, dryRun, log, protect, eventsFile: deletionsPath(env) }));
     }
