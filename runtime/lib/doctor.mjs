@@ -127,11 +127,11 @@ export function doctor(env = process.env, { gui = false, internalWarnBytes = 102
   results.push({ name: "Claude profiles", ok: !profiles.errors.length, warn: !profiles.errors.length && profiles.optionalMissing.length > 0,
     detail: profiles.errors.join("; ") || profiles.files.length + " profile settings file(s)" + (profiles.optionalMissing.length ? "; optional absent: " + profiles.optionalMissing.join(", ") : "") });
   for (const file of profiles.files) {
-    const doc = readJsonOrNull(file), seatHandlers = commandsIn(doc).filter((c) => /clean-development/.test(c.command));
+    const doc = readJsonOrNull(file), shapeProblems = doc ? hookDocumentProblems(doc, { requireHooks: false }) : [], seatHandlers = commandsIn(doc).filter((c) => /clean-development/.test(c.command));
     const stale = seatHandlers.filter((c) => !hookCommandMatches(env, c.event, "claude", c.command));
-    const asynchronous = seatHandlers.filter((c) => c.async), invalid = !doc;
+    const asynchronous = seatHandlers.filter((c) => c.async), invalid = !doc || shapeProblems.length > 0;
     results.push({ name: `Claude profile hooks (${path.relative(home, file) || file})`, ok: !stale.length && !asynchronous.length && !invalid,
-      detail: invalid ? `${file} unreadable or not JSON` : stale.length ? `${file}: ${stale.length} stale per-profile clean-development handler(s); use current shared shim commands` : asynchronous.length ? `${file}: ${asynchronous.length} async per-profile clean-development handler(s); use synchronous hooks` : "inherits shared hooks" });
+      detail: invalid ? `${file}: ${shapeProblems.join("; ") || "unreadable or not JSON"}` : stale.length ? `${file}: ${stale.length} stale per-profile clean-development handler(s); use current shared shim commands` : asynchronous.length ? `${file}: ${asynchronous.length} async per-profile clean-development handler(s); use synchronous hooks` : "inherits shared hooks" });
   }
   const registry = codexHomes(env);
   results.push({ name: "Codex homes", ok: !registry.errors.length, warn: !registry.errors.length && (!registry.homes.length || registry.optionalMissing.length > 0),

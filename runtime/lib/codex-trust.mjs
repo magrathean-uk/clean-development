@@ -60,9 +60,10 @@ function hookHandlerEntries(doc) {
 }
 
 // Keep doctor useful on syntactically valid JSON that does not match Codex's hooks shape.
-export function hookDocumentProblems(doc) {
+export function hookDocumentProblems(doc, { requireHooks = true } = {}) {
   const problems = [];
   if (!isRecord(doc)) return ["document must be an object"];
+  if (!Object.hasOwn(doc, "hooks")) return requireHooks ? ["hooks must be an object"] : [];
   if (!isRecord(doc.hooks)) return ["hooks must be an object"];
   for (const [event, groups] of Object.entries(doc.hooks)) {
     if (!Array.isArray(groups)) { problems.push(`hooks.${event} must be an array`); continue; }

@@ -116,6 +116,31 @@ test("Claude profile registry keeps stale and async per-profile handlers visible
   assert.equal(asyncCheck.ok, false); assert.match(asyncCheck.detail, /async per-profile/);
 });
 
+test("doctor validates present Claude profile hooks and accepts inherited shared hooks", () => {
+  const inherited = configure(sim()), inheritedFile = path.join(inherited.home, "dev", "machine", "state", "profiles", "inherited.json");
+  json(inheritedFile, { model: "example" });
+  mk(path.join(stateDir(inherited.env), "claude-profiles.list"), `${inheritedFile}\n`);
+  const inheritedCheck = row(result(inherited), `Claude profile hooks (${path.relative(inherited.home, inheritedFile)})`);
+  assert.equal(inheritedCheck.ok, true, inheritedCheck.detail);
+  assert.equal(inheritedCheck.detail, "inherits shared hooks");
+
+  const cases = [
+    (doc) => { doc.hooks.Stop[0].hooks[0].command = [doc.hooks.Stop[0].hooks[0].command]; },
+    (doc) => { doc.hooks.Stop[0].hooks[0].command = { toString: null }; },
+    (doc) => { delete doc.hooks.Stop[0].hooks[0].command; }
+  ];
+  for (const [index, mutate] of cases.entries()) {
+    const s = configure(sim()), file = path.join(s.home, "dev", "machine", "state", "profiles", `${index}.json`), doc = hooks(s.env, "claude");
+    mutate(doc); json(file, doc);
+    mk(path.join(stateDir(s.env), "claude-profiles.list"), `${file}\n`);
+    const r = cli(s, ["doctor", "--json", "--no-gui"]);
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    const check = row(JSON.parse(r.stdout), `Claude profile hooks (${path.relative(s.home, file)})`);
+    assert.equal(check.ok, false);
+    assert.match(check.detail, /hooks\.Stop\[0\]\.hooks\[0\]\.command must be a string/);
+  }
+});
+
 test("doctor supports a single-harness Bash setup and treats its optional plugin as guidance", () => {
   const s = configure(sim());
   for (const file of [path.join(s.home, ".codex/config.toml"), path.join(s.home, ".codex/hooks.json"), path.join(s.home, ".zshenv"), path.join(s.home, ".claude/plugins/installed_plugins.json")]) fs.unlinkSync(file);
