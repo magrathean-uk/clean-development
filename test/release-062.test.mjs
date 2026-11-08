@@ -490,10 +490,14 @@ test("forced Stop skips owner folders with extra entries without deferring", () 
   const s = sim({ mounted: false });
   const start = hook(s, "session-start", "claude", { cwd: s.root });
   assert.equal(start.status, 0, start.stderr);
-  const owner = path.join(s.home, "dev/machine/state/clean-development/owners/c-012345678901");
-  const extras = ["extra-a", "extra-b", "extra-c", "extra-d"];
+  const key = "c-aaaaaaaaaaaa", owner = path.join(s.home, "dev/machine/state/clean-development/owners", key);
+  const ownerFile = path.join(owner, ".owner.json"), extras = ["extra-a", "extra-b", "extra-c", "extra-d"];
+  const record = { schemaVersion: 1, repo: null, cwd: s.root, harness: "claude", key, created: new Date().toISOString(), externalUsed: false };
+  const ownerText = `${JSON.stringify(record)}\n`;
   fs.mkdirSync(owner, { recursive: true });
+  fs.writeFileSync(ownerFile, ownerText);
   for (const name of extras) fs.writeFileSync(path.join(owner, name), `keep:${name}`);
+  agePath(ownerFile, (loadConf(s.env).EXTERNAL_BUILD_DAYS + 1) * 24);
   const originalOpendirSync = fs.opendirSync;
   let ownerReads = 0;
   fs.opendirSync = function (dir, options) {
@@ -511,6 +515,7 @@ test("forced Stop skips owner folders with extra entries without deferring", () 
   assert.equal(r.locked, false);
   assert.deepEqual(r.result.errors, []);
   assert.equal(r.result.deferred, false);
+  assert.equal(fs.readFileSync(ownerFile, "utf8"), ownerText, "extra files prevent pruning a stale owner record");
   for (const name of extras) assert.equal(fs.readFileSync(path.join(owner, name), "utf8"), `keep:${name}`);
 });
 
