@@ -670,6 +670,44 @@ test("forced Stop preserves owner entries when pin or build inspection fails", (
   for (const entry of [pinned, buildBlocked]) assert.equal(fs.readFileSync(entry.ownerFile, "utf8"), entry.text);
 });
 
+test("forced Stop preserves conflicted ownership if external storage disappears during inspection", () => {
+  const s = sim();
+  const start = hook(s, "session-start", "claude", { cwd: s.root });
+  assert.equal(start.status, 0, start.stderr);
+  assert.match(JSON.parse(start.stdout).hookSpecificOutput.additionalContext, /mode=external/);
+  const key = "c-aaaaaaaaaaaa", owner = path.join(s.home, "dev/machine/state/clean-development/owners", key);
+  const ownerFile = path.join(owner, ".owner.json"), conflict = path.join(owner, ".owner-conflict");
+  const buildPath = path.join(s.ext, "builds", key);
+  const record = { schemaVersion: 1, repo: null, cwd: s.root, harness: "claude", key, created: new Date().toISOString(), externalUsed: false };
+  const ownerText = `${JSON.stringify(record)}\n`;
+  fs.mkdirSync(owner, { recursive: true });
+  fs.writeFileSync(ownerFile, ownerText);
+  fs.writeFileSync(conflict, "");
+  agePath(ownerFile, (loadConf(s.env).EXTERNAL_BUILD_DAYS + 1) * 24);
+  const originalLstatSync = fs.lstatSync;
+  let volumeDropped = false;
+  fs.lstatSync = function (file, ...args) {
+    if (file === buildPath && !volumeDropped) {
+      volumeDropped = true;
+      s.env.DEV_STORAGE_VOLUME_TEST = "absent";
+      const error = new Error("external volume disappeared during owner inspection");
+      error.code = "ENOENT";
+      throw error;
+    }
+    return originalLstatSync.call(fs, file, ...args);
+  };
+  let r;
+  try { r = stop({}, "claude", s.env, { force: true, budgetMs: 10000 }); }
+  finally { fs.lstatSync = originalLstatSync; }
+  assert.equal(volumeDropped, true, "the external build path was checked after Stop's initial availability snapshot");
+  assert.equal(r.locked, false);
+  assert.deepEqual(r.result.errors, []);
+  assert.equal(r.result.timedOut, false);
+  assert.equal(r.result.deferred, false);
+  assert.equal(fs.readFileSync(ownerFile, "utf8"), ownerText);
+  assert.equal(fs.readFileSync(conflict, "utf8"), "");
+});
+
 test("prune --project finds a reaped session's external builds through the ownership index, never stamping builds/<key>", async () => {
   const s = sim();
   const repoA = path.join(s.home, "dev", "source", "alpha"), repoB = path.join(s.home, "dev", "source", "beta");

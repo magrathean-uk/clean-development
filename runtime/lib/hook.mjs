@@ -170,6 +170,8 @@ function pruneOwnerIndex(env, conf, { roots, external, deadline, log }) {
       continue;
     }
     if (pinPresent || buildsPresent) continue;
+    // Storage may change after Stop's earlier snapshot; never retire ownership against a now-hidden root.
+    if (externalAvailable(conf, env) !== external) continue;
     try {
       if (conflict) fs.unlinkSync(path.join(p, OWNER_CONFLICT_FILE));
       fs.unlinkSync(path.join(p, OWNER_FILE));
