@@ -8,7 +8,7 @@ The installer writes hooks that call the active runtime shim. Its portable form 
 
 Replace `stop` with `session-start` or `session-end`, and `claude` with `codex` for the corresponding event and harness.
 
-During upgrades, `doctor` also accepts an absolute path to the current `active/bin/cd-hook` when the path is quoted with single or double quotes. The standard shell-escaped form supports apostrophes in single-quoted paths. An unquoted absolute path is accepted only when it uses letters, digits, `_`, `.`, `/` and `-` (no spaces or shell syntax). Codex trust uses the same parser and only treats paths under this installation's runtime root as managed; versioned runtime shims remain recognized.
+During upgrades, `doctor` also accepts an absolute path to the current `active/bin/cd-hook` when the path is quoted with single or double quotes. The standard shell-escaped form supports apostrophes in single-quoted paths. An unquoted absolute path is accepted only when it uses letters, digits, `_`, `.`, `/` and `-` (no spaces or shell syntax). Codex trust uses the same parser and only treats paths under this installation's runtime root as managed; versioned runtime shims remain recognized. Both require the exact installed path spelling: duplicate slashes and `.` or `..` path components are rejected, even if they resolve to an installed shim.
 
 The parser understands the standard shell-escaped form for apostrophes in a single-quoted path. It rejects double-quoted absolute paths containing shell expansion characters; the double-quoted `$HOME` installer form remains supported.
 

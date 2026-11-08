@@ -27,7 +27,7 @@ export function hookCommandMatches(env, event, harness, command) {
   const expectedEvent = Object.hasOwn(EVENTS, event) ? event : Object.keys(EVENTS).find((name) => EVENTS[name] === event) || event;
   if (!parsed || parsed.event !== expectedEvent || parsed.harness !== harness) return false;
   return parsed.fromHome && command === hookCommand(env, event, harness)
-    || !parsed.fromHome && path.resolve(parsed.file) === path.resolve(hookShimPath(env));
+    || !parsed.fromHome && parsed.file === hookShimPath(env);
 }
 
 function commandsIn(doc) {
