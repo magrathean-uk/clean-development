@@ -486,6 +486,20 @@ test("forced Stop tolerates a not-yet-created owner index", () => {
   assert.equal(fs.existsSync(owners), false);
 });
 
+test("forced Stop skips owner folders with extra entries without deferring", () => {
+  const s = sim({ mounted: false });
+  const start = hook(s, "session-start", "claude", { cwd: s.root });
+  assert.equal(start.status, 0, start.stderr);
+  const owner = path.join(s.home, "dev/machine/state/clean-development/owners/c-012345678901");
+  fs.mkdirSync(owner, { recursive: true });
+  for (const name of ["extra-a", "extra-b", "extra-c", "extra-d"]) fs.writeFileSync(path.join(owner, name), "");
+  const r = stop({}, "claude", s.env, { force: true, budgetMs: 3000 });
+  assert.equal(r.locked, false);
+  assert.deepEqual(r.result.errors, []);
+  assert.equal(r.result.deferred, false);
+  assert.equal(fs.existsSync(owner), true);
+});
+
 test("prune --project finds a reaped session's external builds through the ownership index, never stamping builds/<key>", async () => {
   const s = sim();
   const repoA = path.join(s.home, "dev", "source", "alpha"), repoB = path.join(s.home, "dev", "source", "beta");
