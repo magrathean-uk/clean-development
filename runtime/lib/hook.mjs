@@ -7,9 +7,9 @@
 // Hooks never fail a session: errors are logged to ~/dev/machine/state/clean-development/hook.log and exit 0.
 import fs from "node:fs";
 import path from "node:path";
-import { VERSION, deletionsPath, homeDir, loadConf, logPath, ownersDir, stampsDir, stateDir } from "./conf.mjs";
+import { VERSION, deletionsPath, homeDir, loadConf, logPath, ownersDir, sessionsDir, stampsDir, stateDir } from "./conf.mjs";
 import { detect, ensureLayout, externalAvailable, fmtGB, freeBytes, GB, internalFreeBytes, layout, rootFor, workRoot } from "./storage.mjs";
-import { appendLog, children, lstatOrNull, safeDirectory, stampDue, stampTouch, timeLeft } from "./fsutil.mjs";
+import { appendLog, children, safeDirectory, stampDue, stampTouch, timeLeft } from "./fsutil.mjs";
 import { withLifecycleLock } from "./locks.mjs";
 import { assertOwner, classify, markEnded, projectIdentity, readPin, reapAll, reapSession, recordRoot, sessionIdProblem, sessionKey, touchPin, writePin } from "./sessions.mjs";
 import { harnessProcess } from "./activity.mjs";
@@ -129,6 +129,11 @@ function lstatOrMissing(p) {
   catch (e) { if (e.code === "ENOENT") return null; throw e; }
 }
 
+function ownerKeyHasPin(env, key) {
+  const dir = sessionsDir(env);
+  return ["mode", "json"].some((ext) => lstatOrMissing(path.join(dir, `${key}.${ext}`)) !== null);
+}
+
 // Index entries hold .owner.json and, after a project switch, an optional .owner-conflict marker. Internal-only
 // entries can be removed once their internal build path and pin are gone; external-used or legacy-unknown entries
 // wait until the external root is available and every build path can be checked.
@@ -149,11 +154,22 @@ function pruneOwnerIndex(env, conf, { roots, external, deadline, log }) {
       continue;
     }
     if (!st?.isFile() || (conflict !== null && !conflict.isFile()) || Date.now() - st.mtimeMs < conf.EXTERNAL_BUILD_DAYS * DAY) continue;
+    // A known conflict marker remains ambiguous while external storage is away. Use the already inspected
+    // marker state instead of asking readOwner to probe it again and risk treating an I/O error as absence.
+    if (!external && conflict !== null) continue;
     const owner = readOwner(p);
     // When external storage is away, retire only entries created with explicit internal-only ownership.
     // Legacy or external-used entries remain until every root can be inspected.
     if (!external && owner?.externalUsed !== false) continue;
-    if (readPin(env, d.name).mode || readPin(env, d.name).meta || roots.some((r) => lstatOrNull(path.join(layout(r).builds, d.name)))) continue;
+    let pinPresent, buildsPresent;
+    try {
+      pinPresent = ownerKeyHasPin(env, d.name);
+      buildsPresent = roots.some((r) => lstatOrMissing(path.join(layout(r).builds, d.name)) !== null);
+    } catch (e) {
+      log(`owner index ${p}: ${e.code || e.message}`);
+      continue;
+    }
+    if (pinPresent || buildsPresent) continue;
     try {
       if (conflict) fs.unlinkSync(path.join(p, OWNER_CONFLICT_FILE));
       fs.unlinkSync(path.join(p, OWNER_FILE));

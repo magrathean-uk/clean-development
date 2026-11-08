@@ -584,6 +584,92 @@ test("forced Stop fails closed on owner conflict inspection errors and prunes ve
   assert.equal(fs.readFileSync(payload, "utf8"), "preserve this data");
 });
 
+test("forced Stop retains a conflicted internal owner entry without re-reading its marker", () => {
+  const s = sim({ mounted: false });
+  const start = hook(s, "session-start", "claude", { cwd: s.root });
+  assert.equal(start.status, 0, start.stderr);
+  assert.match(JSON.parse(start.stdout).hookSpecificOutput.additionalContext, /mode=internal/);
+  const owners = path.join(s.home, "dev/machine/state/clean-development/owners");
+  const makeStaleOwner = (key) => {
+    const dir = path.join(owners, key), ownerFile = path.join(dir, ".owner.json");
+    const record = { schemaVersion: 1, repo: null, cwd: s.root, harness: "claude", key, created: new Date().toISOString(), externalUsed: false };
+    const text = `${JSON.stringify(record)}\n`;
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(ownerFile, text);
+    agePath(ownerFile, (loadConf(s.env).EXTERNAL_BUILD_DAYS + 1) * 24);
+    return { dir, ownerFile, text };
+  };
+  const affected = makeStaleOwner("c-aaaaaaaaaaaa"), control = makeStaleOwner("c-bbbbbbbbbbbb");
+  const conflict = path.join(affected.dir, ".owner-conflict");
+  fs.writeFileSync(conflict, "");
+  const originalLstatSync = fs.lstatSync;
+  let markerReads = 0;
+  fs.lstatSync = function (file, ...args) {
+    if (file === conflict) {
+      markerReads++;
+      if (markerReads === 2) {
+        const error = new Error("transient conflict marker inspection failure");
+        error.code = "EIO";
+        throw error;
+      }
+    }
+    return originalLstatSync.call(fs, file, ...args);
+  };
+  let r;
+  try { r = stop({}, "claude", s.env, { force: true, budgetMs: 10000 }); }
+  finally { fs.lstatSync = originalLstatSync; }
+  assert.equal(markerReads, 1, "the already inspected conflict marker is not re-read");
+  assert.equal(r.locked, false);
+  assert.deepEqual(r.result.errors, []);
+  assert.equal(r.result.timedOut, false);
+  assert.equal(r.result.deferred, false);
+  assert.equal(fs.existsSync(control.dir), false, "the control entry proves owner-index pruning ran");
+  assert.equal(fs.readFileSync(affected.ownerFile, "utf8"), affected.text);
+  assert.equal(fs.readFileSync(conflict, "utf8"), "");
+});
+
+test("forced Stop preserves owner entries when pin or build inspection fails", () => {
+  const s = sim();
+  const start = hook(s, "session-start", "claude", { cwd: s.root });
+  assert.equal(start.status, 0, start.stderr);
+  assert.match(JSON.parse(start.stdout).hookSpecificOutput.additionalContext, /mode=external/);
+  const owners = path.join(s.home, "dev/machine/state/clean-development/owners");
+  const makeStaleOwner = (key) => {
+    const dir = path.join(owners, key), ownerFile = path.join(dir, ".owner.json");
+    const record = { schemaVersion: 1, repo: null, cwd: s.root, harness: "claude", key, created: new Date().toISOString(), externalUsed: false };
+    const text = `${JSON.stringify(record)}\n`;
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(ownerFile, text);
+    agePath(ownerFile, (loadConf(s.env).EXTERNAL_BUILD_DAYS + 1) * 24);
+    return { dir, ownerFile, text };
+  };
+  const pinKey = "c-cccccccccccc", buildKey = "c-dddddddddddd", controlKey = "c-eeeeeeeeeeee";
+  const pinned = makeStaleOwner(pinKey), buildBlocked = makeStaleOwner(buildKey), control = makeStaleOwner(controlKey);
+  const pinFile = path.join(s.sessions, `${pinKey}.mode`), buildPath = path.join(s.ext, "builds", buildKey);
+  const originalLstatSync = fs.lstatSync, originalOpenSync = fs.openSync;
+  const failedPaths = new Set();
+  const ioError = () => { const error = new Error("transient filesystem inspection failure"); error.code = "EIO"; return error; };
+  fs.lstatSync = function (file, ...args) {
+    if (file === pinFile || file === buildPath) { failedPaths.add(file); throw ioError(); }
+    return originalLstatSync.call(fs, file, ...args);
+  };
+  fs.openSync = function (file, ...args) {
+    if (file === pinFile) { failedPaths.add(`open:${file}`); throw ioError(); }
+    return originalOpenSync.call(fs, file, ...args);
+  };
+  let r;
+  try { r = stop({}, "claude", s.env, { force: true, budgetMs: 10000 }); }
+  finally { fs.lstatSync = originalLstatSync; fs.openSync = originalOpenSync; }
+  assert.ok(failedPaths.has(pinFile), "pin-state inspection failure was exercised");
+  assert.ok(failedPaths.has(buildPath), "build-path inspection failure was exercised");
+  assert.equal(r.locked, false);
+  assert.deepEqual(r.result.errors, []);
+  assert.equal(r.result.timedOut, false);
+  assert.equal(r.result.deferred, false);
+  assert.equal(fs.existsSync(control.dir), false, "the control entry proves owner-index pruning ran");
+  for (const entry of [pinned, buildBlocked]) assert.equal(fs.readFileSync(entry.ownerFile, "utf8"), entry.text);
+});
+
 test("prune --project finds a reaped session's external builds through the ownership index, never stamping builds/<key>", async () => {
   const s = sim();
   const repoA = path.join(s.home, "dev", "source", "alpha"), repoB = path.join(s.home, "dev", "source", "beta");
