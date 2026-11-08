@@ -519,6 +519,27 @@ test("forced Stop skips owner folders with extra entries without deferring", () 
   for (const name of extras) assert.equal(fs.readFileSync(path.join(owner, name), "utf8"), `keep:${name}`);
 });
 
+test("forced Stop preserves data inside an unexpected owner conflict directory", () => {
+  const s = sim();
+  const start = hook(s, "session-start", "claude", { cwd: s.root });
+  assert.equal(start.status, 0, start.stderr);
+  assert.match(JSON.parse(start.stdout).hookSpecificOutput.additionalContext, /mode=external/);
+  const key = "c-aaaaaaaaaaaa", owner = path.join(s.home, "dev/machine/state/clean-development/owners", key);
+  const ownerFile = path.join(owner, ".owner.json"), conflict = path.join(owner, ".owner-conflict"), payload = path.join(conflict, "important.txt");
+  const record = { schemaVersion: 1, repo: null, cwd: s.root, harness: "claude", key, created: new Date().toISOString(), externalUsed: false };
+  const ownerText = `${JSON.stringify(record)}\n`;
+  fs.mkdirSync(conflict, { recursive: true });
+  fs.writeFileSync(ownerFile, ownerText);
+  fs.writeFileSync(payload, "preserve this data");
+  agePath(ownerFile, (loadConf(s.env).EXTERNAL_BUILD_DAYS + 1) * 24);
+  const r = stop({}, "claude", s.env, { force: true, budgetMs: 3000 });
+  assert.equal(r.locked, false);
+  assert.deepEqual(r.result.errors, []);
+  assert.equal(r.result.deferred, false);
+  assert.equal(fs.readFileSync(ownerFile, "utf8"), ownerText);
+  assert.equal(fs.readFileSync(payload, "utf8"), "preserve this data");
+});
+
 test("prune --project finds a reaped session's external builds through the ownership index, never stamping builds/<key>", async () => {
   const s = sim();
   const repoA = path.join(s.home, "dev", "source", "alpha"), repoB = path.join(s.home, "dev", "source", "beta");

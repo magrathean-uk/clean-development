@@ -135,8 +135,8 @@ function pruneOwnerIndex(env, conf, { roots, external, deadline, log }) {
     if (!/^[cx]-[A-Za-z0-9_-]{12}$/.test(d.name) || !d.isDirectory() || d.isSymbolicLink()) continue;
     const p = path.join(dir, d.name), names = ownerEntryNames(p);
     if (names.length > 2 || names.some((n) => ![OWNER_FILE, OWNER_CONFLICT_FILE].includes(n))) continue;
-    const st = lstatOrNull(path.join(p, OWNER_FILE));
-    if (!st?.isFile() || Date.now() - st.mtimeMs < conf.EXTERNAL_BUILD_DAYS * DAY) continue;
+    const st = lstatOrNull(path.join(p, OWNER_FILE)), conflict = lstatOrNull(path.join(p, OWNER_CONFLICT_FILE));
+    if (!st?.isFile() || (conflict && !conflict.isFile()) || Date.now() - st.mtimeMs < conf.EXTERNAL_BUILD_DAYS * DAY) continue;
     const owner = readOwner(p);
     // When external storage is away, retire only entries created with explicit internal-only ownership.
     // Legacy or external-used entries remain until every root can be inspected.
