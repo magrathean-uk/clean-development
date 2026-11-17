@@ -1,10 +1,10 @@
-// clean-development 0.6.2: storage.conf reader and machine paths. No dependencies.
+// clean-development 0.8.0: storage.conf reader and machine paths. No dependencies.
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { strictlyBelow } from "./fsutil.mjs";
 
-export const VERSION = "0.6.8";
+export const VERSION = "0.8.0";
 
 export function homeDir(env = process.env) {
   const h = env.HOME && path.isAbsolute(env.HOME) ? env.HOME : os.homedir();
@@ -13,13 +13,7 @@ export function homeDir(env = process.env) {
 }
 export const machineDir = (env = process.env) => path.join(homeDir(env), "dev", "machine");
 export const stateDir = (env = process.env) => path.join(machineDir(env), "state", "clean-development");
-export const sessionsDir = (env = process.env) => path.join(stateDir(env), "sessions");
-export const stampsDir = (env = process.env) => path.join(stateDir(env), "stamps");
 export const logPath = (env = process.env) => path.join(stateDir(env), "hook.log");
-export const eventsPath = (env = process.env) => path.join(stateDir(env), "events.jsonl");
-export const deletionsPath = (env = process.env) => path.join(stateDir(env), "deletions.jsonl");
-// Durable ownership index for prune --project: owners/<key>/.owner.json, outside every cache root (0.6.2).
-export const ownersDir = (env = process.env) => path.join(stateDir(env), "owners");
 export const runtimeRoot = (env = process.env) => path.join(machineDir(env), "runtime", "clean-development");
 // Version-less hook entry written by install.sh. Hook command text (and so Codex trust hashes) survives upgrades;
 // the shim names the active immutable release. Release directories are the X.Y.Z siblings of active/.
@@ -32,18 +26,15 @@ export function hookShimText(env = process.env, version = VERSION) {
     + `rt=${shq(path.join(runtimeRoot(env), version))}\n[ -x "$rt/bin/cd-hook" ] || exit 0\n`
     + `cli=${shq(path.join(machineDir(env), "bin", "clean-development"))}\n[ -x "$cli" ] || exit 0\n"$cli" hook "$@" || :\nexit 0\n`;
 }
-// The release a shim names, or null when the text is not a shim this runtime wrote.
-export function shimRelease(text, env = process.env) {
-  const m = String(text).match(/^rt=.*\/(\d+\.\d+\.\d+)'$/m);
-  if (!m || !RELEASE_DIR.test(m[1])) return null;
-  return text === hookShimText(env, m[1]) ? m[1] : null;
-}
 export const confPath = (env = process.env) => path.join(machineDir(env), "storage.conf");
 
 const NUMERIC = {
-  DEPS_CAP_GB: 30, DEPS_MIN_IDLE_HOURS: 2, EXTERNAL_BUILD_DAYS: 14, EXTERNAL_PRUNE_EVERY_DAYS: 7,
+  EXTERNAL_BUILD_DAYS: 14, EXTERNAL_PRUNE_EVERY_DAYS: 7,
   INTERNAL_BUILD_IDLE_HOURS: 24, SESSION_STALE_HOURS: 24, BIG_DOWNLOAD_GB: 5, INTERNAL_MIN_FREE_GB: 40
 };
+// Retired with the dependency cap: still accepted and validated as NUMERIC values are, so one storage.conf
+// stays valid for the rollback and installed releases that read them, but ignored: no default and no conf field.
+const RETIRED_NUMERIC = ["DEPS_CAP_GB", "DEPS_MIN_IDLE_HOURS"];
 const LISTS = {
   DEV_TOP_ALLOW: "machine source",
   HOME_DOT_ALLOW: ".agents .aws .cache .claude .codex .config .cups .gnupg .local .opencode .ssh .thumbnails .Trash .warp .zsh_sessions",
@@ -99,7 +90,7 @@ export function loadConf(env = process.env, { text: suppliedText } = {}) {
   const parsed = parseConf(text, env);
   errors.push(...parsed.errors);
   const v = parsed.values;
-  const keys = new Set(["STORAGE_CONF_VERSION", "EXTERNAL_VOLUME", "EXTERNAL_ROOT", "EXTERNAL_CACHE", "INTERNAL_ROOT", "LAB_ROOT", "MODELS_ROOT", "SD_VOLUME", ...Object.keys(NUMERIC), ...Object.keys(LISTS)]);
+  const keys = new Set(["STORAGE_CONF_VERSION", "EXTERNAL_VOLUME", "EXTERNAL_ROOT", "EXTERNAL_CACHE", "INTERNAL_ROOT", "LAB_ROOT", "MODELS_ROOT", "SD_VOLUME", ...Object.keys(NUMERIC), ...RETIRED_NUMERIC, ...Object.keys(LISTS)]);
   for (const key of Object.keys(v)) if (!keys.has(key)) errors.push(`unknown policy key ${key}`);
   const externalVolume = v.EXTERNAL_VOLUME ?? "External";
   const externalRoot = v.EXTERNAL_ROOT ?? `/Volumes/${externalVolume}/dev`;
@@ -116,10 +107,11 @@ export function loadConf(env = process.env, { text: suppliedText } = {}) {
     errors,
     warnings
   };
+  const plainDecimal = (raw) => { const n = Number(raw); return Number.isFinite(n) && n >= 0 && /^(?:\d+(?:\.\d*)?|\.\d+)$/.test(raw); };
   for (const [k, def] of Object.entries(NUMERIC)) {
-    const n = v[k] === undefined ? def : Number(v[k]);
-    if (!Number.isFinite(n) || n < 0 || (v[k] !== undefined && !/^(?:\d+(?:\.\d*)?|\.\d+)$/.test(v[k]))) { errors.push(`${k} must be a non-negative plain decimal`); conf[k] = def; } else conf[k] = n;
+    if (v[k] !== undefined && !plainDecimal(v[k])) { errors.push(`${k} must be a non-negative plain decimal`); conf[k] = def; } else conf[k] = v[k] === undefined ? def : Number(v[k]);
   }
+  for (const k of RETIRED_NUMERIC) if (v[k] !== undefined && !plainDecimal(v[k])) errors.push(`${k} must be a non-negative plain decimal`);
   for (const [k, def] of Object.entries(LISTS)) conf[k] = new Set((v[k] ?? def).split(/\s+/).filter(Boolean));
   for (const k of ["externalRoot", "externalCache", "internalRoot", "labRoot", "modelsRoot"]) {
     if (!path.isAbsolute(conf[k]) || conf[k].includes("\0") || conf[k].split(path.sep).some((s) => s === ".." || s === ".")) errors.push(`${k} must be absolute without . or .. components`);

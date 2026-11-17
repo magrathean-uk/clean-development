@@ -1,5 +1,5 @@
 #!/bin/sh
-# clean-development 0.6.0 CLI launcher (status, doctor, housekeeping, reap, codex-trust, init, migrate, hook, version).
+# clean-development CLI launcher.
 rt="${0%/bin/clean-development}"
 node_ok() {
   [ -x "$1" ] && "$1" -e 'const [major, minor] = process.versions.node.split(".").map(Number); process.exit(major < 20 || (major === 20 && minor < 12) ? 1 : 0)' >/dev/null 2>&1

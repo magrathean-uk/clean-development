@@ -35,6 +35,18 @@ for (const shell of ["/bin/zsh", "/bin/bash"]) {
       assert.equal(shellMode(s, shell), `internal|${s.int}`, line);
     }
   });
+  // The keys of the removed dependency cap stay accepted (validated as before) for the releases that still read
+  // them, and the current reader ignores them.
+  test(`${shell}: retired DEPS_CAP_GB and DEPS_MIN_IDLE_HOURS stay valid and are ignored`, () => {
+    const s = sim();
+    fs.appendFileSync(s.config, "DEPS_CAP_GB=1000000\nDEPS_MIN_IDLE_HOURS=2\n");
+    const conf = loadConf(s.env);
+    assert.equal(conf.valid, true, conf.errors.join("; "));
+    assert.equal("DEPS_CAP_GB" in conf, false);
+    assert.equal("DEPS_MIN_IDLE_HOURS" in conf, false);
+    assert.deepEqual(conf.warnings.filter((w) => /DEPS_/.test(w)), []);
+    assert.equal(shellMode(s, shell), `external|${s.ext}`);
+  });
   test(`${shell}: quoting, dependent defaults and explicit travel overrides remain valid`, () => {
     const s = sim();
     const travel = path.join(s.home, "dev", "travel lab");

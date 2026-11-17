@@ -2,7 +2,7 @@
 """Merge a clean-development hooks fragment into Claude settings.json or Codex hooks.json.
 Usage: merge-hooks.py FRAGMENT TARGET [--dry-run]
 Replaces managed runtime handlers in place, preserving unrelated positional identities.
-Missing managed events are appended; ambiguous duplicates/obsolete events are refused.
+Missing SessionStart handlers are appended; stale managed Stop and SessionEnd handlers are removed.
 Other keys/hooks are kept. Positional Codex preferences require manual review
 before changing hooks. Real writes preserve a private recovery copy and receipt; preview never writes."""
 import argparse
@@ -58,9 +58,32 @@ def merge_document(original, fragment):
             if key != "hooks":
                 group[key] = value
         count += 1
-    for event, groups in hooks.items():
-        if event not in fragment["hooks"] and any(OLD.search(str(h.get("command", ""))) for g in groups for h in g.get("hooks", [])):
-            raise ValueError("obsolete managed event requires explicit review: " + event)
+    for event, groups in list(hooks.items()):
+        if event in fragment["hooks"] or not any(OLD.search(str(h.get("command", ""))) for g in groups for h in g.get("hooks", [])):
+            continue
+        kept_groups = []
+        for group in groups:
+            if not any(OLD.search(str(h.get("command", ""))) for h in group.get("hooks", [])):
+                kept_groups.append(group)
+                continue
+            kept = []
+            for handler in group.get("hooks", []):
+                command = str(handler.get("command", ""))
+                if not OLD.search(command):
+                    kept.append(handler)
+                    continue
+                invocation = re.fullmatch(r"(?:'([^']+)'|\"([^\"]+)\"|([^\s]+)) (stop|session-end) (claude|codex)", command)
+                expected = {"Stop": "stop", "SessionEnd": "session-end"}.get(event)
+                if (handler.get("type") != "command" or not invocation or invocation[4] != expected
+                        or not (invocation[1] or invocation[2] or invocation[3]).endswith("/bin/cd-hook")):
+                    raise ValueError("customized managed command requires review: " + event)
+                count += 1
+            if kept or not group.get("hooks"):
+                kept_groups.append({**group, "hooks": kept})
+        if kept_groups:
+            hooks[event] = kept_groups
+        else:
+            del hooks[event]
     return doc, count
 
 

@@ -41,9 +41,8 @@ export function sim({ mounted = true } = {}) {
     .replace(/^EXTERNAL_ROOT=.*$/m, `EXTERNAL_ROOT=${vol}/dev`)
     .replace(/^LAB_ROOT=.*$/m, `LAB_ROOT=${vol}/dev/lab`)
     .replace(/^MODELS_ROOT=.*$/m, `MODELS_ROOT=${vol}/models`));
-  return { root, home, vol, config, env: { HOME: home, PATH: "/usr/bin:/bin", DEV_STORAGE_VOLUME_TEST: mounted ? "mounted" : "absent", CLEAN_DEV_TEST_HARNESS_PID: "0" },
-    ext: path.join(vol, "dev", "cache"), int: path.join(home, "dev", "machine", "cache"),
-    sessions: path.join(home, "dev", "machine", "state", "clean-development", "sessions") };
+  return { root, home, vol, config, env: { HOME: home, PATH: "/usr/bin:/bin", DEV_STORAGE_VOLUME_TEST: mounted ? "mounted" : "absent" },
+    ext: path.join(vol, "dev", "cache"), int: path.join(home, "dev", "machine", "cache") };
 }
 export function hook(s, event, harness, input = {}) {
   return spawnSync(process.execPath, [path.join(runtime, "bin", "cd-hook.mjs"), event, harness], {
@@ -54,22 +53,15 @@ export function cli(s, args) {
     cwd: s.root, env: s.env, encoding: "utf8", timeout: 15000 });
 }
 export function mk(p, text = "sentinel") { fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, text); return p; }
-export function repo(s) {
-  const p = path.join(s.home, "dev", "source", "project");
-  fs.mkdirSync(p, { recursive: true });
-  const r = spawnSync("/usr/bin/git", ["init", "-q", p], { env: { ...s.env, GIT_CONFIG_GLOBAL: "/dev/null" } });
-  if (r.status !== 0) throw new Error("fixture git init failed");
-  mk(path.join(p, ".gitignore"), ".build/\n");
-  mk(path.join(p, ".clean-development.json"), JSON.stringify({ schemaVersion: 2, buildDirs: [".build"] }));
-  return p;
-}
-export async function gone(p) {
-  const end = Date.now() + 4000;
-  while (fs.existsSync(p) && Date.now() < end) await new Promise((r) => setTimeout(r, 25));
-  return !fs.existsSync(p);
-}
-export async function waitFor(predicate, ms = 4000) {
-  const end = Date.now() + ms;
-  do { if (predicate()) return true; await new Promise((r) => setTimeout(r, 25)); } while (Date.now() < end);
-  return false;
+
+// Include metadata as well as bytes: rewriting identical content is still a side effect.
+export function snapshot(root) {
+  const rows = [];
+  function visit(item) {
+    const st = fs.lstatSync(item);
+    rows.push([path.relative(root, item), st.mode, st.ino, st.mtimeMs, st.ctimeMs,
+      st.isSymbolicLink() ? fs.readlinkSync(item) : st.isFile() ? fs.readFileSync(item).toString("base64") : null]);
+    if (st.isDirectory()) for (const name of fs.readdirSync(item).sort()) visit(path.join(item, name));
+  }
+  visit(root); return rows;
 }

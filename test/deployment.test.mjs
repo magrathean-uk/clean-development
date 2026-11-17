@@ -1,178 +1,22 @@
-import { test } from "node:test";
+import { test as nodeTest } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
-import { applyTrust, managedTrustEntries, tomlPython, verifyTrustEdit } from "../runtime/lib/codex-trust.mjs";
 import { hookShimPath, hookShimText, runtimeRoot, VERSION } from "../runtime/lib/conf.mjs";
 import { installPackage, treeDigest } from "../installer.mjs";
 import { cli, sim, mk, plugin, privateSourceEnabled, privateTestSource, privateTestValue } from "./helpers.mjs";
+// Darwin-only: a test that spawns a real hook, CLI or installer, or runs installPackage, needs the kernel flock.
+const test = process.platform === "darwin" ? nodeTest : (name, ...a) => { const fn = a.at(-1), o = typeof a[0] === "object" ? a[0] : {}; return nodeTest(name, /\b(hook|cli|installPackage)\(|install\.sh|installer\.mjs|cd-hook|clean-development\.mjs/.test(String(fn)) ? { ...o, skip: "Darwin-only: spawns a real hook, CLI or installer (kernel flock)" } : o, fn); };
 
 const root = path.dirname(plugin);
-const python = process.env.CLEAN_DEV_TEST_PYTHON || tomlPython(process.env) || "python3";
-
-test("trust refresh keeps disablement and unknown/removed/unrelated hook state", () => {
-  const key = "/h/.codex/hooks.json:stop:0:0";
-  const before = `[hooks.state.${JSON.stringify(key)}]\nenabled = false\nfuture_option = 'keep'\ntrusted_hash = "sha256:old"\n\n[hooks.state."/h/.codex/hooks.json:stop:1:0"]\nenabled = false\n\n[analytics]\nenabled = false\n`;
-  const after = applyTrust(before, "/h/.codex/hooks.json", [{ key, hash: "sha256:new" }]);
-  assert.match(after, /enabled = false\nfuture_option = 'keep'/);
-  assert.match(after, /sha256:new/); assert.doesNotMatch(after, /sha256:old/);
-  assert.match(after, /hooks\.json:stop:1:0/);
-  assert.equal(applyTrust(after, "/h/.codex/hooks.json", [{ key, hash: "sha256:new" }]), after);
-  const parsed = spawnSync(python, ["-I", "-c", "import sys,tomllib; t=tomllib.loads(sys.stdin.read()); assert t['hooks']['state'][sys.argv[1]]['enabled'] is False", key], { input: after, encoding: "utf8" });
-  assert.equal(parsed.status, 0, parsed.stderr);
-});
-
-test("default trust scope never approves unrelated command handlers", () => {
-  const entries = managedTrustEntries("/h/hooks.json", { hooks: { Stop: [{ hooks: [
-    { type: "command", command: "unrelated-user-hook" },
-    { type: "command", command: "'/h/dev/machine/runtime/clean-development/0.6.0/bin/cd-hook' stop codex" },
-    { type: "command", command: "echo '/h/dev/machine/runtime/clean-development/0.6.0/bin/cd-hook' stop codex" },
-    { type: "command", command: "'/h/dev/machine/runtime/clean-development/0.6.0/bin/cd-hook' stop codex; unrelated-command" },
-    { type: "command", command: "'/h/dev/machine/runtime/clean-development/0.6.0/bin/cd-hook' stop claude" }
-  ] }] } }, { HOME: "/h" });
-  assert.deepEqual(entries.map((e) => e.key), ["/h/hooks.json:stop:0:1"]);
-});
-
-test("restricted offline trust editor refuses ambiguous TOML instead of duplicating state", () => {
-  const key = "/h/hooks.json:stop:0:0", entries = [{ key, hash: "sha256:new" }];
-  for (const text of [
-    `[hooks.state.'${key}']\nenabled = false\n`,
-    `[hooks . state . "${key}"]\nenabled = false\n`,
-    '[hooks]\nstate = { slot = { enabled = false } }\n',
-    'prompt = """\n[hooks.state."not-an-actual-table"]\n"""\n'
-  ]) assert.throws(() => applyTrust(text, "/h/hooks.json", entries), /outside the safe editor's supported subset/);
-});
-
-test("trust editor ignores backslashes in comments and multiline values", () => {
-  const entries = [{ key: "/h/hooks.json:stop:0:0", hash: "sha256:new" }];
-  for (const before of [
-    '# See C:\\tools\nmodel = "x"\n',
-    'paths = [\n  "C:\\\\=sdk",\n]\n'
-  ]) {
-    const after = applyTrust(before, "/h/hooks.json", entries);
-    assert.ok(after.startsWith(before), after);
-    verifyTrustEdit(before, after, entries);
-  }
-});
-
-test("trust editor accepts the [features] hooks = true switch but refuses root hook state in every spelling", () => {
-  const key = "/h/hooks.json:stop:0:0", entries = [{ key, hash: "sha256:new" }];
-  // A Codex config with the hook feature enabled and managed per-hook state.
-  const live = `model = "x"\nx = [\n[1, 2],\n]\n\n[features]\nhooks = true\n\n[hooks.state]\n\n[hooks.state.${JSON.stringify(key)}]\ntrusted_hash = "sha256:old"\n`;
-  const after = applyTrust(live, "/h/hooks.json", entries);
-  const r = spawnSync(python, ["-I", "-B", "-c", "import tomllib,sys; d=tomllib.loads(sys.stdin.read()); assert d['features']['hooks'] is True and d['hooks']['state'][sys.argv[1]] == {'trusted_hash':'sha256:new'}, d", key], { input: after, encoding: "utf8" });
-  assert.equal(r.status, 0, r.stderr);
-  for (const text of [
-    'hooks = { state = { x = { enabled = false } } }\n[features]\nhooks = true\n',
-    'hooks.state."x".enabled = false\n',
-    '"hooks" . state = { x = { enabled = false } }\n',
-    "'hooks'.'state'.x.enabled = false\n",
-    '[hooks]\nstate.x = { enabled = false }\n',
-    '[hooks]\n"state" = { x = { enabled = false } }\n',
-    // An array element line starting with [ is not a table header, so the root table continues past it.
-    'x = [\n[1, 2],\n]\nhooks = { state = { x = { enabled = false } } }\n',
-    // 0.6.3 review: escaped spellings of hooks.state, and a quoted trusted_hash a bare one would duplicate.
-    `"h\\u006foks" = { state = { ${JSON.stringify(key)} = { enabled = false } } }\n[features]\nhooks = true\n`,
-    `["h\\u006foks".state.${JSON.stringify(key)}]\nenabled = false\n`,
-    `[hooks]\n"st\\u0061te" = { x = { enabled = false } }\n`,
-    `[features]\nhooks = true\n\n[hooks.state.${JSON.stringify(key)}]\n"trusted_hash" = "sha256:old"\n`
-  ]) assert.throws(() => applyTrust(text, "/h/hooks.json", entries), /outside the safe editor's supported subset/, text);
-});
-
-test("verifyTrustEdit passes only an edit equal to the old config plus the supplied hashes", () => {
-  const key = "/h/hooks.json:stop:0:0", entries = [{ key, hash: "sha256:new" }];
-  const before = `[features]\nhooks = true\n\n[hooks.state.${JSON.stringify(key)}]\nenabled = false\ntrusted_hash = "sha256:old"\n`;
-  verifyTrustEdit(before, applyTrust(before, "/h/hooks.json", entries), entries);
-  verifyTrustEdit("model = \"x\"\n", applyTrust("model = \"x\"\n", "/h/hooks.json", entries), entries);
-  const env = { ...process.env, CLEAN_DEV_PYTHON: python };
-  for (const [after, why] of [
-    [before.replace('trusted_hash = "sha256:old"', 'trusted_hash = "sha256:old"\ntrusted_hash = "sha256:new"'), /does not parse/],
-    [before.replace("enabled = false", "enabled = true").replace("sha256:old", "sha256:new"), /changes more/],
-    [before, /changes more/],
-    [`${before}\n[hooks.state."/h/hooks.json:stop:9:9"]\ntrusted_hash = "sha256:new"\n`.replace("sha256:old", "sha256:new"), /changes more/]
-  ]) assert.throws(() => verifyTrustEdit(before, after, entries, env), why);
-  assert.throws(() => verifyTrustEdit("x = \n", "x = 1\n", entries, env), /does not parse/);
-  // 0.6.3 review round 2: type-exact comparison, NaN, and Codex's trimmed key identity.
-  assert.throws(() => verifyTrustEdit("flag = 1\n", `flag = true\n\n[hooks.state.${JSON.stringify(key)}]\ntrusted_hash = "sha256:new"\n`, entries, env), /changes more/);
-  const nan = `x = nan\n\n[hooks.state.${JSON.stringify(key)}]\ntrusted_hash = "sha256:old"\n`;
-  verifyTrustEdit(nan, applyTrust(nan, "/h/hooks.json", entries), entries, env);
-  const alias = `[hooks.state.${JSON.stringify(key)}]\ntrusted_hash = "sha256:old"\n\n[hooks.state.${JSON.stringify(` ${key} `)}]\ntrusted_hash = "sha256:other"\n`;
-  assert.throws(() => verifyTrustEdit(alias, applyTrust(alias, "/h/hooks.json", entries), entries, env), /collide once trimmed/);
-});
-
-test("trust verification discovers Python 3.11+ from PATH", () => {
-  const s = sim({ mounted: false }), supported = tomlPython(process.env);
-  assert.ok(supported, "the Codex trust suite requires Python with tomllib");
-  const bin = path.join(s.root, "python-bin"), executable = path.join(bin, "python3");
-  fs.mkdirSync(bin); fs.symlinkSync(supported, executable);
-  assert.equal(tomlPython({ PATH: bin }), executable);
-});
-
-test("verifyTrustEdit needs the interpreter's nonce answer and kills a hung interpreter", () => {
-  const key = "/h/hooks.json:stop:0:0", entries = [{ key, hash: "sha256:new" }], before = "model = \"x\"\n";
-  const after = applyTrust(before, "/h/hooks.json", entries), s = sim({ mounted: false });
-  // /usr/bin/true exits 0 for the tomllib probe and for the check, but never answers.
-  assert.throws(() => verifyTrustEdit(before, "garbage = = =\n", entries, { ...process.env, CLEAN_DEV_PYTHON: "/usr/bin/true" }), /without the verification answer/);
-  // An interpreter that passes the probe, then ignores SIGTERM: SIGKILL at the deadline, refused, no hang.
-  const hung = mk(path.join(s.root, "hung-python"), "#!/bin/sh\ncase \"$4\" in 'import tomllib') exit 0 ;; esac\ntrap '' TERM\nexec /bin/sleep 20\n");
-  fs.chmodSync(hung, 0o755);
-  const start = Date.now();
-  assert.throws(() => verifyTrustEdit(before, after, entries, { ...process.env, CLEAN_DEV_PYTHON: hung }, { timeoutMs: 500 }), /ETIMEDOUT|killed/);
-  assert.ok(Date.now() - start < 5000, `returned after ${Date.now() - start} ms`);
-});
-
-test("codex-trust --apply writes the live [features] hooks = true shape and leaves a refused config byte-identical", () => {
-  const s = sim({ mounted: false }), hooks = path.join(s.home, ".codex", "hooks.json"), config = path.join(s.home, ".codex", "config.toml");
-  const command = `'${path.join(s.home, "dev", "machine", "runtime", "clean-development", "active", "bin", "cd-hook")}' stop codex`;
-  mk(hooks, JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: "command", command, async: true, timeout: 5 }] }] } }));
-  const [entry] = managedTrustEntries(hooks, JSON.parse(fs.readFileSync(hooks, "utf8")), s.env);
-  assert.ok(entry, "managed Stop handler selected");
-  mk(config, `model = "x"\n\n[features]\nhooks = true\n\n[hooks.state]\n\n[hooks.state.${JSON.stringify(entry.key)}]\ntrusted_hash = "sha256:old"\n`);
-  const r = cli(s, ["codex-trust", "--hooks", hooks, "--config", config, "--apply"]);
-  assert.equal(r.status, 0, r.stderr);
-  const check = spawnSync(python, ["-I", "-B", "-c", "import tomllib,sys; d=tomllib.loads(open(sys.argv[1]).read()); assert d['features']['hooks'] is True and d['hooks']['state'][sys.argv[2]] == {'trusted_hash': sys.argv[3]}, d", config, entry.key, entry.hash], { encoding: "utf8" });
-  assert.equal(check.status, 0, check.stderr);
-  // Refused by applyTrust's scan, and (alias collision) by the verifier alone: both leave config.toml byte-identical.
-  for (const text of [
-    `"h\\u006foks" = { state = { ${JSON.stringify(entry.key)} = { enabled = false } } }\n\n[features]\nhooks = true\n`,
-    `[features]\nhooks = true\n\n[hooks.state.${JSON.stringify(entry.key)}]\ntrusted_hash = "sha256:old"\n\n[hooks.state.${JSON.stringify(` ${entry.key} `)}]\ntrusted_hash = "sha256:other"\n`
-  ]) {
-    mk(config, text);
-    const refused = cli(s, ["codex-trust", "--hooks", hooks, "--config", config, "--apply"]);
-    assert.notEqual(refused.status, 0); assert.match(refused.stderr, /outside the safe editor's supported subset|hook-state keys collide once trimmed/);
-    assert.equal(fs.readFileSync(config, "utf8"), text);
-  }
-  assert.doesNotThrow(() => applyTrust(fs.readFileSync(config, "utf8"), hooks, [entry]), "the alias case is the verifier's alone");
-});
-
-test("trust upsert retains multiline unknown arrays and replaces indented hashes only once", () => {
-  const key = "/h/hooks.json:stop:0:0";
-  const before = `[hooks.state.${JSON.stringify(key)}]\nfuture = [\n[1, 2],\n[3, 4]\n]\n  trusted_hash = "old"\nenabled = false\n`;
-  const after = applyTrust(before, "/h/hooks.json", [{ key, hash: "new" }]);
-  const r = spawnSync(python, ["-I", "-B", "-c", "import tomllib,sys; s=tomllib.loads(sys.stdin.read())['hooks']['state'][sys.argv[1]]; assert s == {'future':[[1,2],[3,4]],'trusted_hash':'new','enabled':False}", key], { input: after, encoding: "utf8" });
-  assert.equal(r.status, 0, r.stderr);
-});
-
-test("an existing empty trust table at EOF is updated without duplicate identities", () => {
-  const key = "/h/hooks.json:stop:0:0";
-  const after = applyTrust(`[hooks.state.${JSON.stringify(key)}]`, "/h/hooks.json", [{ key, hash: "new" }]);
-  const r = spawnSync(python, ["-I", "-B", "-c", "import tomllib,sys; assert tomllib.loads(sys.stdin.read())['hooks']['state'][sys.argv[1]]['trusted_hash']=='new'", key], { input: after, encoding: "utf8" });
-  assert.equal(r.status, 0, r.stderr);
-});
+const python = process.env.CLEAN_DEV_TEST_PYTHON || ["/opt/homebrew/bin/python3", "/usr/local/bin/python3", "/usr/bin/python3"].find((p) => fs.existsSync(p) && spawnSync(p, ["-I", "-c", "import tomllib"]).status === 0) || "python3";
 
 test("config rebuild carries live hook-state blocks rather than staged state", { skip: !privateTestSource("config_merge") || !fs.existsSync(privateTestSource("config_merge")) }, () => {
   const s = sim({ mounted: false });
   const script = `import runpy,sys,tomllib\nm=runpy.run_path(sys.argv[1]); names=m['APP_MANAGED']; assert 'hooks.state' in names\nstaged='[hooks.state."slot"]\\nenabled = true\\n'\nlive='[hooks.state."slot"]\\nenabled = false\\nfuture_option = "keep"\\n'\nsb=m['blocks'](staged); lb=m['blocks'](live)\nout=''.join(t for k,t in sb if k and not m['family'](k,names)) + ''.join(t for k,t in lb if m['family'](k,('hooks.state',)))\nassert tomllib.loads(out)['hooks']['state']['slot'] == {'enabled':False,'future_option':'keep'}\n`;
   const r = spawnSync(python, ["-I", "-B", "-c", script, privateTestSource("config_merge")], { cwd: s.root, env: s.env, encoding: "utf8" });
-  assert.equal(r.status, 0, r.stderr);
-});
-
-test("host trust updates preserve whole state and never enable disabled handlers", { skip: !privateTestSource("trust_refresh") || !fs.existsSync(privateTestSource("trust_refresh")) }, () => {
-  const s = sim({ mounted: false });
-  const script = `import runpy,sys\nm=runpy.run_path(sys.argv[1])\nold={'disabled':{'enabled':False,'future':'keep'},'enabled':{'future':'keep'},'unrelated':{'enabled':False}}\nitems=[{'key':k,'trustStatus':'modified','source':'user','currentHash':'sha256:new','enabled':True} for k in ('disabled','enabled')]\nstate,n=m['refreshed_state'](items,('user',),old)\nassert n==1 and state['disabled']==old['disabled'] and state['unrelated']==old['unrelated']\nassert state['enabled']=={'future':'keep','trusted_hash':'sha256:new'}\n`;
-  const r = spawnSync(python, ["-I", "-B", "-c", script, privateTestSource("trust_refresh")], { cwd: s.root, env: s.env, encoding: "utf8" });
   assert.equal(r.status, 0, r.stderr);
 });
 
@@ -203,7 +47,39 @@ test("both installer previews and unknown flags leave a fabricated HOME byte-ide
   }
 });
 
-test("installer skips an unsupported local Node and rejects an invalid explicit override", () => {
+// One install.sh --dry-run in its own process group, bounded at 15 s as before. Its preflight runs node --check on every
+// runtime file, about thirty Node starts in a row; beside the module suite that passed the bound at a load of 16 to 26.
+// A run that reaches the bound is an incomplete observation: its whole group is killed and awaited, and it is
+// repeated, three runs at most. A run that finishes is judged strictly.
+function dryRunOnce(cwd, env) {
+  return new Promise((resolve) => {
+    const child = spawn("/bin/sh", [path.join(plugin, "install.sh"), "--dry-run"], { cwd, env, stdio: ["ignore", "pipe", "pipe"], detached: true });
+    let stdout = "", stderr = "", timedOut = false;
+    child.stdout.on("data", (d) => { stdout += d; }); child.stderr.on("data", (d) => { stderr += d; });
+    const timer = setTimeout(() => { timedOut = true; try { process.kill(-child.pid, "SIGKILL"); } catch { /* gone */ } }, 15000);
+    const done = async (status, signal, error) => {
+      clearTimeout(timer);
+      // The group ends with its leader's pipes; a member that kept none is killed and awaited too.
+      const alive = () => { try { process.kill(-child.pid, 0); return true; } catch (e) { return e.code === "EPERM"; } };
+      if (child.pid && alive()) { try { process.kill(-child.pid, "SIGKILL"); } catch { /* gone */ } }
+      for (const end = Date.now() + 3000; child.pid && alive() && Date.now() < end;) await new Promise((r) => setTimeout(r, 25));
+      resolve({ status, signal, stdout, stderr: error ? `${stderr}spawn error: ${error.message}` : stderr, timedOut, groupLeft: !!child.pid && alive() });
+    };
+    child.on("error", (e) => done(null, null, e));
+    child.on("close", (status, signal) => done(status, signal, null));
+  });
+}
+async function dryRun(cwd, env, label) {
+  for (let n = 1; n <= 3; n++) {
+    const r = await dryRunOnce(cwd, env);
+    assert.equal(r.groupLeft, false, `${label}: the dry run's process group is gone`);
+    if (!r.timedOut) return r;
+    console.log(`${label}: install.sh --dry-run run ${n} reached its 15000 ms bound; ${spawnSync("/usr/bin/uptime", { encoding: "utf8", timeout: 2000 }).stdout?.trim()}`);
+  }
+  assert.fail(`${label}: three dry runs, each over its 15000 ms bound`);
+}
+
+test("installer skips an unsupported local Node and rejects an invalid explicit override", process.platform === "darwin" ? {} : { skip: "Darwin-only: runs install.sh (kernel flock)" }, async () => {
   const s = sim({ mounted: false }), oldNode = path.join(s.home, ".local/bin/node"), fakeBin = path.join(s.root, "bin");
   const realNode = process.execPath;
   fs.mkdirSync(path.dirname(oldNode), { recursive: true });
@@ -212,16 +88,12 @@ test("installer skips an unsupported local Node and rejects an invalid explicit 
   const supported = mk(path.join(fakeBin, "node"), '#!/bin/sh\nexec "$REAL_NODE" "$@"\n');
   fs.chmodSync(supported, 0o755);
   const env = { ...s.env, PATH: `${fakeBin}:/usr/bin:/bin`, REAL_NODE: realNode }; delete env.CLEAN_DEV_NODE;
-  const selected = spawnSync("/bin/sh", [path.join(plugin, "install.sh"), "--dry-run"], { cwd: s.root, env, encoding: "utf8", timeout: 15000 });
+  const selected = await dryRun(s.root, env, "supported local Node");
   assert.equal(selected.status, 0, selected.stderr);
-  const invalid = spawnSync("/bin/sh", [path.join(plugin, "install.sh"), "--dry-run"], {
-    cwd: s.root, env: { ...env, CLEAN_DEV_NODE: path.join(s.root, "missing-node") }, encoding: "utf8", timeout: 15000
-  });
+  const invalid = await dryRun(s.root, { ...env, CLEAN_DEV_NODE: path.join(s.root, "missing-node") }, "invalid override");
   assert.equal(invalid.status, 1);
   assert.match(invalid.stderr, /CLEAN_DEV_NODE is not executable/);
-  const unsupported = spawnSync("/bin/sh", [path.join(plugin, "install.sh"), "--dry-run"], {
-    cwd: s.root, env: { ...env, CLEAN_DEV_NODE: oldNode }, encoding: "utf8", timeout: 15000
-  });
+  const unsupported = await dryRun(s.root, { ...env, CLEAN_DEV_NODE: oldNode }, "unsupported override");
   assert.equal(unsupported.status, 1);
   assert.match(unsupported.stderr, /CLEAN_DEV_NODE must be Node\.js 20\.12 or later/);
 });
@@ -373,105 +245,6 @@ test("private sidecar installer refuses a group- or world-writable source", () =
   finally { fs.chmodSync(source, 0o600); }
 });
 
-test("legacy removal preview and apply are limited to one fake-home runtime", () => {
-  const s = sim({ mounted: false }), old = path.join(s.home, "Library/Application Support/clean-development");
-  mk(path.join(old, "runtime/keep.txt"), "fixture only\n");
-  const config = mk(path.join(old, "config.json"), "host configuration\n");
-  const receipt = mk(path.join(old, "uninstall-receipt.json"), "host receipt\n");
-  const sibling = mk(path.join(s.home, "Library/Application Support/other-app/keep.txt"), "untouched\n");
-  const script = path.join(plugin, "remove-legacy.sh");
-  const preview = spawnSync("/bin/sh", [script], { env: s.env, encoding: "utf8" });
-  assert.equal(preview.status, 0, preview.stderr); assert.match(preview.stdout, /preview only/);
-  assert.ok(preview.stdout.includes(path.join(old, "runtime")), "preview names only the runtime subdirectory");
-  assert.equal(fs.existsSync(path.join(old, "runtime/keep.txt")), true);
-  const applied = spawnSync("/bin/sh", [script, "--apply"], { env: s.env, encoding: "utf8" });
-  assert.equal(applied.status, 0, applied.stderr); assert.equal(fs.existsSync(path.join(old, "runtime")), false);
-  assert.equal(fs.existsSync(old), true, "legacy application directory remains when it contains host data");
-  assert.equal(fs.readFileSync(config, "utf8"), "host configuration\n");
-  assert.equal(fs.readFileSync(receipt, "utf8"), "host receipt\n");
-  assert.equal(fs.readFileSync(sibling, "utf8"), "untouched\n");
-});
-
-test("legacy removal refuses a symlinked parent under fake HOME", () => {
-  const s = sim({ mounted: false }), real = path.join(s.root, "outside/Library");
-  mk(path.join(real, "Application Support/clean-development/keep.txt"), "untouched\n");
-  fs.symlinkSync(real, path.join(s.home, "Library"), "dir");
-  const r = spawnSync("/bin/sh", [path.join(plugin, "remove-legacy.sh"), "--apply"], { env: s.env, encoding: "utf8" });
-  assert.equal(r.status, 1); assert.match(r.stderr, /refusing a linked or non-directory parent/);
-  assert.equal(fs.readFileSync(path.join(real, "Application Support/clean-development/keep.txt"), "utf8"), "untouched\n");
-});
-
-test("legacy removal checks every configured Codex home and Claude settings file before deleting", () => {
-  const s = sim({ mounted: false }), old = path.join(s.home, "Library/Application Support/clean-development");
-  mk(path.join(old, "runtime/keep.txt"), "fixture only\n");
-  const state = path.join(s.home, "dev/machine/state/clean-development");
-  const codexHome = path.join(s.home, "dev", "codex-extra"), codexHooks = path.join(codexHome, "hooks.json");
-  const claudeSettings = path.join(s.home, "dev", "claude-settings.json"), claudeProfile = path.join(s.home, "dev", "claude-profile.json");
-  mk(codexHooks, '{"command":"~/Library/Application Support/clean-development/runtime/bin/cd-hook"}\n');
-  mk(claudeSettings, '{"command":"~/Library/Application Support/clean-development/runtime/bin/cd-hook"}\n');
-  mk(claudeProfile, '{"command":"~/Library/Application Support/clean-development/runtime/bin/cd-hook"}\n');
-  mk(path.join(state, "codex-homes.list"), `${codexHome}\n`);
-  mk(path.join(state, "claude-settings.list"), `${claudeSettings}\n`);
-  mk(path.join(state, "claude-profiles.list"), `${claudeProfile}\n`);
-  const script = path.join(plugin, "remove-legacy.sh");
-  const r = spawnSync("/bin/sh", [script, "--apply"], { env: s.env, encoding: "utf8" });
-  assert.equal(r.status, 1);
-  for (const file of [codexHooks, claudeSettings, claudeProfile]) assert.ok(r.stderr.includes(file), `missing reference report for ${file}`);
-  assert.ok(fs.existsSync(old), "a referenced legacy runtime is preserved");
-});
-
-test("legacy removal checks every configured settings file before deletion", () => {
-  const s = sim({ mounted: false }), old = path.join(s.home, "Library/Application Support/clean-development");
-  mk(path.join(old, "runtime/keep.txt"), "fixture only\n");
-  const sharedFiles = [path.join(s.home, "dev/profiles/first/settings.json"), path.join(s.home, "dev/profiles/second/settings.json")];
-  for (const file of sharedFiles) mk(file, '{"command":"Application Support/clean-development/runtime/bin/cd-hook"}\n');
-  mk(path.join(s.home, "dev/machine/state/clean-development/claude-settings.list"), "~/dev/profiles/first/settings.json\n~/dev/profiles/second/settings.json\n");
-  const r = spawnSync("/bin/sh", [path.join(plugin, "remove-legacy.sh"), "--apply"], { env: s.env, encoding: "utf8" });
-  assert.equal(r.status, 1);
-  for (const file of sharedFiles) assert.ok(r.stderr.includes(file), `missing historical reference report for ${file}`);
-  assert.ok(fs.existsSync(path.join(old, "runtime/keep.txt")), "referenced runtime is preserved");
-});
-
-test("legacy removal refuses when a required configured settings file cannot be checked", () => {
-  const s = sim({ mounted: false }), old = path.join(s.home, "Library/Application Support/clean-development");
-  mk(path.join(old, "runtime/keep.txt"), "fixture only\n");
-  const missing = path.join(s.home, "dev/claude-extra/settings.json");
-  mk(path.join(s.home, "dev/machine/state/clean-development/claude-settings.list"), `${missing}\n`);
-  const r = spawnSync("/bin/sh", [path.join(plugin, "remove-legacy.sh"), "--apply"], { env: s.env, encoding: "utf8" });
-  assert.equal(r.status, 1);
-  assert.match(r.stderr, /configured settings file is missing|reference scan was incomplete/);
-  assert.ok(fs.existsSync(old), "an incomplete reference scan preserves the runtime");
-});
-
-test("the detached delete worker never touches an outside target when a boundary fails or a trash link cannot be removed", () => {
-  const s = sim({ mounted: false }), anchor = path.join(s.home, "dev/machine/state/clean-development");
-  fs.mkdirSync(anchor, { recursive: true });
-  const worker = path.join(plugin, "runtime/bin/cd-delete.mjs"), outside = mk(path.join(s.root, "outside.txt"), "keep\n");
-  const oldTime = new Date("2020-01-01T00:00:00.000Z");
-  fs.utimesSync(outside, oldTime, oldTime);
-  const before = fs.statSync(outside).mtimeMs;
-  const run = (entry) => {
-    const queue = mk(path.join(s.root, `queue-${path.basename(entry)}.json`), JSON.stringify({
-      anchor, eventsFile: null, jobs: [{ id: "fixture", path: entry, source: "fixture" }]
-    }));
-    return spawnSync(process.execPath, [worker, queue], { env: s.env, encoding: "utf8", timeout: 10000 });
-  };
-  const outsideResult = run(outside);
-  assert.equal(outsideResult.status, 0, outsideResult.stderr);
-  assert.equal(fs.statSync(outside).mtimeMs, before, "a rejected boundary does not refresh an outside file");
-
-  const trash = path.join(anchor, "trash"), link = path.join(trash, "outside-link");
-  fs.mkdirSync(trash, { recursive: true }); fs.symlinkSync(outside, link); fs.chmodSync(trash, 0o555);
-  try {
-    const linkResult = run(link);
-    assert.equal(linkResult.status, 0, linkResult.stderr);
-    assert.equal(fs.statSync(outside).mtimeMs, before, "backoff does not follow a failed trash symlink");
-  } finally {
-    fs.chmodSync(trash, 0o700);
-    fs.rmSync(link, { force: true });
-  }
-});
-
 test("hook merge preserves unrelated handlers, mode and recovery bytes; preview is read-only", () => {
   const s = sim({ mounted: false }), target = path.join(s.home, ".claude", "settings.json");
   const before = JSON.stringify({ model: "fixture", hooks: { Stop: [{ hooks: [
@@ -488,7 +261,8 @@ test("hook merge preserves unrelated handlers, mode and recovery bytes; preview 
   const updated = JSON.parse(after);
   assert.equal(updated.model, "fixture");
   assert.equal(updated.hooks.Stop[0].hooks[0].command, "unrelated-notifier");
-  assert.equal(updated.hooks.Stop[0].hooks[1].async, false, "upgrade replaces the old asynchronous Stop");
+  assert.equal(updated.hooks.Stop[0].hooks.length, 1, "upgrade removes the managed Stop handler");
+  assert.deepEqual(Object.keys(updated.hooks).sort(), ["SessionStart", "Stop"]);
   assert.equal(fs.statSync(target).mode & 0o777, 0o640);
   const backups = path.join(s.home, "dev", "machine", "state", "clean-development", "hook-backups");
   assert.equal(fs.readFileSync(path.join(backups, fs.readdirSync(backups)[0], "original"), "utf8"), before);
@@ -521,11 +295,11 @@ test("hook merge accepts [features] hooks = true with trust-hash-only state, and
     `"hooks".state = { ${k} = { enabled = false } }\n`,
     `[hooks]\nstate.${k} = { enabled = false }\n`,
     `x = [\n[1, 2],\n]\nhooks = { state = { ${k} = { enabled = false } } }\n`,
-    // 0.6.3 review: an escaped key, and a multiline string holding a bracket before the real state table.
+    // review: an escaped key, and a multiline string holding a bracket before the real state table.
     `"h\\u006foks" = { state = { ${k} = { enabled = false } } }\n[features]\nhooks = true\n`,
     `developer_instructions = """\n[\n"""\n\n[hooks.state.${k}]\nenabled = false\n`,
     "not toml = = =\n",
-    // 0.6.3 review round 2: the identities Codex resolves to this file (trimmed, file: prefix, .. and symlink aliases).
+    // review round 2: the identities Codex resolves to this file (trimmed, file: prefix, .. and symlink aliases).
     `[hooks.state]\n${JSON.stringify(` ${target}:stop:1:0 `)} = { enabled = false }\n`,
     `[hooks.state.${JSON.stringify(`file:${target}:stop:0:0`)}]\nenabled = false\n`,
     `[hooks.state.${JSON.stringify(`${path.dirname(target)}/../.codex/hooks.json:stop:0:0`)}]\nenabled = false\n`,
@@ -662,6 +436,35 @@ test("abrupt installer death is explicitly recoverable without deleting the publ
   assert.equal(fs.readFileSync(wrapper, "utf8"), activeWrapper, "a rolled-back receipt cannot undo a later install");
 });
 
+test("abrupt installer death is recoverable through --recover without a manual unlink of install.lock", () => {
+  const s = sim({ mounted: false });
+  const wrapper = mk(path.join(s.home, "dev", "machine", "bin", "clean-development"), "old activation\n");
+  const script = `import { installPackage } from ${JSON.stringify(pathToFileURL(path.join(plugin, "installer.mjs")).href)};
+    installPackage(${JSON.stringify(plugin)}, process.env, { onPhase: (phase) => { if (phase === "file-0") process.exit(71); } });`;
+  const child = spawnSync(process.execPath, ["--input-type=module", "-e", script], { cwd: s.root, env: s.env, encoding: "utf8", timeout: 10000 });
+  assert.equal(child.status, 71, child.stderr);
+  const transactions = path.join(s.home, "dev", "machine", "state", "clean-development", "installations");
+  const id = fs.readdirSync(transactions)[0];
+  const receipt = JSON.parse(fs.readFileSync(path.join(transactions, id, "receipt.json")));
+  assert.equal(receipt.status, "activating");
+  const lock = path.join(s.home, "dev/machine/state/clean-development/install.lock");
+  assert.equal(fs.existsSync(lock), true, "the dead installer left its lock");
+  const recovered = spawnSync("/bin/sh", [path.join(plugin, "install.sh"), "--recover", id], {
+    cwd: s.root, env: { ...s.env, CLEAN_DEV_NODE: process.execPath }, encoding: "utf8", timeout: 10000 });
+  assert.equal(recovered.status, 0, recovered.stderr);
+  assert.match(recovered.stderr, /install\.lock reclaimed: owner exited \(lock free\)/);
+  assert.equal(fs.existsSync(lock), false);
+  assert.equal(fs.readFileSync(wrapper, "utf8"), "old activation\n");
+  assert.equal(treeDigest(receipt.runtime), receipt.digest, "published immutable recovery bytes remain available");
+  assert.equal(JSON.parse(fs.readFileSync(path.join(transactions, id, "receipt.json"))).status, "rolled-back");
+  installPackage(plugin, s.env);
+  const activeWrapper = fs.readFileSync(wrapper, "utf8");
+  const staleRecovery = spawnSync("/bin/sh", [path.join(plugin, "install.sh"), "--recover", id], {
+    cwd: s.root, env: { ...s.env, CLEAN_DEV_NODE: process.execPath }, encoding: "utf8", timeout: 10000 });
+  assert.notEqual(staleRecovery.status, 0); assert.match(staleRecovery.stderr, /no unfinished transaction/);
+  assert.equal(fs.readFileSync(wrapper, "utf8"), activeWrapper, "a rolled-back receipt cannot undo a later install");
+});
+
 test("installer recovery can record a reviewed user edit without overwriting it", () => {
   const s = sim({ mounted: false }), parent = path.join(s.root, "accept-current-source"), src = path.join(parent, "clean-development");
   fs.mkdirSync(parent, { recursive: true }); fs.symlinkSync(plugin, src, "dir");
@@ -702,4 +505,250 @@ test("rollback restores file mode even when old and new activation bytes are ide
   fs.chmodSync(wrapper, 0o600);
   assert.throws(() => installPackage(plugin, s.env, { onPhase: (phase) => { if (phase === "file-0") throw new Error("mode rollback fixture"); } }), /rolled-back/);
   assert.equal(fs.statSync(wrapper).mode & 0o777, 0o600);
+});
+
+// Removed-event merging uses the existing quoted-command grammar and preserves unrelated order.
+test("hook merge drops managed Stop and SessionEnd entries while preserving mixed groups", () => {
+  for (const harness of ["claude", "codex"]) {
+    const s = sim({ mounted: false }), target = path.join(s.home, ".config", "settings.json");
+    const managed = (event) => ({ type: "command", command: `"$HOME/dev/machine/runtime/clean-development/active/bin/cd-hook" ${event} ${harness}` });
+    const unrelated = { type: "command", command: "unrelated" };
+    mk(target, JSON.stringify({ hooks: {
+      Stop: [{ matcher: "keep", hooks: [managed("stop"), unrelated, managed("stop")] }, { hooks: [unrelated] }],
+      SessionEnd: [{ hooks: [managed("session-end")] }],
+      Other: [{ hooks: [unrelated] }]
+    } }));
+    const r = spawnSync(python, ["-I", "-B", path.join(plugin, "fragments/merge-hooks.py"), path.join(plugin, `fragments/${harness}-hooks.json`), target], { env: s.env, encoding: "utf8" });
+    assert.equal(r.status, 0, r.stderr);
+    const doc = JSON.parse(fs.readFileSync(target));
+    assert.equal(doc.hooks.SessionEnd, undefined);
+    assert.deepEqual(doc.hooks.Stop, [{ matcher: "keep", hooks: [unrelated] }, { hooks: [unrelated] }]);
+    assert.deepEqual(doc.hooks.Other, [{ hooks: [unrelated] }]);
+    assert.deepEqual(Object.keys(doc.hooks).sort(), ["Other", "SessionStart", "Stop"]);
+  }
+});
+
+test("hook merge refuses customised stale handlers and preserves all bytes on failure", () => {
+  for (const command of [
+    '"$HOME/dev/machine/runtime/clean-development/active/bin/cd-hook" stop claude --custom',
+    '"$HOME/dev/machine/runtime/clean-development/active/bin/cd-hook" session-end claude',
+    '"$HOME/dev/machine/runtime/clean-development/active/bin/other" stop claude'
+  ]) {
+    const s = sim({ mounted: false }), target = path.join(s.home, ".claude", "settings.json");
+    const before = JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: "command", command }] }] } });
+    mk(target, before);
+    const digest = treeDigest(s.home);
+    const r = spawnSync(python, ["-I", "-B", path.join(plugin, "fragments/merge-hooks.py"), path.join(plugin, "fragments/claude-hooks.json"), target], { env: s.env, encoding: "utf8" });
+    assert.equal(r.status, 1); assert.match(r.stderr, /customized managed command requires review: Stop/);
+    assert.equal(treeDigest(s.home), digest); assert.equal(fs.readFileSync(target, "utf8"), before);
+  }
+});
+
+// Release upgrades never use the real HOME, runtime root or harness configuration.
+function legacyRelease() {
+  const s = sim({ mounted: false }), legacy = path.join(runtimeRoot(s.env), "0.7.0");
+  const wrapper = mk(path.join(s.home, "dev/machine/bin/clean-development"),
+    '#!/bin/sh\nif [ "$1" = version ]; then echo 0.7.0; exit 0; fi\necho "unexpected legacy command: $*" >&2\nexit 89\n');
+  fs.chmodSync(wrapper, 0o755);
+  mk(path.join(legacy, "VERSION"), "0.7.0\n");
+  fs.chmodSync(mk(path.join(legacy, "bin/cd-hook"), "#!/bin/sh\nexit 0\n"), 0o755);
+  fs.chmodSync(mk(hookShimPath(s.env), hookShimText(s.env, "0.7.0")), 0o755);
+  const hooks = {};
+  for (const harness of ["claude", "codex"]) {
+    const target = path.join(s.home, `.${harness}`, harness === "claude" ? "settings.json" : "hooks.json");
+    const managed = (action) => ({ type: "command", command: `"$HOME/dev/machine/runtime/clean-development/0.7.0/bin/cd-hook" ${action} ${harness}` });
+    mk(target, JSON.stringify({ keep: harness, hooks: {
+      SessionStart: [{ hooks: [managed("session-start")] }],
+      Stop: [{ hooks: [managed("stop"), { type: "command", command: "keep-other-stop" }] }],
+      SessionEnd: [{ hooks: [managed("session-end")] }]
+    } }));
+    hooks[harness] = target;
+  }
+  const codexConfig = mk(path.join(s.home, ".codex/config.toml"), '[features]\nhooks = true\n');
+  const envFile = mk(path.join(s.home, "dev/machine/env.zsh"), "# original environment\n");
+  const activation = [wrapper, hookShimPath(s.env), envFile, ...Object.values(hooks)];
+  return { ...s, legacy, wrapper, hooks, codexConfig, activation, before: activation.map((file) => fs.readFileSync(file)),
+    legacyDigest: treeDigest(legacy), env: { ...s.env, CLEAN_DEV_NODE: process.execPath } };
+}
+
+function rollbackRecords(s, dir = path.join(runtimeRoot(s.env), "rollback")) {
+  return fs.existsSync(dir) ? fs.readdirSync(dir).sort().map((name) => path.join(dir, name)) : [];
+}
+
+test("current release upgrade records rollback before switching, refreshes hooks and retains 0.7.0", () => {
+  const s = legacyRelease();
+  let record;
+  let observed = false;
+  const result = installPackage(plugin, s.env, { config: true, onPhase: (phase) => {
+    if (phase !== "rollback-recorded") return;
+    observed = true;
+    [record] = rollbackRecords(s);
+    const text = fs.readFileSync(record, "utf8");
+    assert.ok(text.includes(`rt='${s.legacy}'`)); assert.match(text, /--rollback/);
+    s.activation.forEach((file, index) => assert.deepEqual(fs.readFileSync(file), s.before[index]));
+  } });
+  assert.ok(observed); assert.equal(result.version, VERSION);
+  assert.equal(treeDigest(s.legacy), s.legacyDigest);
+  assert.equal(spawnSync(s.wrapper, ["version"], { env: s.env, encoding: "utf8" }).stdout.trim(), VERSION);
+  assert.ok(fs.readFileSync(hookShimPath(s.env), "utf8").includes(result.runtime));
+  for (const [harness, target] of Object.entries(s.hooks)) {
+    const document = JSON.parse(fs.readFileSync(target));
+    assert.equal(document.keep, harness); assert.equal(document.hooks.SessionEnd, undefined);
+    assert.deepEqual(document.hooks.Stop, [{ hooks: [{ type: "command", command: "keep-other-stop" }] }]);
+    assert.deepEqual(document.hooks.SessionStart, JSON.parse(fs.readFileSync(path.join(plugin, `fragments/${harness}-hooks.json`))).hooks.SessionStart);
+  }
+  assert.equal(fs.readFileSync(s.codexConfig, "utf8"), '[features]\nhooks = true\n');
+  const firstBytes = fs.readFileSync(record);
+  const sourceCommit = spawnSync("git", ["-C", plugin, "rev-parse", "HEAD"], { encoding: "utf8" }).stdout.trim();
+  assert.match(sourceCommit, /^[a-f0-9]{40}$/);
+  assert.ok(firstBytes.toString().includes(`Source commit: ${sourceCommit}`));
+  assert.match(path.basename(record), new RegExp(`^rollback-\\d{4}-\\d{2}-\\d{2}T.*Z-.*-from-0\\.7\\.0-to-${VERSION.replaceAll(".", "\\.")}\\.md$`));
+  const retried = installPackage(plugin, s.env, { config: true });
+  assert.equal(retried.digest, result.digest);
+  assert.equal(treeDigest(s.legacy), s.legacyDigest);
+  assert.deepEqual(fs.readFileSync(record), firstBytes, "retry never rewrites the first record");
+  const records = rollbackRecords(s);
+  assert.equal(records.length, 2);
+  const second = records.find((file) => file !== record);
+  assert.ok(path.basename(second).includes(`-from-${VERSION}-to-${VERSION}.md`));
+  assert.ok(fs.readFileSync(second, "utf8").includes(JSON.parse(fs.readFileSync(retried.receipt)).id));
+});
+
+for (const phase of ["rollback-recorded", "file-3", "layout-ready"]) {
+  test(`upgrade failure at ${phase} restores all activation files and retry succeeds`, () => {
+    const s = legacyRelease();
+    assert.throws(() => installPackage(plugin, s.env, { config: true, onPhase: (current) => {
+      if (current === phase) throw new Error(`injected ${phase}`);
+    } }), /rolled-back/);
+    s.activation.forEach((file, index) => assert.deepEqual(fs.readFileSync(file), s.before[index]));
+    assert.equal(treeDigest(s.legacy), s.legacyDigest);
+    assert.equal(installPackage(plugin, s.env, { config: true }).status, "committed");
+  });
+}
+
+test("recorded rollback command restores a committed upgrade and refuses repeated rollback", () => {
+  const s = legacyRelease();
+  const installed = installPackage(plugin, s.env, { config: true });
+  const text = fs.readFileSync(rollbackRecords(s)[0], "utf8");
+  const command = text.split("```sh\n")[1].split("\n```")[0];
+  const result = spawnSync("/bin/sh", ["-c", command], { cwd: s.root, env: s.env, encoding: "utf8", timeout: 15000 });
+  assert.equal(result.status, 0, result.stderr); assert.equal(JSON.parse(result.stdout).status, "rolled-back");
+  s.activation.forEach((file, index) => assert.deepEqual(fs.readFileSync(file), s.before[index]));
+  assert.equal(treeDigest(s.legacy), s.legacyDigest); assert.equal(treeDigest(installed.runtime), installed.digest);
+  const repeated = spawnSync("/bin/sh", ["-c", command], { cwd: s.root, env: s.env, encoding: "utf8", timeout: 15000 });
+  assert.equal(repeated.status, 1); assert.match(repeated.stderr, /no committed transaction/);
+  console.log(`negative rollback: ${repeated.stderr.trim()}`);
+  assert.equal(installPackage(plugin, s.env, { config: true }).status, "committed");
+});
+
+test("upgrade refuses unsafe rollback record before activation and succeeds after correction", () => {
+  const s = legacyRelease(), recordDir = path.join(s.root, "records");
+  fs.symlinkSync(path.dirname(s.wrapper), recordDir, "dir");
+  assert.throws(() => installPackage(plugin, s.env, { recordDir }), (error) => {
+    assert.match(error.message, /unsafe rollback record directory/); console.log(`negative record: ${error.message}`); return true;
+  });
+  s.activation.forEach((file, index) => assert.deepEqual(fs.readFileSync(file), s.before[index]));
+  fs.unlinkSync(recordDir); assert.equal(installPackage(plugin, s.env, { recordDir }).status, "committed");
+});
+
+test("upgrade refuses customised hooks and Codex preferences before switching and permits retry", () => {
+  for (const refusal of ["custom-command", "codex-preferences"]) {
+    const s = legacyRelease(), target = refusal === "custom-command" ? s.hooks.claude : s.codexConfig;
+    const original = fs.readFileSync(target);
+    if (refusal === "custom-command") fs.writeFileSync(target, original.toString().replace('stop claude', 'stop claude --custom'));
+    else fs.appendFileSync(target, `\n[hooks.state.${JSON.stringify(`${s.hooks.codex}:stop:0:0`)}]\nenabled = false\n`);
+    const before = treeDigest(s.home);
+    assert.throws(() => installPackage(plugin, s.env), (error) => {
+      assert.match(error.message, /customized managed command|positional disablement/);
+      console.log(`negative ${refusal}: ${error.message.trim()}`); return true;
+    });
+    assert.equal(treeDigest(s.home), before);
+    fs.writeFileSync(target, original); assert.equal(installPackage(plugin, s.env).status, "committed");
+  }
+});
+
+test("upgrade refuses hooks changed after preflight and preserves the new edit", () => {
+  const s = legacyRelease();
+  assert.throws(() => installPackage(plugin, s.env, { onPhase: (phase) => {
+    if (phase === "preflight") fs.writeFileSync(s.hooks.claude, '{"hooks":{},"new":"user edit"}');
+  } }), (error) => {
+    assert.match(error.message, /hook changed after preflight/); console.log(`negative hook race: ${error.message}`); return true;
+  });
+  assert.equal(JSON.parse(fs.readFileSync(s.hooks.claude)).new, "user edit");
+  assert.deepEqual(fs.readFileSync(s.wrapper), s.before[0]);
+  assert.equal(installPackage(plugin, s.env).status, "committed");
+});
+
+test("rollback options require an ID and cannot combine with install or recovery options", () => {
+  const s = legacyRelease();
+  for (const args of [["--rollback"], ["--rollback", "id", "--config"], ["--rollback", "id", "--recover", "id"]]) {
+    const result = spawnSync(process.execPath, [path.join(plugin, "installer.mjs"), ...args], { env: s.env, encoding: "utf8", timeout: 10000 });
+    assert.equal(result.status, 2); assert.match(result.stderr, /needs a transaction ID|cannot be combined/);
+    console.log(`negative options: ${result.stderr.trim()}`);
+  }
+});
+
+
+test("record-dir CLI supports quoted paths outside home, previews without writes and records first installs", () => {
+  const s = sim(), recordDir = path.join(s.root, "records with 'quote");
+  const run = (args) => spawnSync(process.execPath, [path.join(plugin, "installer.mjs"), ...args], {
+    cwd: s.root, env: s.env, encoding: "utf8", timeout: 15000
+  });
+  const before = treeDigest(s.root);
+  const preview = run(["--dry-run", "--record-dir", path.basename(recordDir)]);
+  assert.equal(preview.status, 0, preview.stderr);
+  assert.equal(treeDigest(s.root), before);
+  for (let i = 0; i < 2; i++) {
+    const installed = run(["--record-dir", path.basename(recordDir)]);
+    assert.equal(installed.status, 0, installed.stderr);
+  }
+  const records = rollbackRecords(s, recordDir);
+  assert.equal(records.length, 2);
+  assert.ok(records.some((file) => path.basename(file).includes(`-from-none-to-${VERSION}.md`)));
+  assert.deepEqual(rollbackRecords(s), [], "custom directory replaces the default");
+  for (const file of records) {
+    const text = fs.readFileSync(file, "utf8");
+    assert.match(text, /Source commit: [a-f0-9]{40}/);
+    assert.match(text, /--rollback/);
+    assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+  }
+});
+
+test("record-dir option refuses missing values and recovery combinations without writes", () => {
+  const s = sim(), before = treeDigest(s.root);
+  for (const args of [["--record-dir"], ["--record-dir", "--config"],
+    ["--record-dir", s.root, "--recover", "id"], ["--rollback", "id", "--record-dir", s.root]]) {
+    const result = spawnSync(process.execPath, [path.join(plugin, "installer.mjs"), ...args], { env: s.env, encoding: "utf8", timeout: 10000 });
+    assert.equal(result.status, 2, result.stderr);
+    assert.match(result.stderr, /needs a directory|cannot be combined/);
+    console.log(`negative record-dir options: ${result.stderr.trim()}`);
+  }
+  assert.equal(treeDigest(s.root), before);
+});
+
+
+test("rollback record publication failure preserves activation and permits retry without overwriting a record", () => {
+  const s = legacyRelease(), recordDir = path.join(s.root, "records");
+  const link = fs.linkSync;
+  let collision;
+  fs.linkSync = (src, dest) => {
+    if (path.dirname(dest) === recordDir) {
+      collision = dest;
+      fs.writeFileSync(dest, "existing rollback record");
+    }
+    return link(src, dest);
+  };
+  try {
+    assert.throws(() => installPackage(plugin, s.env, { recordDir }), (error) => {
+      assert.match(error.message, /EEXIST.*transaction rolled-back/s);
+      console.log(`negative record collision: ${error.message}`);
+      return true;
+    });
+  } finally { fs.linkSync = link; }
+  s.activation.forEach((file, index) => assert.deepEqual(fs.readFileSync(file), s.before[index]));
+  assert.equal(fs.readFileSync(collision, "utf8"), "existing rollback record");
+  const retry = installPackage(plugin, s.env, { recordDir });
+  assert.equal(retry.status, "committed");
+  assert.notEqual(retry.rollbackRecord, collision);
+  assert.equal(fs.readFileSync(collision, "utf8"), "existing rollback record");
 });
