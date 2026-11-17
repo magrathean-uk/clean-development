@@ -1,8 +1,7 @@
-// clean-development 0.6.0: per-project .clean-development.json (schema v2; v1 files are read and migrated).
+// clean-development 0.8.0: per-project .clean-development.json (schema v2; v1 files are read and migrated).
 import fs from "node:fs";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
-import { canonicalPath, lastUsedMs, lstatOrNull, children, timeLeft } from "./fsutil.mjs";
+import { lstatOrNull, children } from "./fsutil.mjs";
 
 export const CONFIG = ".clean-development.json";
 export const SCHEMA_URL = "https://raw.githubusercontent.com/magrathean-uk/clean-development/main/schemas/project-config.schema.json";
@@ -27,9 +26,9 @@ export function validateV2(o) {
   return errors;
 }
 
-// Markers -> typical regenerable output. Only directories that git ignores are ever deleted (checked at deletion time).
-export function detectDirs(root) {
-  const has = (f) => lstatOrNull(path.join(root, f)) !== null;
+// Markers identify typical regenerable output for init.
+// `has(name)` says whether root/name exists; `names()` lists root's entries. Detection is shared by init and the legacy config reader.
+function dirsFrom(has, names) {
   const buildDirs = [];
   const depDirs = [];
   if (has("Package.swift")) buildDirs.push(".build");
@@ -37,12 +36,14 @@ export function detectDirs(root) {
   if (has("package.json")) { depDirs.push("node_modules"); for (const d of [".next", "dist", ".turbo"]) if (has(d)) buildDirs.push(d); }
   if (has("pyproject.toml") || has("requirements.txt")) { depDirs.push(".venv"); }
   if (has("Podfile")) depDirs.push("Pods");
-  if (children(root).some((d) => d.name.endsWith(".xcodeproj") || d.name.endsWith(".xcworkspace")) && has("DerivedData")) buildDirs.push("DerivedData");
+  if (names().some((n) => n.endsWith(".xcodeproj") || n.endsWith(".xcworkspace")) && has("DerivedData")) buildDirs.push("DerivedData");
   return { buildDirs: [...new Set(buildDirs)], depDirs: [...new Set(depDirs)] };
 }
-
-export function migrateV1(o, root) {
-  const d = root ? detectDirs(root) : { buildDirs: [], depDirs: [] };
+export function detectDirs(root) {
+  return dirsFrom((f) => lstatOrNull(path.join(root, f)) !== null, () => children(root).map((d) => d.name));
+}
+export function migrateV1(o, root, detect = detectDirs) {
+  const d = root ? detect(root) : { buildDirs: [], depDirs: [] };
   const out = { $schema: SCHEMA_URL, schemaVersion: 2, enabled: o?.enabled !== false };
   if (d.buildDirs.length) out.buildDirs = d.buildDirs;
   if (d.depDirs.length) out.depDirs = d.depDirs;
@@ -50,93 +51,28 @@ export function migrateV1(o, root) {
   return { config: out, dropped };
 }
 
-export function loadProjectConfig(root) {
-  if (!root) return null;
-  const file = path.join(root, CONFIG);
-  const st = lstatOrNull(file);
-  if (!st) return null;
+// The meaning of a configuration file's text: v2 validated, v1 validated and migrated (its directories detected by
+// `detect`), anything else invalid.
+function interpretConfig(file, text, root, detect) {
   let raw;
-  try { raw = JSON.parse(fs.readFileSync(file, "utf8")); } catch (e) { return { file, ok: false, errors: [`invalid JSON (${e.message})`] }; }
+  try { raw = JSON.parse(text); } catch (e) { return { file, ok: false, errors: [`invalid JSON (${e.message})`] }; }
   if (raw?.schemaVersion === 1) {
     const errors = Object.keys(raw).filter((k) => !V1_KEYS.has(k)).map((k) => `unknown v1 key ${k}`);
     if (raw.enabled !== undefined && typeof raw.enabled !== "boolean") errors.push("enabled must be a boolean");
     if (raw.$schema !== undefined && (typeof raw.$schema !== "string" || !raw.$schema.length)) errors.push("$schema must be a non-empty string");
-    const m = migrateV1(raw, root);
+    const m = migrateV1(raw, root, detect);
     return { file, ok: errors.length === 0, version: 1, config: errors.length ? null : m.config, errors, migrate: true };
   }
   const errors = validateV2(raw);
   return { file, ok: errors.length === 0, version: raw?.schemaVersion, config: errors.length ? null : raw, errors };
 }
 
-// Nearest ancestor of cwd (stopping at home) that holds .clean-development.json, else the git top level, else null.
-export function findProjectRoot(cwd, home) {
-  if (!cwd || !path.isAbsolute(cwd)) return null;
-  let dir = path.resolve(cwd);
-  while (true) {
-    if (lstatOrNull(path.join(dir, CONFIG)) || lstatOrNull(path.join(dir, ".git"))) return canonicalPath(dir);
-    const parent = path.dirname(dir);
-    if (parent === dir || dir === home) return null;
-    dir = parent;
-  }
-}
-
-export function isGitIgnored(root, rel, { deadline = Infinity, onBlocked = () => {} } = {}) {
-  const timeout = timeLeft(deadline, 200);
-  if (!timeout) { onBlocked("deadline", rel); return false; }
-  const r = spawnSync("/usr/bin/git", ["-C", root, "check-ignore", "-q", "--", rel], { stdio: "ignore", timeout, killSignal: "SIGKILL" });
-  if (r.error || (r.status !== 0 && r.status !== 1)) onBlocked(r.error?.code || `git exit ${r.status}`, rel);
-  return !r.error && r.status === 0;
-}
-
-function existingIgnored(root, rels, options) {
-  const out = [];
-  for (const rel of rels || []) {
-    if (!validRel(rel)) continue;
-    const p = path.join(root, rel);
-    const st = lstatOrNull(p);
-    if (!st || !st.isDirectory() || st.isSymbolicLink()) continue;
-    if (isGitIgnored(root, rel, options)) out.push(p);
-  }
-  return out;
-}
-
-// Build directories a project declares (v2 buildDirs), existing and git-ignored.
-export function projectBuildDirs(root, options = {}) {
-  if (!root) return [];
-  const pc = loadProjectConfig(root);
-  if (!pc?.ok || !pc.config || pc.config.enabled === false) return [];
-  return existingIgnored(root, pc.config.buildDirs, options);
-}
-
-// Activity of a repository: newest of git index/HEAD/FETCH_HEAD and its top-level entries.
-export function repoLastUsedMs(root) {
-  const marks = [lastUsedMs(root, 500)];
-  for (const f of [".git/index", ".git/HEAD", ".git/FETCH_HEAD", ".git/logs/HEAD"]) marks.push(lstatOrNull(path.join(root, f))?.mtimeMs || 0);
-  return Math.max(...marks);
-}
-
-// Declared build and dependency directories of a repository idle for longer than maxAgeMs.
-export function projectAgedDirs(root, maxAgeMs, now = Date.now(), options = {}) {
-  const pc = loadProjectConfig(root);
-  if (!pc?.ok || !pc.config || pc.config.enabled === false) return [];
-  if (now - repoLastUsedMs(root) <= maxAgeMs) return [];
-  return existingIgnored(root, [...(pc.config.buildDirs || []), ...(pc.config.depDirs || [])], options);
-}
-
-// Top-level repositories in ~/dev/source (tolerates dead symlinks while external storage is unavailable).
-export function sourceRepos(home) {
-  const src = path.join(home, "dev", "source");
-  const repos = [];
-  const dead = [];
-  for (const d of children(src)) {
-    const p = path.join(src, d.name);
-    if (d.isSymbolicLink()) {
-      let target = "";
-      try { target = fs.readlinkSync(p); } catch { /* unreadable */ }
-      try { fs.statSync(p); } catch { dead.push({ name: d.name, target }); continue; }
-      continue; // live symlinks to external projects are not scanned for pruning
-    }
-    if (d.isDirectory()) repos.push(p);
-  }
-  return { repos, dead };
+export function loadProjectConfig(root) {
+  if (!root) return null;
+  const file = path.join(root, CONFIG);
+  const st = lstatOrNull(file);
+  if (!st) return null;
+  let text;
+  try { text = fs.readFileSync(file, "utf8"); } catch (e) { return { file, ok: false, errors: [`invalid JSON (${e.message})`] }; }
+  return interpretConfig(file, text, root, detectDirs);
 }

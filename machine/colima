@@ -26,23 +26,6 @@ if [ -z "$real" ]; then
   echo "colima: the Homebrew colima binary was not found" >&2
   exit 127
 fi
-# Mutual exclusion with `clean-development vm colima-rehome` (two flags): announce this run first, then look for the
-# rehome fence; the rehome takes its fence first, then looks for runs. Whichever comes second sees the other and stops.
-# The run marker lives for the whole colima command (no exec), so a start cannot pass the check and act after a rehome.
-mkdir -p "$COLIMA_HOME" || exit 73
-run="$COLIMA_HOME/.cd-colima-run.$$"
-trap 'rm -f "$run"' EXIT
-trap 'exit 129' HUP
-trap 'exit 130' INT
-trap 'exit 143' TERM
-(umask 077; echo "$$" > "$run") || exit 73
-fence="$COLIMA_HOME/.cd-rehome.lock"
-if [ -e "$fence" ]; then
-  # Held while a rehome runs; left behind only if one was killed. Either way nothing may start until it is resolved.
-  echo "colima: $fence exists: a colima-rehome is running or was interrupted ($(head -c 64 "$fence" 2>/dev/null | tr -d '\n'))." >&2
-  echo "colima: if none runs (check its pid), remove the fence, then finish with clean-development vm colima-rehome --rollback <manifest> --apply (manifests in the Clean Development records directory)" >&2
-  exit 75
-fi
 LIMA_HOME="$COLIMA_HOME/_lima"
 export LIMA_HOME
-"$real" "$@"
+exec "$real" "$@"

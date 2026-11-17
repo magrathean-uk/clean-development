@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { createHash } from "node:crypto";
 
-export const DIGEST_ALGORITHM = "sha256(sorted-relative-name,NUL,decimal-permissions,NUL,bytes)";
+export const DIGEST_ALGORITHM = "sha256(sorted-relative-name,NUL,executable-bit,NUL,bytes)";
 export function treeDigest(root) {
   const st = fs.lstatSync(root);
   if (!st.isDirectory() || st.isSymbolicLink()) throw new Error(`release root is not a real directory: ${root}`);
@@ -13,7 +13,7 @@ export function treeDigest(root) {
       const p = path.join(dir, name), r = path.join(rel, name), st = fs.lstatSync(p);
       if (st.isSymbolicLink()) throw new Error(`release contains a symlink: ${p}`);
       if (st.isDirectory()) walk(p, r);
-      else if (st.isFile()) h.update(r).update("\0").update(String(st.mode & 0o777)).update("\0").update(fs.readFileSync(p));
+      else if (st.isFile()) h.update(r).update("\0").update(String(Number((st.mode & 0o111) !== 0))).update("\0").update(fs.readFileSync(p));
       else throw new Error(`release contains a special file: ${p}`);
     }
   }

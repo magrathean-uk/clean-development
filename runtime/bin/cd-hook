@@ -1,6 +1,7 @@
 #!/bin/sh
-# clean-development 0.6.0 hook launcher: cd-hook <session-start|stop|session-end> <claude|codex>
+# clean-development 0.8.0 hook launcher: cd-hook <session-start|stop|session-end> <claude|codex>
 # Finds Node from the installer, standard user installs or PATH. A missing runtime never fails the calling session.
+case "${1:-}" in stop|session-end) exit 0 ;; esac
 rt="${0%/bin/cd-hook}"
 node_ok() {
   [ -x "$1" ] && "$1" -e 'const [major, minor] = process.versions.node.split(".").map(Number); process.exit(major < 20 || (major === 20 && minor < 12) ? 1 : 0)' >/dev/null 2>&1

@@ -1,12 +1,12 @@
-// clean-development 0.6.2: external volume detection (by name + mount + writable probe) and cache-root layout.
+// clean-development 0.8.0: external volume detection (by name + mount + writable probe) and cache-root layout.
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { children, safeDirectory, sizeBytes, sleepMs, strictlyBelow } from "./fsutil.mjs";
+import { safeDirectory, sleepMs, strictlyBelow } from "./fsutil.mjs";
 import { homeDir } from "./conf.mjs";
 
 // One real write: exclusive create, write, fsync, close, unlink. access(2) and `test -w` miss macOS removable-volume
-// denials and read-only remounts; a single transient failure pinned whole sessions internal for days in 0.6.0.
+// denials and read-only remounts; a single transient failure previously pinned whole sessions internal for days.
 export function writeProbe(dir) {
   const f = path.join(dir, `probe-${process.pid}-${Date.now()}-${randomUUID().slice(0, 8)}.tmp`);
   let fd;
@@ -64,12 +64,6 @@ export function detect(conf, env = process.env, { probe = true, create = true } 
   return out;
 }
 
-// Cheap check used for reaping: is the external cache present right now (no write)?
-export function externalAvailable(conf, env = process.env) {
-  return detect(conf, env, { probe: false, create: false }).mode === "external";
-}
-
-export function rootFor(conf, mode) { return mode === "external" ? conf.externalCache : conf.internalRoot; }
 // Work root for worktrees, jobs and bundles (env.zsh exports it as CLEAN_DEV_WORK): writable parent of LAB_ROOT when
 // strictly below the mounted volume, otherwise writable EXTERNAL_ROOT; if neither works, use ~/dev/machine.
 export function externalWorkRoot(conf) {
@@ -103,19 +97,8 @@ export function ensureLayout(root) {
   return l;
 }
 
-// Top-level entries of a cache root that 0.6.0 does not manage (anything but deps/ builds/ scratch/ trash/ and probe files).
-// They are outside the dependency cap and the pruning rules, so doctor and status report them with sizes.
-export const MANAGED_TOP = new Set(["deps", "builds", "scratch", "trash"]);
-export function rootExtras(root, { sizes = true, timeoutMs = 15000 } = {}) {
-  return children(root).filter((d) => !MANAGED_TOP.has(d.name) && !/^probe-.*\.tmp$/.test(d.name) && d.name !== ".DS_Store")
-    .map((d) => ({ name: d.name, path: path.join(root, d.name), bytes: sizes ? sizeBytes(path.join(root, d.name), timeoutMs) : null }));
-}
-
 export function freeBytes(p) {
   try { const s = fs.statfsSync(p); return Number(s.bavail) * Number(s.bsize); } catch { return null; }
 }
-// Free space on the internal disk: the internal cache root, or HOME (same disk) before that root exists.
-export function internalFreeBytes(conf, env = process.env) { return freeBytes(conf.internalRoot) ?? freeBytes(homeDir(env)); }
-
 export const GB = 1024 ** 3;
 export const fmtGB = (b) => (b === null || b === undefined ? "unknown" : `${(b / GB).toFixed(b < 10 * GB ? 1 : 0)} GB`);

@@ -1,34 +1,27 @@
-# Clean Development 0.6.8 environment routing for macOS.
+# Clean Development 0.8.0 environment routing for macOS.
 # Loaded by EVERY zsh through ~/.zshenv (interactive or not, login or not; agent tool shells included), again at the end
 # of ~/.zprofile (path_helper reorders PATH in login shells), and sourced by bash 3.2 scripts.
 # Keep it POSIX: no zsh-only or bash-only syntax. Idempotent. Never prints to stdout, never exits, last command succeeds.
+# It creates missing routed folders under the cache root (nothing at all with DEV_ENV_INSPECT_ONLY=1).
 #
 # Storage (single source: ~/dev/machine/storage.conf):
 #   external mode  the configured $EXTERNAL_VOLUME is mounted and $EXTERNAL_CACHE is a writable directory
 #                  -> DEVCACHE=$EXTERNAL_CACHE
-#   internal mode  otherwise -> DEVCACHE=$INTERNAL_ROOT (~/dev/machine/cache). Normal, not an error.
-#   Cache root layout: deps/ (shared dependency caches, 30 GB LRU cap), builds/ (build output), scratch/<session>/,
-#   trash/ (pending deletes). Cleanup is done by the clean-development hooks, never by this file.
+#   internal mode  otherwise -> DEVCACHE=$INTERNAL_ROOT (~/dev/machine/cache). Normal, not an error. Dependency caches
+#                  and builds route to the internal root too; nothing falls back to tool defaults.
+#   Cache root layout: deps/ (shared dependency caches), builds/ (build output), scratch/<key>/tmp (agent TMPDIR).
+#   Every shell decides the mode itself (fork-free probe below), so storage follows the drive.
 #
-# Agent sessions (0.6.2+: storage follows the drive, per shell):
-#   The session key comes from CLAUDE_CODE_SESSION_ID (Claude Code sets it in every Bash tool and hook process) or
-#   CODEX_THREAD_ID (Codex sets it in every exec command): key = c-<last 12 chars> or x-<last 12 chars>.
-#   A non-empty CLAUDE_CODE_SESSION_ID wins, so Codex's shell_environment_policy.set must blank it (CLAUDE_CODE_SESSION_ID
-#   = ""): a Codex started from a Claude shell would otherwise inherit it and run in the Claude session's scratch.
-#   Every shell decides the mode itself (fork-free probe below): the external volume when its cache is mounted and writable, the
-#   internal disk otherwise. A session can therefore hold scratch and builds on both roots; the hooks record the roots
-#   it used and clean its entries on both. ~/dev/machine/state/clean-development/sessions/<key>.mode registers the
-#   session for cleanup (written by the SessionStart hook, or by the first shell when no hook ran); its first line is
-#   the mode when it was written, never a routing order. A shell that finds the external volume gone after the session
-#   used it warns once; that root's scratch and builds wait for the drive.
-#   A session gets TMPDIR=$DEVCACHE/scratch/<key>/tmp and CLEAN_DEV_BUILDS=$DEVCACHE/builds/<key>.
-#   CLEAN_DEV_WORK is the work root for worktrees, jobs and bundles: a writable parent of LAB_ROOT below the mounted
-#   volume, otherwise writable EXTERNAL_ROOT, otherwise ~/dev/machine.
+# Agent shells: CLAUDE_CODE_SESSION_ID (Claude Code sets it in every Bash tool and hook process) or CODEX_THREAD_ID
+#   (Codex sets it in every exec command) names the key: c-<last 12 chars> or x-<last 12 chars>. A non-empty
+#   CLAUDE_CODE_SESSION_ID wins, so Codex's shell_environment_policy.set blanks it. Ids shorter than 12 characters or
+#   with a placeholder token (unset, placeholder, stub, ...) get no key. An agent shell gets
+#   TMPDIR=$DEVCACHE/scratch/<key>/tmp and CLEAN_DEV_BUILDS=$DEVCACHE/builds/<key>.
+# Terminal shells (Warp, launchd, scripts) keep the macOS per-user TMPDIR, repaired only when it is missing or on
+#   removable media, and get CLEAN_DEV_BUILDS=$DEVCACHE/builds/shell.
+# CLEAN_DEV_WORK is the work root for worktrees, jobs and bundles: a writable parent of LAB_ROOT below the mounted
+#   volume, otherwise writable EXTERNAL_ROOT, otherwise ~/dev/machine
 #   ($W/worktrees/<repo>/<task>, $W/jobs/<project>, $W/bundles/<repo>).
-#   Ids shorter than 12 characters or with a placeholder token (unset, placeholder, stub, ...) get no key (plain shell).
-#   With no harness id, an inherited CLEAN_DEV_SESSION is the key when CLEAN_DEV_STAMP ends in "|<that key>": a child
-#   started with `clean-development run --clean-env` (no CLAUDE_* variables) keeps its session's scratch and builds.
-#   Plain shells (Warp, launchd) detect the mode on every start (fork-free) and leave TMPDIR at the macOS default.
 #
 # Precedence: CLEAN_DEV_STAMP="<mode>|<root>|<key>" is exported. When an inherited stamp equals the one computed here,
 #   the shell sits in a tree this file already routed, so a routing variable that arrives non-empty is KEPT (a script's
@@ -38,13 +31,15 @@
 # Test only: DEV_STORAGE_VOLUME_TEST=absent treats the external volume as absent; =present (alias =mounted, the runtime's
 #   name) is the normal probe: the external cache directory must exist and be writable (it never fakes a mount); =strict
 #   applies the zsh device check to fixture volumes too (it can only make routing stricter).
-#   DEV_ENV_INSPECT_ONLY=1 never writes (no mkdir, no pin) so inspection tools can source this file safely.
+#   DEV_ENV_INSPECT_ONLY=1 never writes (no mkdir, no env.private.zsh) so inspection tools can source this file safely.
 
 export DEV="$HOME/dev"
 export DEVMACHINE="$DEV/machine"
-export CLEAN_DEV_VERSION=0.6.8
+export CLEAN_DEV_VERSION=0.8.0
 
 # ---- storage.conf (defaults first; the file may override every key) -------------------------------------------
+# The accepted key set matches the runtime's reader, so one file stays valid for both. Only the path keys route here;
+# the other keys are validated and ignored (keys the sample no longer carries stay accepted for existing files).
 unset STORAGE_CONF_VERSION EXTERNAL_VOLUME EXTERNAL_ROOT EXTERNAL_CACHE INTERNAL_ROOT LAB_ROOT MODELS_ROOT SD_VOLUME \
   DEPS_CAP_GB DEPS_MIN_IDLE_HOURS EXTERNAL_BUILD_DAYS EXTERNAL_PRUNE_EVERY_DAYS INTERNAL_BUILD_IDLE_HOURS \
   SESSION_STALE_HOURS BIG_DOWNLOAD_GB INTERNAL_MIN_FREE_GB DEV_TOP_ALLOW HOME_DOT_ALLOW HOME_DOTFILE_ALLOW DEV_DOT_ALLOW
@@ -140,23 +135,17 @@ if [ "$__cd_conf_ok" != 1 ]; then
   case $- in *i*) printf 'env.zsh: storage.conf is invalid (paths must be absolute, EXTERNAL_ROOT under /Volumes/%s); external storage disabled\n' "$EXTERNAL_VOLUME" >&2 ;; esac
   INTERNAL_ROOT="$DEVMACHINE/cache"
 fi
-__cd_state="$DEVMACHINE/state/clean-development"
 
-# ---- session key ------------------------------------------------------------------------------------------------
+# ---- agent key ----------------------------------------------------------------------------------------------------
 __cd_id=""; __cd_h=""; __cd_key=""; __cd_idbad=""
 if [ -n "${CLAUDE_CODE_SESSION_ID:-}" ]; then __cd_id="$CLAUDE_CODE_SESSION_ID"; __cd_h=c
 elif [ -n "${CODEX_THREAD_ID:-}" ]; then __cd_id="$CODEX_THREAD_ID"; __cd_h=x
-elif [ -n "${CLEAN_DEV_SESSION:-}" ]; then
-  # Inherit only a stamp this file could have written: "<mode>|<that mode's cache root>|<key>", with the key's pin
-  # still present (a reaped session's leftover variables route nowhere).
-  case "${CLEAN_DEV_SESSION:-}|${CLEAN_DEV_STAMP:-}" in
-    [cx]-????????????"|external|$EXTERNAL_CACHE|$CLEAN_DEV_SESSION"|[cx]-????????????"|internal|$INTERNAL_ROOT|$CLEAN_DEV_SESSION")
-      if [ -f "$__cd_state/sessions/$CLEAN_DEV_SESSION.mode" ] && [ ! -L "$__cd_state/sessions/$CLEAN_DEV_SESSION.mode" ]; then __cd_h="${CLEAN_DEV_SESSION%%-*}"; __cd_id="${CLEAN_DEV_SESSION#?-}"; fi ;;
-  esac
 fi
-# Same rule as the runtime's sessionIdProblem (sessions.mjs): 12+ characters, no placeholder token.
+# 12+ ASCII letters/digits/_/-, no lower- or uppercase placeholder token at hyphen/underscore boundaries.
 if [ -n "$__cd_id" ]; then
   [ "${#__cd_id}" -ge 12 ] || __cd_idbad="shorter than 12 characters"
+  # Explicit ASCII list: bracket ranges are locale-dependent (bash 3.2 under UTF-8 accepted "é" in A-Z).
+  case "$__cd_id" in *[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-]*) __cd_idbad="non-ASCII or invalid character" ;; esac
   case "-$__cd_id-" in
     *[-_]unset[-_]*|*[-_]UNSET[-_]*|*[-_]placeholder[-_]*|*[-_]PLACEHOLDER[-_]*|*[-_]changeme[-_]*|*[-_]CHANGEME[-_]*|\
     *[-_]dummy[-_]*|*[-_]DUMMY[-_]*|*[-_]example[-_]*|*[-_]EXAMPLE[-_]*|*[-_]stub[-_]*|*[-_]STUB[-_]*|\
@@ -167,106 +156,90 @@ fi
 if [ -n "$__cd_id" ] && [ -z "$__cd_idbad" ]; then
   __cd_pre="${__cd_id%????????????}"
   if [ "$__cd_pre" = "$__cd_id" ]; then __cd_tail="$__cd_id"; else __cd_tail="${__cd_id#"$__cd_pre"}"; fi
-  # Explicit ASCII lists: bracket ranges are locale-dependent (bash 3.2 under UTF-8 accepted "é" in A-Z).
-  case "$__cd_tail" in ''|*[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-]*) ;; *) __cd_key="$__cd_h-$__cd_tail" ;; esac
+  __cd_key="$__cd_h-$__cd_tail"
 elif [ -n "$__cd_idbad" ]; then
-  case $- in *i*) printf 'env.zsh: session id rejected (%s); this shell gets no session scratch or pin\n' "$__cd_idbad" >&2 ;; esac
+  case $- in *i*) printf 'env.zsh: agent id rejected (%s); this shell gets no agent scratch\n' "$__cd_idbad" >&2 ;; esac
 fi
 
 # ---- mode (fork-free probe: name-based path, directory present, writable) ----------------------------------------
-__cd_why=""
 __cd_ext_ok() {
-  [ "${DEV_STORAGE_VOLUME_TEST:-}" = absent ] && { __cd_why="test: volume treated as absent"; return 1; }
-  [ "$__cd_conf_ok" = 1 ] || { __cd_why="storage.conf invalid"; return 1; }
-  [ -d "$EXTERNAL_CACHE" ] || { __cd_why="$EXTERNAL_CACHE missing"; return 1; }
-  [ -w "$EXTERNAL_CACHE" ] && [ -x "$EXTERNAL_CACHE" ] || { __cd_why="$EXTERNAL_CACHE not writable (test -w)"; return 1; }
-  # Mount identity (0.6.2: every shell routes by itself, so a stale mount point must not pass): in zsh, which runs every
-  # agent shell, the zstat builtin compares devices without a fork, as the runtime does. The mount point must sit on a
-  # different device from /Volumes and the cache on the mount point's. Bash 3.2 scripts keep the
-  # existence and write checks. Fixture volumes (not /Volumes/<name>) skip the check unless the test asks for it.
-  __cd_mp="${EXTERNAL_ROOT%%/Volumes/"$EXTERNAL_VOLUME"*}/Volumes/$EXTERNAL_VOLUME"
+  [ "${DEV_STORAGE_VOLUME_TEST:-}" = absent ] && return 1
+  [ "$__cd_conf_ok" = 1 ] || return 1
+  [ -d "$EXTERNAL_CACHE" ] || return 1
+  [ -w "$EXTERNAL_CACHE" ] && [ -x "$EXTERNAL_CACHE" ] || return 1
+  # Mount identity (a stale mount point must not pass): in zsh, which runs every agent shell, the zstat builtin compares
+  # devices without a fork, as the runtime does. The mount point must sit on a different device from /Volumes and the
+  # cache on the mount point's. Bash 3.2 scripts keep the existence and write checks. Fixture volumes (not
+  # /Volumes/<name>) skip the check unless the test asks for it.
   if [ -n "${ZSH_VERSION:-}" ] && { [ "$__cd_mp" = "/Volumes/$EXTERNAL_VOLUME" ] || [ "${DEV_STORAGE_VOLUME_TEST:-}" = strict ]; } \
     && zmodload -F zsh/stat b:zstat 2>/dev/null; then
     __cd_dm=""; __cd_dp=""; __cd_dc=""
     zstat -A __cd_dm +device -- "$__cd_mp" 2>/dev/null; zstat -A __cd_dp +device -- "${__cd_mp%/*}" 2>/dev/null
     zstat -A __cd_dc +device -- "$EXTERNAL_CACHE" 2>/dev/null
-    if [ -z "$__cd_dm" ] || [ "$__cd_dm" = "$__cd_dp" ] || [ "$__cd_dc" != "$__cd_dm" ]; then __cd_why="$__cd_mp is not a mounted volume (device check)"; return 1; fi
+    if [ -z "$__cd_dm" ] || [ "$__cd_dm" = "$__cd_dp" ] || [ "$__cd_dc" != "$__cd_dm" ]; then return 1; fi
   fi
-  __cd_why="$EXTERNAL_CACHE writable (test -w)"
+  return 0
 }
-__cd_mode=""; __cd_lost=0; __cd_pinned=""
-# Every shell follows the drive: no pin decides the mode.
-if __cd_ext_ok; then __cd_mode=external; else __cd_mode=internal; fi
-if [ -n "$__cd_key" ]; then
-  __cd_pin="$__cd_state/sessions/$__cd_key.mode"
-  if [ -r "$__cd_pin" ]; then { IFS= read -r __cd_pinned < "$__cd_pin"; } 2>/dev/null; fi
-  case "$__cd_pinned" in
-    external|internal) ;;
-    *)
-      # Register the session for cleanup (no hook ran). Second line records why; readers use the first line only.
-      if [ "${DEV_ENV_INSPECT_ONLY:-}" != 1 ]; then
-        [ -d "$__cd_state/sessions" ] || mkdir -p "$__cd_state/sessions" 2>/dev/null
-        { printf '%s\n# env.zsh %s\n' "$__cd_mode" "$__cd_why" > "$__cd_pin"; } 2>/dev/null
-      fi
-      ;;
-  esac
-  if [ "$__cd_pinned" = external ] && [ "$__cd_mode" = internal ]; then __cd_lost=1; fi
-fi
-if [ "$__cd_mode" = external ]; then __cd_root="$EXTERNAL_CACHE"; else __cd_root="$INTERNAL_ROOT"; fi
-if [ "$__cd_lost" = 1 ] && [ ! -e "$__cd_state/sessions/$__cd_key.lost" ]; then
-  printf 'clean-development: the %s volume is not available now; this shell uses internal storage (%s), where all development can continue. This session'"'"'s %s scratch and builds wait for the drive.\n' "$EXTERNAL_VOLUME" "$INTERNAL_ROOT" "$EXTERNAL_VOLUME" >&2
-  if [ "${DEV_ENV_INSPECT_ONLY:-}" != 1 ]; then { : > "$__cd_state/sessions/$__cd_key.lost"; } 2>/dev/null; fi
-fi
+__cd_mp="${EXTERNAL_ROOT%%/Volumes/"$EXTERNAL_VOLUME"*}/Volumes/$EXTERNAL_VOLUME"
+if __cd_ext_ok; then __cd_mode=external; __cd_root="$EXTERNAL_CACHE"; else __cd_mode=internal; __cd_root="$INTERNAL_ROOT"; fi
 
 __cd_stamp="$__cd_mode|$__cd_root|$__cd_key"
 __cd_keep=0
 if [ "${CLEAN_DEV_STAMP:-}" = "$__cd_stamp" ]; then __cd_keep=1; fi
+# Create routed folders only under the selected root; host-managed locations stay untouched.
+__cd_ensure_dir() {
+  if [ "${DEV_ENV_INSPECT_ONLY:-}" != 1 ]; then
+    case "$1" in "$__cd_root"|"$__cd_root"/*) [ -d "$1" ] || mkdir -p "$1" 2>/dev/null || : ;; esac
+  fi
+  return 0
+}
 # __cd_route NAME VALUE: export NAME=VALUE, except inside an already-routed tree (same stamp) where a non-empty
 # inherited NAME is kept.
 __cd_route() {
-  if [ "$__cd_keep" = 1 ]; then
-    eval "__cd_cur=\${$1:-}"
-    if [ -n "$__cd_cur" ]; then eval "export $1"; return 0; fi
-  fi
-  eval "$1=\$2; export $1"
+  __cd_cur=""
+  if [ "$__cd_keep" = 1 ]; then eval "__cd_cur=\${$1:-}"; fi
+  if [ -z "$__cd_cur" ]; then __cd_cur="$2"; fi
+  eval "$1=\$__cd_cur; export $1"
+  __cd_ensure_dir "$__cd_cur"
 }
 CLEAN_DEV_MODE="$__cd_mode"; CLEAN_DEV_STAMP="$__cd_stamp"
 # Work root: prefer LAB_ROOT's writable parent below the mounted volume; fall back to writable EXTERNAL_ROOT.
 CLEAN_DEV_WORK="$DEVMACHINE"
 if [ "$__cd_mode" = external ]; then
-  __cd_mount="$__cd_mp"
   __cd_lab_parent="${LAB_ROOT%/*}"
   __cd_work=""
   case "$__cd_lab_parent" in
-    "$__cd_mount"/*) if [ -d "$__cd_lab_parent" ] && [ -w "$__cd_lab_parent" ] && [ -x "$__cd_lab_parent" ]; then __cd_work="$__cd_lab_parent"; fi ;;
+    "$__cd_mp"/*) if [ -d "$__cd_lab_parent" ] && [ -w "$__cd_lab_parent" ] && [ -x "$__cd_lab_parent" ]; then __cd_work="$__cd_lab_parent"; fi ;;
   esac
   if [ -z "$__cd_work" ] && [ -d "$EXTERNAL_ROOT" ] && [ -w "$EXTERNAL_ROOT" ] && [ -x "$EXTERNAL_ROOT" ]; then __cd_work="$EXTERNAL_ROOT"; fi
   if [ -n "$__cd_work" ]; then CLEAN_DEV_WORK="$__cd_work"; fi
 fi
 export CLEAN_DEV_MODE CLEAN_DEV_STAMP CLEAN_DEV_WORK
 __cd_route DEVCACHE "$__cd_root"
+unset CLEAN_DEV_SESSION  # retired 0.6.x name; nothing reads it
 
-# ---- session scratch and builds ------------------------------------------------------------------------------------
+# ---- agent scratch and builds; terminal TMPDIR -------------------------------------------------------------------
 if [ -n "$__cd_key" ]; then
-  CLEAN_DEV_SESSION="$__cd_key"
   CLEAN_DEV_SCRATCH="$__cd_root/scratch/$__cd_key"
   CLEAN_DEV_BUILDS="$__cd_root/builds/$__cd_key"
-  export CLEAN_DEV_SESSION CLEAN_DEV_SCRATCH CLEAN_DEV_BUILDS
+  export CLEAN_DEV_SCRATCH CLEAN_DEV_BUILDS
+  __cd_ensure_dir "$CLEAN_DEV_BUILDS"
   if [ ! -d "$CLEAN_DEV_SCRATCH/tmp" ] && [ "${DEV_ENV_INSPECT_ONLY:-}" != 1 ]; then
     (umask 077; mkdir -p "$CLEAN_DEV_SCRATCH/tmp") 2>/dev/null
   fi
   if [ -d "$CLEAN_DEV_SCRATCH/tmp" ] || [ "${DEV_ENV_INSPECT_ONLY:-}" = 1 ]; then
     TMPDIR="$CLEAN_DEV_SCRATCH/tmp"; export TMPDIR
   else
-    case $- in *i*) printf 'env.zsh: could not create session scratch %s; TMPDIR left unchanged\n' "$CLEAN_DEV_SCRATCH/tmp" >&2 ;; esac
+    case $- in *i*) printf 'env.zsh: could not create agent scratch %s; TMPDIR left unchanged\n' "$CLEAN_DEV_SCRATCH/tmp" >&2 ;; esac
   fi
   __cd_route CLEAN_DEVELOPMENT_SCRATCH_ROOT "$CLEAN_DEV_SCRATCH"
 else
-  unset CLEAN_DEV_SESSION CLEAN_DEV_SCRATCH CLEAN_DEV_BUILDS
-  # Plain shells keep the macOS per-user TMPDIR. Repair an inherited TMPDIR that is missing, on removable media or the
-  # retired legacy scratch path (the GUI domain used to carry an external-volume cache path).
+  unset CLEAN_DEV_SCRATCH
+  __cd_route CLEAN_DEV_BUILDS "$__cd_root/builds/shell"
+  # Terminal shells keep the macOS per-user TMPDIR. Repair an inherited TMPDIR that is missing, on removable media or
+  # an agent scratch path (the GUI domain used to carry an external-volume cache path).
   case "${TMPDIR:-}" in
-    '') ;;
+    '') __cd_fix_tmp=1 ;;
     /Volumes/*|"$DEV/cache"|"$DEV/cache/"*|"$INTERNAL_ROOT/scratch"|"$INTERNAL_ROOT/scratch/"*|"$EXTERNAL_CACHE/scratch"|"$EXTERNAL_CACHE/scratch/"*) __cd_fix_tmp=1 ;;
     *) if [ -d "$TMPDIR" ]; then __cd_fix_tmp=0; else __cd_fix_tmp=1; fi ;;
   esac
@@ -336,9 +309,9 @@ export PATH
 # Optional host-specific settings are trusted shell code. Inspection mode must remain read-only and side-effect free.
 if [ "${DEV_ENV_INSPECT_ONLY:-}" != 1 ] && [ -r "$DEVMACHINE/env.private.zsh" ]; then . "$DEVMACHINE/env.private.zsh"; fi
 
-unset -f __cd_route __cd_ext_ok __cd_path_front
-unset __cd_conf_ok __cd_p __cd_state __cd_id __cd_idbad __cd_why __cd_h __cd_key __cd_pre __cd_tail __cd_pin __cd_pinned __cd_mode __cd_lost __cd_root __cd_mp __cd_dm __cd_dp __cd_dc \
-  __cd_stamp __cd_keep __cd_cur __cd_fix_tmp __cd_defined __cd_line __cd_k __cd_v __cd_expand __cd_rest __cd_result __cd_name __cd_repl __cd_cache __cd_work __cd_lab_parent __cd_mount
+unset -f __cd_ensure_dir __cd_route __cd_ext_ok __cd_path_front
+unset __cd_conf_ok __cd_p __cd_id __cd_idbad __cd_h __cd_key __cd_pre __cd_tail __cd_mode __cd_root __cd_mp __cd_dm __cd_dp __cd_dc \
+  __cd_stamp __cd_keep __cd_cur __cd_fix_tmp __cd_defined __cd_line __cd_k __cd_v __cd_expand __cd_rest __cd_result __cd_name __cd_repl __cd_cache __cd_work __cd_lab_parent
 unset STORAGE_CONF_VERSION EXTERNAL_VOLUME EXTERNAL_ROOT EXTERNAL_CACHE INTERNAL_ROOT LAB_ROOT MODELS_ROOT SD_VOLUME \
   DEPS_CAP_GB DEPS_MIN_IDLE_HOURS EXTERNAL_BUILD_DAYS EXTERNAL_PRUNE_EVERY_DAYS INTERNAL_BUILD_IDLE_HOURS \
   SESSION_STALE_HOURS BIG_DOWNLOAD_GB INTERNAL_MIN_FREE_GB DEV_TOP_ALLOW HOME_DOT_ALLOW HOME_DOTFILE_ALLOW DEV_DOT_ALLOW
