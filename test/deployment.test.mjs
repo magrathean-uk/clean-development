@@ -7,8 +7,8 @@ import { pathToFileURL } from "node:url";
 import { hookShimPath, hookShimText, runtimeRoot, VERSION } from "../runtime/lib/conf.mjs";
 import { installPackage, treeDigest } from "../installer.mjs";
 import { cli, sim, mk, plugin, privateSourceEnabled, privateTestSource, privateTestValue } from "./helpers.mjs";
-// Darwin-only: a test that spawns a real hook, CLI or installer needs the kernel flock.
-const test = process.platform === "darwin" ? nodeTest : (name, ...a) => { const fn = a.at(-1), o = typeof a[0] === "object" ? a[0] : {}; return nodeTest(name, /\b(hook|cli)\(|install\.sh|installer\.mjs|cd-hook|clean-development\.mjs/.test(String(fn)) ? { ...o, skip: "Darwin-only: spawns a real hook, CLI or installer (kernel flock)" } : o, fn); };
+// Darwin-only: a test that spawns a real hook, CLI or installer, or runs installPackage, needs the kernel flock.
+const test = process.platform === "darwin" ? nodeTest : (name, ...a) => { const fn = a.at(-1), o = typeof a[0] === "object" ? a[0] : {}; return nodeTest(name, /\b(hook|cli|installPackage)\(|install\.sh|installer\.mjs|cd-hook|clean-development\.mjs/.test(String(fn)) ? { ...o, skip: "Darwin-only: spawns a real hook, CLI or installer (kernel flock)" } : o, fn); };
 
 const root = path.dirname(plugin);
 const python = process.env.CLEAN_DEV_TEST_PYTHON || ["/opt/homebrew/bin/python3", "/usr/local/bin/python3", "/usr/bin/python3"].find((p) => fs.existsSync(p) && spawnSync(p, ["-I", "-c", "import tomllib"]).status === 0) || "python3";
