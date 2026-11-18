@@ -418,16 +418,28 @@ test("abrupt installer death is explicitly recoverable without deleting the publ
   assert.equal(child.status, 71, child.stderr);
   const transactions = path.join(s.home, "dev", "machine", "state", "clean-development", "installations");
   const id = fs.readdirSync(transactions)[0];
-  const receipt = JSON.parse(fs.readFileSync(path.join(transactions, id, "receipt.json")));
+  const receiptFile = path.join(transactions, id, "receipt.json");
+  const receipt = JSON.parse(fs.readFileSync(receiptFile));
   assert.equal(receipt.status, "activating");
+  assert.equal(fs.existsSync(receipt.rollbackRecord), true, "the unfinished install published a rollback record");
   fs.unlinkSync(path.join(s.home, "dev/machine/state/clean-development/install.lock"));
   assert.throws(() => installPackage(plugin, s.env), /unfinished install transaction/);
-  const recovered = spawnSync("/bin/sh", [path.join(plugin, "install.sh"), "--recover", id], {
+  const recover = () => spawnSync("/bin/sh", [path.join(plugin, "install.sh"), "--recover", id], {
     cwd: s.root, env: { ...s.env, CLEAN_DEV_NODE: process.execPath }, encoding: "utf8", timeout: 10000 });
+  const unrelated = mk(path.join(s.root, "unrelated-record.md"), "keep");
+  fs.writeFileSync(receiptFile, JSON.stringify({ ...receipt, rollbackRecord: unrelated }));
+  const refused = recover();
+  assert.equal(refused.status, 1);
+  assert.match(refused.stderr, /unsafe rollback record path/);
+  assert.equal(fs.readFileSync(unrelated, "utf8"), "keep");
+  console.log(`negative recovery: ${refused.stderr.trim().split(": /")[0]}`);
+  fs.writeFileSync(receiptFile, JSON.stringify(receipt));
+  const recovered = recover();
   assert.equal(recovered.status, 0, recovered.stderr);
   assert.equal(fs.readFileSync(wrapper, "utf8"), "old activation\n");
   assert.equal(treeDigest(receipt.runtime), receipt.digest, "published immutable recovery bytes remain available");
-  assert.equal(JSON.parse(fs.readFileSync(path.join(transactions, id, "receipt.json"))).status, "rolled-back");
+  assert.equal(JSON.parse(fs.readFileSync(receiptFile)).status, "rolled-back");
+  assert.equal(fs.existsSync(receipt.rollbackRecord), false, "explicit recovery removes the unfinished install's record");
   installPackage(plugin, s.env);
   const activeWrapper = fs.readFileSync(wrapper, "utf8");
   const staleRecovery = spawnSync("/bin/sh", [path.join(plugin, "install.sh"), "--recover", id], {
@@ -575,6 +587,35 @@ function rollbackRecords(s, dir = path.join(runtimeRoot(s.env), "rollback")) {
   return fs.existsSync(dir) ? fs.readdirSync(dir).sort().map((name) => path.join(dir, name)) : [];
 }
 
+test("an open Claude or Codex session reuses its captured hook command across a runtime install", () => {
+  const s = legacyRelease(), cached = new Map();
+  fs.writeFileSync(s.wrapper, '#!/bin/sh\ncase "$1" in\n  version) echo 0.7.0;;\n  hook) echo "old release";;\n  *) exit 89;;\nesac\n');
+  for (const [harness, target] of Object.entries(s.hooks)) {
+    const oldPlugin = path.join(s.home, `.${harness}/plugins/cache/example-marketplace/clean-development/0.7.0`);
+    const skill = mk(path.join(oldPlugin, "skills/clean-development/SKILL.md"), "old skill for "+harness);
+    const fragment = fs.readFileSync(path.join(plugin, `fragments/${harness}-hooks.json`));
+    const oldHook = mk(path.join(oldPlugin, `fragments/${harness}-hooks.json`), fragment);
+    fs.writeFileSync(target, fragment);
+    const command = JSON.parse(fs.readFileSync(target)).hooks.SessionStart[0].hooks[0].command;
+    cached.set(harness, { command, oldPlugin, digest: treeDigest(oldPlugin), skill, oldHook });
+  }
+  const invoke = (command) => spawnSync("/bin/sh", ["-c", command], { env: s.env, encoding: "utf8", timeout: 2000 });
+  for (const { command } of cached.values()) {
+    const old = invoke(command);
+    assert.equal(old.status, 0, old.stderr); assert.equal(old.stdout, "old release\n");
+  }
+  const next = installPackage(plugin, s.env, { config: true });
+  assert.equal(next.version, VERSION);
+  for (const [harness, { command, oldPlugin, digest, skill, oldHook }] of cached) {
+    const result = invoke(command);
+    assert.equal(result.status, 0, result.stderr); assert.equal(result.stderr, "");
+    assert.match(JSON.parse(result.stdout).hookSpecificOutput.additionalContext, /mode=internal/);
+    assert.equal(treeDigest(oldPlugin), digest);
+    assert.equal(fs.readFileSync(skill, "utf8"), "old skill for "+harness);
+    assert.equal(JSON.parse(fs.readFileSync(oldHook)).hooks.SessionStart[0].hooks[0].command, command);
+  }
+});
+
 test("current release upgrade records rollback before switching, refreshes hooks and retains 0.7.0", () => {
   const s = legacyRelease();
   let record;
@@ -616,25 +657,102 @@ test("current release upgrade records rollback before switching, refreshes hooks
 
 for (const phase of ["rollback-recorded", "file-3", "layout-ready"]) {
   test(`upgrade failure at ${phase} restores all activation files and retry succeeds`, () => {
-    const s = legacyRelease();
-    assert.throws(() => installPackage(plugin, s.env, { config: true, onPhase: (current) => {
-      if (current === phase) throw new Error(`injected ${phase}`);
-    } }), /rolled-back/);
+    const s = legacyRelease(), recordDir = path.join(s.root, "custom records");
+    let record;
+    assert.throws(() => installPackage(plugin, s.env, { config: true, recordDir, onPhase: (current) => {
+      if (current !== phase) return;
+      [record] = rollbackRecords(s, recordDir);
+      assert.match(fs.readFileSync(record, "utf8"), /--rollback/);
+      throw new Error(`injected ${phase}`);
+    } }), (error) => {
+      assert.match(error.message, new RegExp(`injected ${phase}; transaction rolled-back`));
+      if (phase === "rollback-recorded") console.log(`negative activation: ${error.message.split(", recovery bytes:")[0]}`);
+      return true;
+    });
+    assert.deepEqual(rollbackRecords(s, recordDir), []);
     s.activation.forEach((file, index) => assert.deepEqual(fs.readFileSync(file), s.before[index]));
     assert.equal(treeDigest(s.legacy), s.legacyDigest);
-    assert.equal(installPackage(plugin, s.env, { config: true }).status, "committed");
+    const retry = installPackage(plugin, s.env, { config: true, recordDir });
+    assert.equal(retry.status, "committed");
+    assert.notEqual(retry.rollbackRecord, record);
+    assert.deepEqual(rollbackRecords(s, recordDir), [retry.rollbackRecord]);
   });
 }
 
-test("recorded rollback command restores a committed upgrade and refuses repeated rollback", () => {
-  const s = legacyRelease();
-  const installed = installPackage(plugin, s.env, { config: true });
-  const text = fs.readFileSync(rollbackRecords(s)[0], "utf8");
+for (const recovery of ["automatic restore", "explicit recovery"]) {
+  test(`${recovery} finishes even when the rollback record directory is read-only`, { skip: process.getuid?.() === 0 }, (t) => {
+    const s = legacyRelease(), recordDir = path.join(s.root, "read-only records");
+    const transactions = path.join(s.home, "dev/machine/state/clean-development/installations");
+    const runInstaller = (args) => spawnSync(process.execPath, args, {
+      cwd: s.root, env: s.env, encoding: "utf8", timeout: 15000 });
+    const sourceInstaller = path.join(plugin, "installer.mjs");
+    const makeReadOnly = () => {
+      fs.chmodSync(recordDir, 0o500);
+      t.after(() => fs.chmodSync(recordDir, 0o700));
+    };
+
+    if (recovery === "automatic restore") {
+      assert.throws(() => installPackage(plugin, s.env, { config: true, recordDir, onPhase: (phase) => {
+        if (phase !== "file-3") return;
+        makeReadOnly();
+        throw new Error("injected restore with read-only records");
+      } }), /injected restore with read-only records; transaction rolled-back/);
+    } else {
+      const script = `import { installPackage } from ${JSON.stringify(pathToFileURL(sourceInstaller).href)};
+        installPackage(${JSON.stringify(plugin)}, process.env, { config: true, recordDir: ${JSON.stringify(recordDir)},
+          onPhase: (phase) => { if (phase === "file-3") process.exit(71); } });`;
+      const child = runInstaller(["--input-type=module", "-e", script]);
+      assert.equal(child.status, 71, child.stderr);
+      assert.notDeepEqual(fs.readFileSync(s.wrapper), s.before[0], "activation started before recovery");
+      makeReadOnly();
+      const [id] = fs.readdirSync(transactions);
+      const result = runInstaller([sourceInstaller, "--recover", id]);
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(JSON.parse(result.stdout).status, "rolled-back");
+    }
+
+    const [id] = fs.readdirSync(transactions);
+    const receipt = JSON.parse(fs.readFileSync(path.join(transactions, id, "receipt.json")));
+    assert.equal(receipt.status, "rolled-back");
+    assert.match(receipt.rollbackRecordRemovalError, /^(EACCES|EPERM): .*unlink/);
+    console.log(`negative record removal (${recovery}): ${receipt.rollbackRecordRemovalError.split(", unlink ")[0]}`);
+    assert.equal(fs.existsSync(receipt.rollbackRecord), true, "the directory still prevents removal");
+    s.activation.forEach((file, index) => assert.deepEqual(fs.readFileSync(file), s.before[index]));
+    assert.equal(installPackage(plugin, s.env, { config: true }).status, "committed");
+    const staleRollback = runInstaller([path.join(receipt.runtime, "installer.mjs"), "--rollback", id]);
+    assert.equal(staleRollback.status, 1);
+    assert.match(staleRollback.stderr, /no committed transaction/);
+    console.log(`negative stale record (${recovery}): ${staleRollback.stderr.trim()}`);
+  });
+}
+
+test("recorded rollback command restores a committed upgrade after the package copy is deleted", () => {
+  const s = legacyRelease(), src = path.join(s.root, "package copy");
+  for (const name of ["runtime", "machine", "scripts", "fragments", "installer.mjs", "install-lock.mjs"])
+    fs.cpSync(path.join(plugin, name), path.join(src, name), { recursive: true });
+  mk(path.join(src, "VERSION"), `${VERSION}\n`);
+  const install = spawnSync(process.execPath, [path.join(src, "installer.mjs"), "--config"], {
+    cwd: s.root, env: s.env, encoding: "utf8", timeout: 15000 });
+  assert.equal(install.status, 0, install.stderr);
+  const installed = JSON.parse(install.stdout);
+  const text = fs.readFileSync(installed.rollbackRecord, "utf8");
   const command = text.split("```sh\n")[1].split("\n```")[0];
+  assert.ok(command.includes(`'${path.join(installed.runtime, "installer.mjs")}' --rollback`));
+  for (const name of ["installer.mjs", "install-lock.mjs"]) {
+    const file = path.join(installed.runtime, name), bytes = fs.readFileSync(file);
+    assert.deepEqual(bytes, fs.readFileSync(path.join(src, name)));
+    fs.appendFileSync(file, "\n// fixture digest change\n");
+    assert.notEqual(treeDigest(installed.runtime), installed.digest, `${name} affects the release digest`);
+    fs.writeFileSync(file, bytes);
+  }
+  fs.rmSync(src, { recursive: true });
+  assert.equal(spawnSync(s.wrapper, ["version"], { env: s.env, encoding: "utf8" }).stdout.trim(), VERSION);
   const result = spawnSync("/bin/sh", ["-c", command], { cwd: s.root, env: s.env, encoding: "utf8", timeout: 15000 });
   assert.equal(result.status, 0, result.stderr); assert.equal(JSON.parse(result.stdout).status, "rolled-back");
   s.activation.forEach((file, index) => assert.deepEqual(fs.readFileSync(file), s.before[index]));
+  assert.equal(spawnSync(s.wrapper, ["version"], { env: s.env, encoding: "utf8" }).stdout.trim(), "0.7.0");
   assert.equal(treeDigest(s.legacy), s.legacyDigest); assert.equal(treeDigest(installed.runtime), installed.digest);
+  assert.equal(fs.readFileSync(installed.rollbackRecord, "utf8"), text, "a committed transaction retains its record");
   const repeated = spawnSync("/bin/sh", ["-c", command], { cwd: s.root, env: s.env, encoding: "utf8", timeout: 15000 });
   assert.equal(repeated.status, 1); assert.match(repeated.stderr, /no committed transaction/);
   console.log(`negative rollback: ${repeated.stderr.trim()}`);
@@ -741,7 +859,7 @@ test("rollback record publication failure preserves activation and permits retry
   try {
     assert.throws(() => installPackage(plugin, s.env, { recordDir }), (error) => {
       assert.match(error.message, /EEXIST.*transaction rolled-back/s);
-      console.log(`negative record collision: ${error.message}`);
+      console.log(`negative record collision: ${error.message.split(", recovery bytes:")[0]}`);
       return true;
     });
   } finally { fs.linkSync = link; }

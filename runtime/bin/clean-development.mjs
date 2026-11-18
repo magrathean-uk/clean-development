@@ -44,9 +44,10 @@ async function main(argv) {
   if (command === "report") {
     const opts = options(args, ["--json", "--check"]);
     const { report, reportText } = await import("../lib/report.mjs");
-    const result = report();
+    const check = opts["--check"];
+    const result = report(process.env, { check });
     console.log(opts["--json"] ? JSON.stringify(result, null, 2) : reportText(result));
-    return opts["--check"] && (result.routing.length || result.errors.length) ? 1 : 0;
+    return check && (result.routing.length || result.errors.length) ? 1 : 0;
   }
   if (command === "cleanup") {
     const applyIndex = args.indexOf("--apply");

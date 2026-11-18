@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
+import { createHash } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { cli, mk, sim } from "./helpers.mjs";
 import { report, reportText } from "../runtime/lib/report.mjs";
@@ -36,10 +37,14 @@ function routed(s, mounted) {
     DEVCACHE: root, CLEAN_DEVELOPMENT_ROOT: root, TMPDIR: "/var/folders/terminal/T/" };
 }
 
-test("report shows behind homes and running older folders without changing check status or writing", () => {
+function restartSidecar(file, reasons) {
+  return JSON.stringify({ inventorySha256: createHash("sha256").update(fs.readFileSync(file)).digest("hex"), reasons });
+}
+
+test("report shows recorded restart reasons and behind homes without changing check status or writing", () => {
   const s = sim(); s.env = routed(s, true);
   assert.deepEqual(report(s.env).homes, []);
-  assert.doesNotMatch(cli(s, ["report", "--check"]).stdout, /agent homes:/);
+  assert.doesNotMatch(cli(s, ["report", "--check"]).stdout, /agent homes:|^restart /m);
   const file = mk(path.join(s.home, "dev/machine/state/clean-development/homes.txt"), [
     `home ${s.home}/.claude claude ${VERSION} 123456abcdef 234567abcdef`,
     `home ${s.home}/account with spaces codex 0.7.1 - -`,
@@ -47,6 +52,8 @@ test("report shows behind homes and running older folders without changing check
     `home ${s.home}/numbered/2 claude disabled - -`,
     `home ${s.home}/numbered/3 claude absent - -`
   ].join("\r\n") + "\r\n");
+  const reasons = ["skill-text", "skill-text", "none", "none", "none"];
+  mk(path.join(path.dirname(file), "homes-restarts.json"), restartSidecar(file, reasons));
   const before = snapshot(s.root);
   for (const check of [[], ["--check"]]) {
     const result = cli(s, ["report", "--json", ...check]);
@@ -56,22 +63,65 @@ test("report shows behind homes and running older folders without changing check
     assert.equal(homes[1].path, `${s.home}/account with spaces`);
     assert.equal(homes[2].runningOlder, true);
     assert.equal(homes[0].runningOlder, false);
+    assert.deepEqual(homes.map((home) => home.restartReason), reasons);
     const text = cli(s, ["report", ...check]);
     assert.equal(text.status, 0, text.stderr);
     assert.ok(text.stdout.includes(`agent homes: 2/5 current (${VERSION})`));
     for (const row of ["account with spaces: 0.7.1", "numbered/1: "+VERSION+" running-older", "numbered/2: disabled", "numbered/3: absent"])
       assert.ok(text.stdout.includes(row), text.stdout);
+    assert.deepEqual(text.stdout.split("\n").filter((line) => line.startsWith("restart ")), [
+      `restart ${s.home}/.claude skill-text`,
+      `restart ${s.home}/account with spaces skill-text`,
+      `restart ${s.home}/numbered/1 none`,
+      `restart ${s.home}/numbered/2 none`,
+      `restart ${s.home}/numbered/3 none`
+    ]);
   }
   assert.deepEqual(snapshot(s.root), before);
-  fs.writeFileSync(file, `home ${s.home}/.claude claude ${VERSION} - -\n`);
-  assert.match(cli(s, ["report", "--check"]).stdout, /agent homes: 1\/1 current/);
+});
+
+test("report uses unknown for unavailable restart metadata and reads it after repair", () => {
+  const s = sim(); s.env = routed(s, true);
+  const file = mk(path.join(s.home, "dev/machine/state/clean-development/homes.txt"),
+    `home /fixture claude ${VERSION} - - running-older\n`);
+  const sidecar = path.join(path.dirname(file), "homes-restarts.json");
+  const stale = restartSidecar(file, ["skill-text"]);
+  // Same home and row count, but a different inventory snapshot.
+  fs.writeFileSync(file, `home /fixture claude ${VERSION} 123456abcdef - running-older\n`);
+  const expectUnknown = (scenario, current = 1) => {
+    const result = cli(s, ["report", "--check"]);
+    assert.equal(result.status, 0, result.stderr);
+    assert.ok(result.stdout.includes(`agent homes: ${current}/1 current`));
+    assert.match(result.stdout, /^restart \/fixture unknown$/m);
+    assert.equal(report(s.env, { check: true }).homes[0].restartReason, "unknown");
+    console.log(`negative restart sidecar (${scenario}): exit ${result.status}; restart /fixture unknown`);
+  };
+  expectUnknown("missing");
+  fs.mkdirSync(sidecar);
+  expectUnknown("directory");
+  fs.rmdirSync(sidecar);
+  for (const [scenario, contents] of [
+    ["stale", stale], ["invalid JSON", "{"], ["short", restartSidecar(file, [])],
+    ["invalid reason", restartSidecar(file, ["reboot"])]
+  ]) {
+    fs.writeFileSync(sidecar, contents);
+    expectUnknown(scenario);
+  }
+  fs.writeFileSync(file, "home /fixture claude 1.0.0 - - running-older restart=skill-text\n");
+  expectUnknown("1.0.0 inventory before refresh", 0);
+  fs.writeFileSync(file, `home /fixture claude ${VERSION} 123456abcdef - running-older\n`);
+  fs.writeFileSync(sidecar, restartSidecar(file, ["skill-text"]));
+  const repaired = cli(s, ["report", "--check"]);
+  assert.equal(repaired.status, 0, repaired.stderr);
+  assert.match(repaired.stdout, /^restart \/fixture skill-text$/m);
 });
 
 test("report refuses malformed inventory trailing fields and retries after repair", () => {
   const s = sim(); s.env = routed(s, true);
   const file = mk(path.join(s.home, "dev/machine/state/clean-development/homes.txt"));
-  for (const line of ["home /fixture unknown 0.8.0 - -", "home /fixture claude 0.8.0 bad -",
-    "home /fixture claude 0.8.0 - - unknown", "home /fixture claude 0.8.0 -"]) {
+  for (const line of ["home /fixture unknown 1.0.0 - -", "home /fixture claude 1.0.0 bad -",
+    "home /fixture claude 1.0.0 - - unknown", "home /fixture claude 1.0.0 -",
+    "home /fixture claude 1.0.0 - - restart=unknown", "home /fixture claude 1.0.0 - - restart=none restart=skill-text"]) {
     fs.writeFileSync(file, line+"\n");
     const run = cli(s, ["report", "--check"]);
     assert.equal(run.status, 2);
@@ -178,6 +228,18 @@ test("report rejects apply and unsupported arguments without writes", () => {
   assert.deepEqual(snapshot(s.root), before);
 });
 
+
+test("report uses the supplied check option regardless of process arguments", () => {
+  const s = sim(), argv = process.argv;
+  try {
+    process.argv = argv.slice(0, 2);
+    assert.deepEqual(report(s.env, { check: true }).roots, []);
+    process.argv.push("--check");
+    assert.equal(report(s.env).roots.length, 2);
+  } finally {
+    process.argv = argv;
+  }
+});
 
 test("report --check never scans caches or sizes roots; plain report still does", () => {
   const s = sim();

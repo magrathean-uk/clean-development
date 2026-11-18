@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.0.1
+
+- First public 1.x release. The internal 1.0.0 release added a field to the agent-home inventory that the 0.8.0 report rejected after a package rollback. This release restores the 0.8.0 line format and records restart reasons in a sidecar.
+- The monorepo's `dev-parity` checks both release-local rollback modules against their package sources.
+
+## 1.0.0
+
+- Bundles the rollback installer and lock module in each release so the recorded command works after the source package is removed.
+- Removes the rollback record when an unfinished installation is restored.
+- Passes the report check option from the CLI to the report function.
+- Installs without restarting running sessions, refreshing the shared Clean Development hook and skill for numbered Claude profiles while preserving their previous snapshots.
+- Prints per-home restart reasons in the monorepo installer and report based on changes to the skill text loaded by each enabled home.
+- Freezes the interface in `CONTRACT.md` for 1.x: removing or renaming a contract item requires 2.0.
+
 ## 0.8.0
 
 - Fixes terminal TMPDIR preservation and validates the whole session ID as at least 12 ASCII letters, digits, underscores or hyphens. Routing and report share this rule and reject lower- or uppercase placeholder tokens delimited by hyphens, underscores or either end.

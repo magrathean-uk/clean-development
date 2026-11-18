@@ -1,6 +1,6 @@
 {
   "name": "clean-development",
-  "version": "0.8.0",
+  "version": "1.0.1",
   "private": true,
   "description": "Storage routing and session cleanup for configured macOS development workstations (Claude Code and Codex).",
   "type": "module",

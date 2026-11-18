@@ -1,4 +1,4 @@
-# Clean Development 0.8.0 environment routing for macOS.
+# Clean Development 1.0.1 environment routing for macOS.
 # Loaded by EVERY zsh through ~/.zshenv (interactive or not, login or not; agent tool shells included), again at the end
 # of ~/.zprofile (path_helper reorders PATH in login shells), and sourced by bash 3.2 scripts.
 # Keep it POSIX: no zsh-only or bash-only syntax. Idempotent. Never prints to stdout, never exits, last command succeeds.
@@ -35,7 +35,7 @@
 
 export DEV="$HOME/dev"
 export DEVMACHINE="$DEV/machine"
-export CLEAN_DEV_VERSION=0.8.0
+export CLEAN_DEV_VERSION=1.0.1
 
 # ---- storage.conf (defaults first; the file may override every key) -------------------------------------------
 # The accepted key set matches the runtime's reader, so one file stays valid for both. Only the path keys route here;

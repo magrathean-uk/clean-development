@@ -1,4 +1,4 @@
-# Clean Development 0.8.0
+# Clean Development 1.0.1
 
 Clean Development routes development caches, build output and scratch files to configured storage, and helps clear them safely. It is designed for macOS workstations using Claude Code or Codex. OpenCode can use the environment routing.
 
@@ -11,7 +11,7 @@ git clone https://github.com/magrathean-uk/clean-development.git
 cd clean-development
 ```
 
-See [CONTRACT.md](CONTRACT.md) for the public surface proposed for the 1.0 freeze.
+See [CONTRACT.md](CONTRACT.md) for the public surface frozen for every 1.x release.
 
 ## What it does
 
