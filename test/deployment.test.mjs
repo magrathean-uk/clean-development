@@ -587,6 +587,35 @@ function rollbackRecords(s, dir = path.join(runtimeRoot(s.env), "rollback")) {
   return fs.existsSync(dir) ? fs.readdirSync(dir).sort().map((name) => path.join(dir, name)) : [];
 }
 
+test("an open Claude or Codex session reuses its captured hook command across a runtime install", () => {
+  const s = legacyRelease(), cached = new Map();
+  fs.writeFileSync(s.wrapper, '#!/bin/sh\ncase "$1" in\n  version) echo 0.7.0;;\n  hook) echo "old release";;\n  *) exit 89;;\nesac\n');
+  for (const [harness, target] of Object.entries(s.hooks)) {
+    const oldPlugin = path.join(s.home, `.${harness}/plugins/cache/example-marketplace/clean-development/0.7.0`);
+    const skill = mk(path.join(oldPlugin, "skills/clean-development/SKILL.md"), "old skill for "+harness);
+    const fragment = fs.readFileSync(path.join(plugin, `fragments/${harness}-hooks.json`));
+    const oldHook = mk(path.join(oldPlugin, `fragments/${harness}-hooks.json`), fragment);
+    fs.writeFileSync(target, fragment);
+    const command = JSON.parse(fs.readFileSync(target)).hooks.SessionStart[0].hooks[0].command;
+    cached.set(harness, { command, oldPlugin, digest: treeDigest(oldPlugin), skill, oldHook });
+  }
+  const invoke = (command) => spawnSync("/bin/sh", ["-c", command], { env: s.env, encoding: "utf8", timeout: 2000 });
+  for (const { command } of cached.values()) {
+    const old = invoke(command);
+    assert.equal(old.status, 0, old.stderr); assert.equal(old.stdout, "old release\n");
+  }
+  const next = installPackage(plugin, s.env, { config: true });
+  assert.equal(next.version, VERSION);
+  for (const [harness, { command, oldPlugin, digest, skill, oldHook }] of cached) {
+    const result = invoke(command);
+    assert.equal(result.status, 0, result.stderr); assert.equal(result.stderr, "");
+    assert.match(JSON.parse(result.stdout).hookSpecificOutput.additionalContext, /mode=internal/);
+    assert.equal(treeDigest(oldPlugin), digest);
+    assert.equal(fs.readFileSync(skill, "utf8"), "old skill for "+harness);
+    assert.equal(JSON.parse(fs.readFileSync(oldHook)).hooks.SessionStart[0].hooks[0].command, command);
+  }
+});
+
 test("current release upgrade records rollback before switching, refreshes hooks and retains 0.7.0", () => {
   const s = legacyRelease();
   let record;

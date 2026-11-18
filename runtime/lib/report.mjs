@@ -1,6 +1,7 @@
 // Read-only storage inventory. No session registration, probes or cached measurements.
 import fs from "node:fs";
 import path from "node:path";
+import { createHash } from "node:crypto";
 import { homeDir, loadConf, stateDir, VERSION } from "./conf.mjs";
 import { detect, freeBytes, workRoot } from "./storage.mjs";
 
@@ -68,16 +69,31 @@ function agentShell(env) {
     !id.split(/[-_]/).some((token) => (token === token.toLowerCase() || token === token.toUpperCase()) && placeholders.has(token.toLowerCase()));
 }
 
+function restartReasons(dir, inventory, count) {
+  try {
+    const file = path.join(dir, "homes-restarts.json");
+    if (!fs.lstatSync(file).isFile()) return;
+    const { inventorySha256, reasons } = JSON.parse(fs.readFileSync(file, "utf8"));
+    if (inventorySha256 === createHash("sha256").update(inventory).digest("hex") &&
+        Array.isArray(reasons) && reasons.length === count &&
+        reasons.every((reason) => reason === "skill-text" || reason === "none")) return reasons;
+  } catch { /* Restart metadata is optional. */ }
+}
+
 function agentHomes(env) {
-  let text;
-  try { text = fs.readFileSync(path.join(stateDir(env), "homes.txt"), "utf8"); }
+  const dir = stateDir(env);
+  let inventory;
+  try { inventory = fs.readFileSync(path.join(dir, "homes.txt")); }
   catch (error) { if (error.code === "ENOENT") return []; throw error; }
-  return text.split(/\r?\n/).filter((line) => line.trim()).map((line) => {
+  const lines = inventory.toString("utf8").split(/\r?\n/).filter((line) => line.trim());
+  const reasons = restartReasons(dir, inventory, lines.length);
+  return lines.map((line, index) => {
     // Read fixed trailing columns so a home path can contain spaces.
-    const row = /^home (.+) (claude|codex) (\S+) ([a-f0-9]{12}|-) ([a-f0-9]{12}|-)( running-older)?(?: restart=(skill-text|none))?$/.exec(line);
+    // Accept 1.0.0 rows until the next home refresh rewrites the inventory.
+    const row = /^home (.+) (claude|codex) (\S+) ([a-f0-9]{12}|-) ([a-f0-9]{12}|-)( running-older)?(?: restart=(?:skill-text|none))?$/.exec(line);
     if (!row) throw new Error("invalid agent home inventory line");
     return { path: row[1], harness: row[2], version: row[3], hook: row[4], skill: row[5],
-      runningOlder: !!row[6], restartReason: row[7] ?? "none" };
+      runningOlder: !!row[6], restartReason: reasons?.[index] ?? "unknown" };
   });
 }
 

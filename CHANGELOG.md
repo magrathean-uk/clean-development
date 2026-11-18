@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.1
+
+- First public 1.x release. The internal 1.0.0 release added a field to the agent-home inventory that the 0.8.0 report rejected after a package rollback. This release restores the 0.8.0 line format and records restart reasons in a sidecar.
+- The monorepo's `dev-parity` checks both release-local rollback modules against their package sources.
+
 ## 1.0.0
 
 - Bundles the rollback installer and lock module in each release so the recorded command works after the source package is removed.

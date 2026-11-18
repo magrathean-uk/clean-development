@@ -1,10 +1,10 @@
-// clean-development 1.0.0: storage.conf reader and machine paths. No dependencies.
+// clean-development 1.0.1: storage.conf reader and machine paths. No dependencies.
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { strictlyBelow } from "./fsutil.mjs";
 
-export const VERSION = "1.0.0";
+export const VERSION = "1.0.1";
 
 export function homeDir(env = process.env) {
   const h = env.HOME && path.isAbsolute(env.HOME) ? env.HOME : os.homedir();
