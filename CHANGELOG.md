@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.0
+
+- Bundles the rollback installer and lock module in each release so the recorded command works after the source package is removed.
+- Removes the rollback record when an unfinished installation is restored.
+- Passes the report check option from the CLI to the report function.
+- Installs without restarting running sessions, refreshing the shared Clean Development hook and skill for numbered Claude profiles while preserving their previous snapshots.
+- Prints per-home restart reasons in the monorepo installer and report based on changes to the skill text loaded by each enabled home.
+- Freezes the interface in `CONTRACT.md` for 1.x: removing or renaming a contract item requires 2.0.
+
 ## 0.8.0
 
 - Fixes terminal TMPDIR preservation and validates the whole session ID as at least 12 ASCII letters, digits, underscores or hyphens. Routing and report share this rule and reject lower- or uppercase placeholder tokens delimited by hyphens, underscores or either end.

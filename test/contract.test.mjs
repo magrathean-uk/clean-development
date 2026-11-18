@@ -5,7 +5,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { cli, hook, mk, plugin, sim, snapshot } from "./helpers.mjs";
-import { VERSION } from "../runtime/lib/conf.mjs";
+import { loadConf, VERSION } from "../runtime/lib/conf.mjs";
 import { installPackage } from "../installer.mjs";
 
 const self = fileURLToPath(import.meta.url);
@@ -94,6 +94,166 @@ fs.renameSync = (from, to) => {
 function installer(s, args) {
   return spawnSync(process.execPath, [path.join(plugin, "installer.mjs"), ...args], { cwd: s.root, env: s.env, encoding: "utf8", timeout: 30000 });
 }
+
+// Inventory actual inputs rather than freezing a second list of user settings in the test.
+function packageSources() {
+  const files = ["machine/env.zsh", "install.sh", "installer.mjs", "install-lock.mjs"];
+  function visit(dir) {
+    for (const entry of fs.readdirSync(path.join(plugin, dir), { withFileTypes: true })) {
+      const name = path.posix.join(dir, entry.name);
+      if (entry.isDirectory()) visit(name); else if (entry.isFile()) files.push(name);
+    }
+  }
+  visit("runtime");
+  return Object.fromEntries(files.map((name) => [name, fs.readFileSync(path.join(plugin, name), "utf8")]));
+}
+const uncomment = (text, shell = false) => text.split("\n")
+  .filter((line) => !line.trimStart().startsWith(shell ? "#" : "//")).join("\n");
+const tokens = (text, pattern) => [...text.matchAll(pattern)].map((m) => m[1] || m[2]);
+function shellReads(text) {
+  return tokens(uncomment(text, true), /\$(?:\{#?([A-Za-z_][A-Za-z_0-9]*)|([A-Za-z_][A-Za-z_0-9]*))/g);
+}
+function jsReads(text) {
+  const code = uncomment(text);
+  const names = tokens(code, /(?<![\w.$/"'])(?:process\.)?env\s*(?:\.\s*([A-Za-z_][A-Za-z_0-9]*)|\[\s*["']([A-Za-z_][A-Za-z_0-9]*)["']\s*\])/g);
+  for (const [, fields] of code.matchAll(/\{([^{}]+)\}\s*=\s*(?:process\.)?env\b/g)) {
+    for (const field of fields.split(",")) {
+      const match = field.trim().match(/^([A-Za-z_][A-Za-z_0-9]*)(?:\s*[:=]|\s*$)/);
+      assert.ok(match, `untracked destructured environment read: ${field.trim()}`);
+      names.push(match[1]);
+    }
+  }
+  return names;
+}
+function policyKeys(files) {
+  const shell = files["machine/env.zsh"].match(/case "\$__cd_k" in\s*([\s\S]*?)\)\s*;;/);
+  assert.ok(shell, "storage shell key inventory");
+  const shellKeys = shell[1].replace(/\\\s*\n/g, "").split("|").map((s) => s.trim());
+  const conf = files["runtime/lib/conf.mjs"];
+  const declaration = conf.match(/const keys = new Set\(\[([\s\S]*?)\]\)/);
+  assert.ok(declaration, "storage runtime key inventory");
+  const runtimeKeys = tokens(declaration[1], /"([A-Z][A-Z_0-9]*)"/g);
+  for (const [, name] of declaration[1].matchAll(/\.\.\.(?:Object\.keys\()?([A-Z_]+)\)?/g)) {
+    const block = conf.match(new RegExp(`const ${name} = ([\\[{])([\\s\\S]*?)[\\]}];`));
+    assert.ok(block, `storage key group ${name}`);
+    runtimeKeys.push(...tokens(block[2], block[1] === "{" ? /\b([A-Z][A-Z_0-9]*)\s*:/g : /"([A-Z][A-Z_0-9]*)"/g));
+  }
+  equalSet(new Set(shellKeys), new Set(runtimeKeys), "storage accepted keys in shell and runtime");
+  return new Set(runtimeKeys);
+}
+function activePolicyKeys(files, accepted) {
+  const shell = files["machine/env.zsh"];
+  const start = shell.indexOf("# The runtime computes dependent defaults");
+  assert.ok(start >= 0, "storage shell use boundary");
+  const used = new Set(shellReads(shell.slice(start)).filter((name) => accepted.has(name)));
+  const conf = uncomment(files["runtime/lib/conf.mjs"]);
+  const runtime = Object.entries(files).filter(([name]) => name.startsWith("runtime/")).map(([, text]) => uncomment(text)).join("\n");
+  const properties = new Set(tokens(runtime, /\b(?:conf|\w+\.conf)\s*(?:\.\s*([A-Za-z_][A-Za-z_0-9]*)|\[\s*["']([A-Za-z_][A-Za-z_0-9]*)["']\s*\])/g));
+  const consumers = Object.entries(files).filter(([name]) => name.startsWith("runtime/") && name !== "runtime/lib/conf.mjs")
+    .map(([, text]) => uncomment(text)).join("\n");
+  for (const property of tokens(consumers, /\.\s*([A-Za-z_][A-Za-z_0-9]*)|\[\s*["']([A-Za-z_][A-Za-z_0-9]*)["']\s*\]/g)) properties.add(property);
+  const mapping = new Map([...conf.matchAll(/\b([A-Za-z_][A-Za-z_0-9]*)\s*:\s*v(?:\.([A-Z][A-Z_0-9]*)|\[\s*["']([A-Z][A-Z_0-9]*)["']\s*\])/g)].map((m) => [m[2] || m[3], m[1]]));
+  for (const key of tokens(conf, /\bv(?:\.([A-Z][A-Z_0-9]*)|\[\s*["']([A-Z][A-Z_0-9]*)["']\s*\])/g)) {
+    if (!mapping.has(key) || properties.has(mapping.get(key))) used.add(key);
+  }
+  for (const property of properties) {
+    const key = property.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toUpperCase();
+    if (accepted.has(key)) used.add(key);
+    for (const [name, field] of mapping) if (field === property) used.add(name);
+  }
+  return used;
+}
+function checkInputContract(text, files) {
+  const accepted = policyKeys(files), active = activePolicyKeys(files, accepted);
+  const settings = table(text, "Storage settings", 3);
+  const documented = new Set(settings.map(([name]) => name));
+  assert.equal(documented.size, settings.length, "contract duplicate storage setting");
+  const ignoredText = section(text, "Storage settings").split(/^### Ignored\s*$/m);
+  assert.equal(ignoredText.length, 2, "storage ignored list");
+  const ignoredNames = tokens(ignoredText[1], /`([A-Z][A-Z_0-9]*)`/g), ignored = new Set(ignoredNames);
+  assert.equal(ignored.size, ignoredNames.length, "contract duplicate ignored storage key");
+  for (const name of active) assert.ok(documented.has(name), `contract storage settings: undocumented ${name}`);
+  for (const name of documented) assert.ok(active.has(name), `contract storage settings: unread ${name}`);
+  equalSet(ignored, [...accepted].filter((name) => !active.has(name)), "contract ignored storage keys");
+  const home = "/contract-fixture-home", defaults = loadConf({ HOME: home }, { text: "" });
+  assert.ok(defaults.valid, "storage runtime defaults are valid");
+  for (const [name, value] of settings) {
+    const field = Object.hasOwn(defaults, name) ? name : name.toLowerCase().replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+    assert.ok(Object.hasOwn(defaults, field), `contract storage default field: ${name}`);
+    const expanded = value.replaceAll("${EXTERNAL_VOLUME}", defaults.externalVolume)
+      .replaceAll("${EXTERNAL_ROOT}", defaults.externalRoot).replaceAll("$HOME", home);
+    assert.equal(expanded, String(defaults[field]), `contract storage default: ${name}`);
+  }
+
+  const reads = new Set();
+  for (const [name, code] of Object.entries(files)) {
+    const shell = !name.endsWith(".mjs");
+    for (const input of shell ? shellReads(code) : jsReads(code)) reads.add(input);
+    if (!shell) for (const [, index] of uncomment(code).matchAll(/(?<![\w.$/"'])(?:process\.)?env\s*\[\s*([^\]]+)\s*\]/g)) {
+      assert.ok(/^["'][A-Za-z_][A-Za-z_0-9]*["']$/.test(index.trim()) || (name === "runtime/lib/report.mjs" && index.trim() === "name"),
+        `untracked dynamic environment read: ${name} [${index.trim()}]`);
+    }
+  }
+  const cacheList = files["runtime/lib/report.mjs"].match(/const CACHE_VARIABLES = \[([\s\S]*?)\]/);
+  assert.ok(cacheList, "runtime cache variable inventory");
+  for (const name of tokens(cacheList[1], /"([A-Za-z_][A-Za-z_0-9]*)"/g)) reads.add(name);
+  // These are shell locals, a shell-provided version marker, and fault-injection controls, not user settings.
+  const nonUser = new Set(["n", "node", "path_node", "src", "rt", "ZSH_VERSION", "DEV_STORAGE_VOLUME_TEST",
+    "CLEAN_DEV_PROBE_RETRY_MS", "CLEAN_DEV_TEST_BIN_DIR", "CLEAN_DEV_TEST_BOOT", "CLEAN_DEV_TEST_LOCK_REFUSE",
+    "CLEAN_DEV_TEST_STATFS_TYPE", "CLEAN_DEV_TEST_STOP_AT"]);
+  const variables = new Set(table(text, "User variables", 2).map(([name]) => name));
+  const exports = new Set(table(text, "Routing exports", 2).map(([name]) => name));
+  for (const name of reads) {
+    if (name.startsWith("__") || nonUser.has(name) || accepted.has(name)) continue;
+    assert.ok(variables.has(name) || exports.has(name), `contract user variables: undocumented ${name}`);
+  }
+  for (const name of variables) assert.ok(reads.has(name), `contract user variables: unread ${name}`);
+  assert.match(section(text, "Compatibility"), /Every 1\.x release keeps every item in this contract\. Removing or renaming a contract item requires 2\.0\./,
+    "contract compatibility rule");
+}
+
+test("contract user variables, storage settings and compatibility follow source reads", () => {
+  checkInputContract(source(), packageSources());
+});
+
+test("contract storage path defaults agree with a fixture shell", () => {
+  const s = fixture(), files = packageSources(), shell = files["machine/env.zsh"];
+  fs.unlinkSync(s.config);
+  const marker = "\nunset STORAGE_CONF_VERSION", end = shell.lastIndexOf(marker);
+  assert.ok(end >= 0, "shell storage capture point");
+  const start = shell.indexOf("# The runtime computes dependent defaults");
+  const names = [...activePolicyKeys(files, policyKeys(files))].filter((name) => shellReads(shell.slice(start)).includes(name));
+  const capture = `\nprintf '%s\\n' ${names.map((name) => `"$${name}"`).join(" ")}\n`;
+  const file = mk(path.join(s.root, "capture-env.zsh"), shell.slice(0, end) + capture + shell.slice(end));
+  const run = spawnSync("/bin/zsh", ["-f", file], {
+    cwd: s.root, env: { ...s.env, DEV_ENV_INSPECT_ONLY: "1" }, encoding: "utf8", timeout: 15000
+  });
+  assert.equal(run.status, 0, run.stderr);
+  const defaults = loadConf({ HOME: s.home }, { text: "" });
+  const values = names.map((name) => defaults[name.toLowerCase().replace(/_([a-z])/g, (_, c) => c.toUpperCase())]);
+  assert.deepEqual(run.stdout.trimEnd().split("\n"), values, "contract shell storage defaults");
+});
+
+test("contract input inventory rejects missing and unread entries", () => {
+  const text = source(), files = packageSources();
+  const reject = (label, fn, diagnostic) => assert.throws(fn, (error) => {
+    assert.match(error.message, diagnostic);
+    console.log(`negative ${label}: ${error.message.split("\n")[0]}`);
+    return true;
+  });
+  reject("new user variable", () => checkInputContract(text, { ...files, "install.sh": files["install.sh"] + '\n: "${CLEAN_DEV_FUTURE:-}"\n' }), /undocumented CLEAN_DEV_FUTURE/);
+  reject("bracket user variable", () => checkInputContract(text, { ...files, "installer.mjs": files["installer.mjs"] + '\nprocess.env["CLEAN_DEV_FUTURE"];\n' }), /undocumented CLEAN_DEV_FUTURE/);
+  reject("destructured user variable", () => checkInputContract(text, { ...files, "installer.mjs": files["installer.mjs"] + '\nconst { CLEAN_DEV_FUTURE: future } = process.env;\n' }), /undocumented CLEAN_DEV_FUTURE/);
+  reject("dynamic user variable", () => checkInputContract(text, { ...files, "installer.mjs": files["installer.mjs"] + '\nenv[untracked];\n' }), /untracked dynamic environment read/);
+  reject("unread user variable", () => checkInputContract(text.replace("| CLEAN_DEV_NODE |", "| CLEAN_DEV_MISSING | Unused. |\n| CLEAN_DEV_NODE |"), files), /unread CLEAN_DEV_MISSING/);
+  reject("new storage read", () => checkInputContract(text, { ...files, "runtime/lib/hook.mjs": files["runtime/lib/hook.mjs"] + "\nconf.BIG_DOWNLOAD_GB;\n" }), /undocumented BIG_DOWNLOAD_GB/);
+  reject("aliased storage read", () => checkInputContract(text, { ...files, "runtime/lib/hook.mjs": files["runtime/lib/hook.mjs"] + "\npolicy.BIG_DOWNLOAD_GB;\n" }), /undocumented BIG_DOWNLOAD_GB/);
+  reject("unknown storage read", () => checkInputContract(text, { ...files, "runtime/lib/conf.mjs": files["runtime/lib/conf.mjs"].replace("const v = parsed.values;", 'const v = parsed.values; if (v["FUTURE_STORAGE"]) warnings.push("future");') }), /undocumented FUTURE_STORAGE/);
+  reject("unread storage key", () => checkInputContract(text.replace("| MODELS_ROOT | /Volumes/${EXTERNAL_VOLUME}/models |", "| MISSING_ROOT | none | Unused. |\n| MODELS_ROOT | /Volumes/${EXTERNAL_VOLUME}/models |"), files), /unread MISSING_ROOT/);
+  reject("extra ignored key", () => checkInputContract(text.replace("### Ignored\n", "### Ignored\n`MISSING_STORAGE` "), files), /contract ignored storage keys/);
+  reject("storage default", () => checkInputContract(text.replace("| INTERNAL_MIN_FREE_GB | 40 |", "| INTERNAL_MIN_FREE_GB | 41 |"), files), /contract storage default: INTERNAL_MIN_FREE_GB/);
+  reject("compatibility", () => checkInputContract(text.replace("requires 2.0.", "requires a later release."), files), /contract compatibility rule/);
+});
 
 // Parser boundary tests also make accidental table/fence omissions fail clearly.
 test("contract parser delimiters and malformed input", () => {
@@ -346,6 +506,10 @@ test("contract install layout, records, locks and rollback paths", { skip: proce
   } });
   const receipt = JSON.parse(fs.readFileSync(installed.receipt)), T = receipt.id;
   assert.equal(installed.runtime, at("release"), "contract release path");
+  for (const entry of ["rollback-installer", "rollback-lock-module"]) {
+    assert.ok(fs.existsSync(at(entry)), `contract installed ${entry}`);
+    assert.ok(fs.statSync(at(entry)).isFile(), `contract installed ${entry}`);
+  }
   assert.equal(installed.receipt, at("receipt").replace(/\bT\b/g, T), "contract receipt path");
   assert.equal(installed.rollbackRecord, at("record").replace(/\bT\b/g, T).replace(/\bF\b/g, "none"), "contract rollback path");
   assert.equal(path.join(path.dirname(installed.runtime), staged), at("staging").replace(/\bT\b/g, T), "contract staging path");
@@ -359,7 +523,7 @@ test("contract install layout, records, locks and rollback paths", { skip: proce
   for (const sub of ["deps", "builds", "scratch", "trash"]) assert.ok(fs.statSync(path.join(s.int, sub)).isDirectory());
   const recordText = fs.readFileSync(installed.rollbackRecord, "utf8");
   assert.match(recordText, /Source commit: unavailable \(source is not a Git checkout\)/);
-  assert.ok(recordText.includes(`--rollback '${T}'`));
+  assert.ok(recordText.includes(`'${at("rollback-installer")}' --rollback '${T}'`));
   const again = installPackage(src, s.env, { config: true, recordDir: path.join(s.root, "custom-records") });
   assert.equal(path.dirname(again.rollbackRecord), path.join(s.root, "custom-records"));
   assert.notEqual(installed.receipt, again.receipt);
@@ -387,7 +551,9 @@ test("contract negative fixture copies reject each kind of drift", () => {
     ["routing export", "| DEVCACHE | R |", "| RENAMED_CACHE | R |", "routing RENAMED_CACHE"],
     ["schema keys", "| 2 | heavy |", "| 2 | renamed_heavy |", "schema v2"],
     ["hook command", "cd-hook\" session-start <", "cd-hook\" renamed-start <", "hook command"],
-    ["install layout", "| cli | M/bin/clean-development |", "| cli | M/bin/renamed-cli |", "activation paths"]
+    ["install layout", "| cli | M/bin/clean-development |", "| cli | M/bin/renamed-cli |", "activation paths"],
+    ["install layout", "| rollback-lock-module | M/runtime/clean-development/V/install-lock.mjs |",
+      "| rollback-lock-module | M/runtime/clean-development/V/missing-lock.mjs |", "contract installed rollback-lock-module"]
   ];
   for (const [pattern, from, to, diagnostic] of mutations) {
     if (pattern === "install layout" && process.platform !== "darwin") continue;

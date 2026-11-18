@@ -1,6 +1,6 @@
 {
   "name": "clean-development",
-  "version": "0.8.0",
+  "version": "1.0.0",
   "description": "Storage routing and safe session cleanup for configured development workstations. Hook setup is separate from plugin installation.",
   "author": {
     "name": "MAGRATHEAN UK LTD",

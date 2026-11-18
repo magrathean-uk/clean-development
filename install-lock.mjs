@@ -1,10 +1,11 @@
-// Installer transaction lock. Kept outside the shipped runtime.
+// Transaction lock shared by the source installer and the release-local rollback.
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { lstatOrNull, readJsonOrNull } from "./runtime/lib/fsutil.mjs";
+const { lstatOrNull, readJsonOrNull } = await import(fs.existsSync(new URL("./lib/conf.mjs", import.meta.url))
+  ? "./lib/fsutil.mjs" : "./runtime/lib/fsutil.mjs");
 
 const childTimeout = (capMs) => capMs;
 

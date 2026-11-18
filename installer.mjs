@@ -6,12 +6,17 @@ import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { homeDir, hookShimPath, hookShimText, loadConf, logPath, stateDir } from "./runtime/lib/conf.mjs";
-import { appendLog, lstatOrNull, readJsonOrNull, safeDirectory, syncDirectory, writeFileAtomic } from "./runtime/lib/fsutil.mjs";
 import { probeLock, readHeldBody, stateFsSupported, testStop, unlinkHeld, withLock } from "./install-lock.mjs";
-import { detect, ensureLayout, layout } from "./runtime/lib/storage.mjs";
-import { DIGEST_ALGORITHM, treeDigest } from "./runtime/lib/release.mjs";
-export { treeDigest } from "./runtime/lib/release.mjs";
+
+// The source package and the installed release use the same installer bytes.
+const lib = fs.existsSync(new URL("./lib/conf.mjs", import.meta.url)) ? "./lib" : "./runtime/lib";
+const [
+  { homeDir, hookShimPath, hookShimText, loadConf, logPath, stateDir },
+  { appendLog, lstatOrNull, readJsonOrNull, safeDirectory, syncDirectory, writeFileAtomic },
+  { detect, ensureLayout, layout },
+  { DIGEST_ALGORITHM, treeDigest }
+] = await Promise.all(["conf", "fsutil", "storage", "release"].map((name) => import(`${lib}/${name}.mjs`)));
+export { treeDigest };
 
 const hash = (b) => createHash("sha256").update(b).digest("hex");
 const quote = (s) => `'${s.replaceAll("'", "'\\''")}'`;
@@ -27,7 +32,7 @@ function syncTree(dir) {
   }
   syncDirectory(dir);
 }
-function writeFileAtomicCreateOnly(file, data, mode = 0o600, { durable = false } = {}) {
+function writeFileAtomicCreateOnly(file, data, mode = 0o600, { durable = false, beforePublish } = {}) {
   const dir = path.dirname(file);
   fs.mkdirSync(dir, { recursive: true });
   const tmp = `${file}.${randomUUID()}.tmp`;
@@ -39,6 +44,7 @@ function writeFileAtomicCreateOnly(file, data, mode = 0o600, { durable = false }
     }
     // A same-directory hard link publishes the complete file atomically and fails with EEXIST
     // instead of replacing a host-local file created after preflight.
+    beforePublish?.(tmp);
     fs.linkSync(tmp, file);
     if (durable) syncDirectory(dir);
     fs.unlinkSync(tmp);
@@ -113,10 +119,34 @@ function recordRollback(src, env, journal, receipt, recordDir) {
   const target = shim.split("\n").find((line) => line.startsWith("rt=")) || "(no previous active target)";
   const from = target.match(/\/(\d+\.\d+\.\d+)'?$/)?.[1] || "none";
   const file = path.join(checkedRecordDir(recordDir), `rollback-${journal.id}-from-${from}-to-${journal.version}.md`);
-  const command = `${quote(path.isAbsolute(env.CLEAN_DEV_NODE || "") ? env.CLEAN_DEV_NODE : process.execPath)} ${quote(path.join(path.resolve(src), "installer.mjs"))} --rollback ${quote(journal.id)}`;
+  const command = `${quote(path.isAbsolute(env.CLEAN_DEV_NODE || "") ? env.CLEAN_DEV_NODE : process.execPath)} ${quote(path.join(journal.runtime, "installer.mjs"))} --rollback ${quote(journal.id)}`;
   const text = `# Release rollback\n\nTransaction: ${journal.id}\nFrom version: ${from}\nTo version: ${journal.version}\nSource commit: ${sourceCommit(src, env)}\nPrevious active target: ${target}\nReceipt: ${receipt}\nRollback command (restores activation files and hooks; retains both releases):\n\n\`\`\`sh\n${command}\n\`\`\`\n`;
-  writeFileAtomicCreateOnly(file, text, 0o600, { durable: true });
+  writeFileAtomicCreateOnly(file, text, 0o600, { durable: true, beforePublish(tmp) {
+    // Persist ownership before the link so recovery can distinguish our record from an existing file.
+    journal.rollbackRecord = file;
+    journal.rollbackRecordIdentity = recordIdentity(tmp);
+    saveJournal(receipt, journal);
+  } });
+}
+function recordIdentity(file) {
+  const { dev, ino } = fs.lstatSync(file, { bigint: true });
+  return `${dev}:${ino}`;
+}
+function uncommittedRecordPath(journal) {
+  const file = journal.rollbackRecord;
+  if (!file || journal.status === "committed" || journal.completedAt) return;
+  const name = path.basename(file);
+  if (!path.isAbsolute(file) || !name.startsWith(`rollback-${journal.id}-from-`) || !name.endsWith(`-to-${journal.version}.md`))
+    throw new Error(`unsafe rollback record path: ${file}`);
   return file;
+}
+function removeUncommittedRecord(file, identity) {
+  try {
+    const dir = checkedRecordDir(path.dirname(file));
+    if (identity && recordIdentity(file) !== identity) return;
+    fs.unlinkSync(file);
+    syncDirectory(dir);
+  } catch (e) { if (e.code !== "ENOENT") throw e; }
 }
 const PRIVATE_SIDECARS = new Map([
   ["machine/env.private.zsh", (env) => path.join(homeDir(env), "dev", "machine", "env.private.zsh")],
@@ -174,6 +204,7 @@ function saveJournal(file, journal) { writeFileAtomic(file, JSON.stringify(journ
 // Recovery touches only intended activation files, only if their current bytes are this transaction's
 // output (or already restored). A concurrent/user edit is a conflict, never overwritten by rollback.
 export function restore(journal, dir, env, { acceptCurrent = false } = {}) {
+  const record = uncommittedRecordPath(journal);
   const allowed = new Set(ownedFiles(env)), conflicts = [], preserved = [];
   const conflict = (file) => (acceptCurrent ? preserved : conflicts).push(file);
   for (const entry of [...journal.files].reverse()) {
@@ -192,10 +223,19 @@ export function restore(journal, dir, env, { acceptCurrent = false } = {}) {
       writeFileAtomic(entry.path, bytes, entry.beforeMode, { durable: true });
     }
   }
+  const receipt = path.join(dir, "receipt.json");
   journal.status = conflicts.length ? "recovery-required" : preserved.length ? "recovered-preserving-conflicts" : "rolled-back";
   journal.conflicts = conflicts;
   journal.preserved = preserved;
-  saveJournal(path.join(dir, "receipt.json"), journal);
+  saveJournal(receipt, journal);
+  if (record) {
+    try { removeUncommittedRecord(record, journal.rollbackRecordIdentity); }
+    catch (error) {
+      journal.rollbackRecordRemovalError = error.message;
+      try { saveJournal(receipt, journal); }
+      catch (journalError) { installerLog(env, `rollback record removal failed: ${error.message}; could not update receipt: ${journalError.message}`); }
+    }
+  }
   return { status: journal.status, conflicts, preserved };
 }
 
@@ -205,7 +245,8 @@ export function installPackage(src, env, { config = false, replaceConfig = false
   const home = homeDir(env), machine = path.join(home, "dev", "machine");
   const runtime = path.join(src, "runtime"), version = fs.readFileSync(path.join(runtime, "VERSION"), "utf8").trim();
   if (!/^\d+\.\d+\.\d+$/.test(version)) throw new Error("invalid release version");
-  const digest = treeDigest(runtime);
+  const installerFiles = ["installer.mjs", "install-lock.mjs"].map((name) => path.join(src, name));
+  const digest = treeDigest(runtime, installerFiles);
   const dest = path.join(machine, "runtime", "clean-development", version);
   const policyFile = path.join(machine, "storage.conf");
   const useSourcePolicy = config && (replaceConfig || !lstatOrNull(policyFile));
@@ -279,6 +320,7 @@ export function installPackage(src, env, { config = false, replaceConfig = false
         const stage = `${dest}.installing-${id}`;
         fs.mkdirSync(path.dirname(dest), { recursive: true });
         fs.cpSync(runtime, stage, { recursive: true, errorOnExist: true, force: false });
+        for (const file of installerFiles) fs.cpSync(file, path.join(stage, path.basename(file)), { errorOnExist: true, force: false });
         if (treeDigest(stage) !== digest) throw new Error("staged release digest mismatch");
         syncTree(stage);
         onPhase("staged");
@@ -286,8 +328,8 @@ export function installPackage(src, env, { config = false, replaceConfig = false
         syncDirectory(path.dirname(dest));
       }
       journal.status = "activating"; saveJournal(receipt, journal); onPhase("runtime-published");
-      journal.rollbackRecord = recordRollback(src, env, journal, receipt, recordDir);
-      saveJournal(receipt, journal); onPhase("rollback-recorded");
+      recordRollback(src, env, journal, receipt, recordDir);
+      onPhase("rollback-recorded");
       for (const [index, file] of files.entries()) {
         const current = activationState(home, file.path), expected = journal.files[index];
         if (file.createOnly && (expected.beforeHash !== null || current.bytes !== null)) {
@@ -314,7 +356,7 @@ export function installPackage(src, env, { config = false, replaceConfig = false
       const d = detect(conf, env);
       if (d.mode === "external") ensureLayout(conf.externalCache);
       onPhase("layout-ready");
-      journal.status = "committed"; journal.completedAt = new Date().toISOString(); saveJournal(receipt, journal);
+      saveJournal(receipt, { ...journal, status: "committed", completedAt: new Date().toISOString() });
       return { ...plan, status: "committed", receipt, rollbackRecord: journal.rollbackRecord, mode: d.mode };
     } catch (e) {
       journal.error = e.message;
@@ -475,14 +517,18 @@ function withInstallLock(env, { explicit }, fn) {
 function recover(id, env, { acceptCurrent = false, rollback = false } = {}) {
   if (!/^[A-Za-z0-9-]+$/.test(id)) throw new Error("invalid transaction ID");
   const dir = path.join(stateDir(env), "installations", id), file = path.join(dir, "receipt.json");
-  const journal = readJsonOrNull(file);
-  if (!journal || journal.id !== id || (rollback ? journal.status !== "committed" : ["committed", "rolled-back", "recovered-preserving-conflicts"].includes(journal.status))) throw new Error(rollback ? "no committed transaction with that ID" : "no unfinished transaction with that ID");
+  const readJournal = () => {
+    const journal = readJsonOrNull(file);
+    if (!journal || journal.id !== id || (rollback ? journal.status !== "committed" : ["committed", "rolled-back", "recovered-preserving-conflicts"].includes(journal.status))) throw new Error(rollback ? "no committed transaction with that ID" : "no unfinished transaction with that ID");
+    return journal;
+  };
+  readJournal();
   requireStateFs(env);
   recoverStrandedGuard(env, { explicit: true });
   return withInstallGuard(env, { explicit: true }, () => {
     recoverInstallerLock(env, INSTALL_LOCK, { explicit: true });
     const lock = installerLockPath(env, INSTALL_LOCK);
-    const r = withLock(lock, () => restore(journal, dir, env, { acceptCurrent }));
+    const r = withLock(lock, () => restore(readJournal(), dir, env, { acceptCurrent }));
     if (r.unsupported) throw unsupportedError(INSTALL_LOCK, r.unsupported);
     if (r.locked) {
       const b = classifyHeld(lock); logBusy(env, INSTALL_LOCK, b.cls, b.owner);

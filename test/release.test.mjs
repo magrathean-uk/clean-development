@@ -34,6 +34,17 @@ test("release digest detects content, relative name and executable-bit changes",
   fs.renameSync(file, path.join(root, "renamed")); assert.notEqual(treeDigest(root), before);
 });
 
+test("release digest rejects a bundled file that would replace a runtime entry", () => {
+  const s = sim({ mounted: false }), root = path.join(s.root, "release");
+  const bundled = mk(path.join(s.root, "installer.mjs"));
+  mk(path.join(root, "installer.mjs"));
+  assert.throws(() => treeDigest(root, [bundled]), (error) => {
+    assert.match(error.message, /duplicate release entry: installer\.mjs/);
+    console.log(`negative release digest: ${error.message}`);
+    return true;
+  });
+});
+
 test("release digest rejects linked roots, linked entries and special files", () => {
   const s = sim({ mounted: false }), root = path.join(s.root, "release"), file = mk(path.join(root, "data"));
   const alias = path.join(s.root, "alias"); fs.symlinkSync(root, alias);

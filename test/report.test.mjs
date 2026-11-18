@@ -36,15 +36,15 @@ function routed(s, mounted) {
     DEVCACHE: root, CLEAN_DEVELOPMENT_ROOT: root, TMPDIR: "/var/folders/terminal/T/" };
 }
 
-test("report shows behind homes and running older folders without changing check status or writing", () => {
+test("report shows recorded restart reasons and behind homes without changing check status or writing", () => {
   const s = sim(); s.env = routed(s, true);
   assert.deepEqual(report(s.env).homes, []);
-  assert.doesNotMatch(cli(s, ["report", "--check"]).stdout, /agent homes:/);
+  assert.doesNotMatch(cli(s, ["report", "--check"]).stdout, /agent homes:|^restart /m);
   const file = mk(path.join(s.home, "dev/machine/state/clean-development/homes.txt"), [
-    `home ${s.home}/.claude claude ${VERSION} 123456abcdef 234567abcdef`,
-    `home ${s.home}/account with spaces codex 0.7.1 - -`,
-    `home ${s.home}/numbered/1 claude ${VERSION} 123456abcdef 234567abcdef running-older`,
-    `home ${s.home}/numbered/2 claude disabled - -`,
+    `home ${s.home}/.claude claude ${VERSION} 123456abcdef 234567abcdef restart=skill-text`,
+    `home ${s.home}/account with spaces codex 0.7.1 - - restart=skill-text`,
+    `home ${s.home}/numbered/1 claude ${VERSION} 123456abcdef 234567abcdef running-older restart=none`,
+    `home ${s.home}/numbered/2 claude disabled - - restart=none`,
     `home ${s.home}/numbered/3 claude absent - -`
   ].join("\r\n") + "\r\n");
   const before = snapshot(s.root);
@@ -56,22 +56,33 @@ test("report shows behind homes and running older folders without changing check
     assert.equal(homes[1].path, `${s.home}/account with spaces`);
     assert.equal(homes[2].runningOlder, true);
     assert.equal(homes[0].runningOlder, false);
+    assert.deepEqual(homes.map((home) => home.restartReason), ["skill-text", "skill-text", "none", "none", "none"]);
     const text = cli(s, ["report", ...check]);
     assert.equal(text.status, 0, text.stderr);
     assert.ok(text.stdout.includes(`agent homes: 2/5 current (${VERSION})`));
     for (const row of ["account with spaces: 0.7.1", "numbered/1: "+VERSION+" running-older", "numbered/2: disabled", "numbered/3: absent"])
       assert.ok(text.stdout.includes(row), text.stdout);
+    assert.deepEqual(text.stdout.split("\n").filter((line) => line.startsWith("restart ")), [
+      `restart ${s.home}/.claude skill-text`,
+      `restart ${s.home}/account with spaces skill-text`,
+      `restart ${s.home}/numbered/1 none`,
+      `restart ${s.home}/numbered/2 none`,
+      `restart ${s.home}/numbered/3 none`
+    ]);
   }
   assert.deepEqual(snapshot(s.root), before);
-  fs.writeFileSync(file, `home ${s.home}/.claude claude ${VERSION} - -\n`);
-  assert.match(cli(s, ["report", "--check"]).stdout, /agent homes: 1\/1 current/);
+  fs.writeFileSync(file, `home ${s.home}/numbered/1 claude ${VERSION} - - running-older\n`);
+  const legacy = cli(s, ["report", "--check"]);
+  assert.match(legacy.stdout, /agent homes: 1\/1 current/);
+  assert.ok(legacy.stdout.includes(`restart ${s.home}/numbered/1 none\n`));
 });
 
 test("report refuses malformed inventory trailing fields and retries after repair", () => {
   const s = sim(); s.env = routed(s, true);
   const file = mk(path.join(s.home, "dev/machine/state/clean-development/homes.txt"));
-  for (const line of ["home /fixture unknown 0.8.0 - -", "home /fixture claude 0.8.0 bad -",
-    "home /fixture claude 0.8.0 - - unknown", "home /fixture claude 0.8.0 -"]) {
+  for (const line of ["home /fixture unknown 1.0.0 - -", "home /fixture claude 1.0.0 bad -",
+    "home /fixture claude 1.0.0 - - unknown", "home /fixture claude 1.0.0 -",
+    "home /fixture claude 1.0.0 - - restart=unknown", "home /fixture claude 1.0.0 - - restart=none restart=skill-text"]) {
     fs.writeFileSync(file, line+"\n");
     const run = cli(s, ["report", "--check"]);
     assert.equal(run.status, 2);
@@ -178,6 +189,18 @@ test("report rejects apply and unsupported arguments without writes", () => {
   assert.deepEqual(snapshot(s.root), before);
 });
 
+
+test("report uses the supplied check option regardless of process arguments", () => {
+  const s = sim(), argv = process.argv;
+  try {
+    process.argv = argv.slice(0, 2);
+    assert.deepEqual(report(s.env, { check: true }).roots, []);
+    process.argv.push("--check");
+    assert.equal(report(s.env).roots.length, 2);
+  } finally {
+    process.argv = argv;
+  }
+});
 
 test("report --check never scans caches or sizes roots; plain report still does", () => {
   const s = sim();

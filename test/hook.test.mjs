@@ -67,11 +67,20 @@ test("an open stdin pipe cannot delay SessionStart or either silent event", asyn
   assert.deepEqual(snapshot(s.root), before);
 });
 
-test("both packaged fragments carry SessionStart only", () => {
+test("both packaged fragments and the checked-in Codex hook use the stable SessionStart shim", () => {
+  const active = '"$HOME/dev/machine/runtime/clean-development/active/bin/cd-hook"';
   for (const harness of ["claude", "codex"]) {
     const fragment = JSON.parse(fs.readFileSync(path.join(plugin, "fragments", `${harness}-hooks.json`)));
     assert.deepEqual(Object.keys(fragment.hooks), ["SessionStart"]);
-    assert.match(fragment.hooks.SessionStart[0].hooks[0].command, new RegExp(`session-start ${harness}$`));
+    assert.deepEqual(fragment.hooks.SessionStart.flatMap((group) => group.hooks.map((h) => h.command)),
+      [`${active} session-start ${harness}`]);
+  }
+  const canonical = path.join(plugin, "../codex/hooks.json");
+  if (fs.existsSync(canonical)) {
+    const hooks = JSON.parse(fs.readFileSync(canonical)).hooks;
+    const managed = Object.values(hooks).flatMap((groups) => groups.flatMap((group) => group.hooks))
+      .filter((h) => h.command?.includes("/cd-hook"));
+    assert.deepEqual(managed.map((h) => h.command), [`${active} session-start codex`]);
   }
 });
 
